@@ -37,9 +37,9 @@ def _args() -> argparse.Namespace:
     p.add_argument("--config", default="config/settings.yaml")
     p.add_argument("--symbols", nargs="*", default=None)
     p.add_argument("--cache-dir", default="data_cache/binance_vision/futures_um/monthly/15m")
-    p.add_argument("--period-years", nargs="*", type=int, default=[1, 2, 3, 5])
+    p.add_argument("--period-years", nargs="*", type=float, default=[1, 2, 3, 5])
     p.add_argument("--end", default="2026-03-01T00:00:00Z")
-    p.add_argument("--warmup-days", type=int, default=45)
+    p.add_argument("--warmup-days", type=float, default=45)
     p.add_argument("--initial-equity", type=float, default=10000.0)
     p.add_argument("--output-dir", default="artifacts/backtest_binance_archive_current")
     return p.parse_args()
@@ -164,7 +164,7 @@ def main():
 
     rows = []
     for y in args.period_years:
-        start_ts = end_ts - pd.DateOffset(years=int(y))
+        start_ts = end_ts - pd.DateOffset(months=int(float(y)*12))
         fetch_start = start_ts - pd.Timedelta(days=args.warmup_days)
         tag = f"{y}y"
         print(f"[RUN] {tag}: {start_ts.isoformat()} -> {end_ts.isoformat()} (warmup from {fetch_start.isoformat()})")

@@ -26,31 +26,31 @@ exchange:
 risk:
   add_on_ratio: 0.25
   daily_drawdown_limit: 0.02
+  dynamic_sizing_enabled: true
+  kelly_fraction_cap: 0.5
+  kelly_lookback_15m: 288
   leverage_tier_a: 4.0
   leverage_tier_b: 3.0
   leverage_tier_c: 2.0
   max_add_ons: 1
   max_leverage_hard: 5.0
-  dynamic_sizing_enabled: true
-  risk_pct_min: 0.0008
-  risk_pct_max: 0.008
-  vol_target_annual: 0.6
-  vol_parity_lookback_15m: 192
-  vol_parity_scalar_min: 0.5
-  vol_parity_scalar_max: 1.5
-  kelly_lookback_15m: 288
-  kelly_fraction_cap: 0.5
-  regime_lookback_15m: 192
-  regime_scale_trend: 1.15
-  regime_scale_neutral: 0.85
-  regime_scale_stress: 0.55
   portfolio_risk_hard: 0.02
   portfolio_risk_target: 0.015
   reduce_step_ratio: 0.25
+  regime_lookback_15m: 192
+  regime_scale_neutral: 0.85
+  regime_scale_stress: 0.55
+  regime_scale_trend: 1.15
+  risk_pct_max: 0.008
+  risk_pct_min: 0.0008
   risk_tier_a: 0.005
   risk_tier_b: 0.0035
   risk_tier_c: 0.002
   same_direction_corr_haircut: 0.3
+  vol_parity_lookback_15m: 192
+  vol_parity_scalar_max: 1.5
+  vol_parity_scalar_min: 0.5
+  vol_target_annual: 0.6
 runtime:
   log_dir: logs
   log_level: INFO
@@ -58,13 +58,18 @@ runtime:
   run_once: true
   state_dir: state
 strategy:
+  adaptive_atr_q_high: 0.9
+  adaptive_atr_q_low: 0.2
+  adaptive_filter_enabled: true
+  adaptive_filter_lookback_15m: 192
+  adaptive_score_q: 0.35
   aggregate_timeframes:
   - 2d
   - 5d
   - 7d
   atr_period: 14
-  breakout_filter: 0.0005
-  min_mid_tf_confirm: 2
+  breakout_filter: 0.0001
+  min_mid_tf_confirm: 1
   min_stop_atr_mult: 1.0
   r_gate_long: 0.55
   r_gate_short: -0.55
@@ -75,12 +80,8 @@ strategy:
   - 2h
   - 4h
   - 1d
-  short_min_mid_tf_confirm: 3
-  adaptive_filter_enabled: true
-  adaptive_filter_lookback_15m: 192
-  adaptive_atr_q_low: 0.2
-  adaptive_atr_q_high: 0.9
-  adaptive_score_q: 0.6
+  require_daily_align_for_short: false
+  short_min_mid_tf_confirm: 1
   stop_atr_mult: 2.0
   symbols:
   - BTCUSDT

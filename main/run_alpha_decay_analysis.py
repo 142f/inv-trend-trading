@@ -15,7 +15,7 @@ def run_rolling_backtest_with_decay_analysis(symbols: list, periods: list = [1, 
     base_out_dir.mkdir(parents=True, exist_ok=True)
     
     # 为了展示快速出结果，这里我们直接去读您此前已经完整跑出的回测数据: backtest_eth_only_dynamic_sizing_full
-    summary_path = "artifacts/backtest_eth_only_dynamic_sizing_full/summary.csv"
+    summary_path = "artifacts/alpha_decay_v3/summary.csv"
     
     if not os.path.exists(summary_path):
         print(f"未找到现存跑好的回测结果 {summary_path}，尝试执行回测...")
@@ -60,8 +60,8 @@ def run_rolling_backtest_with_decay_analysis(symbols: list, periods: list = [1, 
         print("📉 稳定性与特征漂移分析 (Alpha Decay Analysis)")
         print("="*80)
         
-        y1_data = df_summary[df_summary['period'] == '1y'].iloc[0] if '1y' in df_summary['period'].values else None
-        y5_data = df_summary[df_summary['period'] == '5y'].iloc[0] if '5y' in df_summary['period'].values else None
+        y1_data = df_summary[df_summary['period'] == '1.0y'].iloc[0] if '1.0y' in df_summary['period'].values else None
+        y5_data = df_summary[df_summary['period'] == '5.0y'].iloc[0] if '5.0y' in df_summary['period'].values else None
         
         if y1_data is not None and y5_data is not None:
              pf_1y = float(y1_data['profit_factor']) if not pd.isna(y1_data['profit_factor']) else 0
