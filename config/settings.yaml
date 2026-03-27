@@ -1,0 +1,99 @@
+cost:
+  fee_maker: 0.0002
+  fee_taker: 0.0005
+  funding_extreme_threshold: 0.0015
+  funding_missing_policy: zero_and_warn
+  funding_settlement_hours: 8
+  slippage_bps: 5
+  slippage_buffer_bps: 5
+  spread_threshold_bps: 8
+data:
+  fetch_limit: 2000
+  max_gap_multiple: 2
+  min_required_bars_15m: 300
+  min_required_bars_1d: 220
+  require_closed_only: true
+  timezone: UTC
+exchange:
+  api_key_env: BINANCE_API_KEY
+  api_passphrase_env: OKX_API_PASSPHRASE
+  api_secret_env: BINANCE_API_SECRET
+  default_type: future
+  enable_rate_limit: true
+  exchange_id: binanceusdm
+  recv_window_ms: 5000
+  timeout_ms: 10000
+risk:
+  add_on_ratio: 0.25
+  daily_drawdown_limit: 0.02
+  leverage_tier_a: 4.0
+  leverage_tier_b: 3.0
+  leverage_tier_c: 2.0
+  max_add_ons: 1
+  max_leverage_hard: 5.0
+  dynamic_sizing_enabled: true
+  risk_pct_min: 0.0008
+  risk_pct_max: 0.008
+  vol_target_annual: 0.6
+  vol_parity_lookback_15m: 192
+  vol_parity_scalar_min: 0.5
+  vol_parity_scalar_max: 1.5
+  kelly_lookback_15m: 288
+  kelly_fraction_cap: 0.5
+  regime_lookback_15m: 192
+  regime_scale_trend: 1.15
+  regime_scale_neutral: 0.85
+  regime_scale_stress: 0.55
+  portfolio_risk_hard: 0.02
+  portfolio_risk_target: 0.015
+  reduce_step_ratio: 0.25
+  risk_tier_a: 0.005
+  risk_tier_b: 0.0035
+  risk_tier_c: 0.002
+  same_direction_corr_haircut: 0.3
+runtime:
+  log_dir: logs
+  log_level: INFO
+  mode: backtest
+  run_once: true
+  state_dir: state
+strategy:
+  aggregate_timeframes:
+  - 2d
+  - 5d
+  - 7d
+  atr_period: 14
+  breakout_filter: 0.0005
+  min_mid_tf_confirm: 2
+  min_stop_atr_mult: 1.0
+  r_gate_long: 0.55
+  r_gate_short: -0.55
+  raw_timeframes:
+  - 15m
+  - 30m
+  - 1h
+  - 2h
+  - 4h
+  - 1d
+  short_min_mid_tf_confirm: 3
+  adaptive_filter_enabled: true
+  adaptive_filter_lookback_15m: 192
+  adaptive_atr_q_low: 0.2
+  adaptive_atr_q_high: 0.9
+  adaptive_score_q: 0.6
+  stop_atr_mult: 2.0
+  symbols:
+  - BTCUSDT
+  - ETHUSDT
+  time_stop_bars_15m: 48
+  time_stop_min_r: 0.1
+  weights:
+    15m: 1
+    1d: 14
+    1h: 5
+    2d: 16
+    2h: 7
+    30m: 3
+    4h: 10
+    5d: 20
+    7d: 24
