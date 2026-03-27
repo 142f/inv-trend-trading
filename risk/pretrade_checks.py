@@ -49,12 +49,15 @@ def check_pretrade(
 
     if bid is not None and ask is not None and bid > 0 and ask > 0:
         spread = _spread_bps(bid, ask)
-        if spread > settings.cost.spread_threshold_bps:
-            reasons.append("spread_too_wide")
+        if spread > settings.cost.spread_threshold_bps: # default 8 bps
+            reasons.append(f"liquidity_vacuum_spread_too_wide_{spread:.1f}bps")
     else:
-        reasons.append("missing_bid_ask")
+        reasons.append("orderbook_empty_or_malformed")
 
     if funding_rate is not None and abs(funding_rate) > settings.cost.funding_extreme_threshold:
-        reasons.append("funding_extreme")
+        if funding_rate > 0 and side == "long":
+            reasons.append("extreme_funding_rate_long_blocked")
+        elif funding_rate < 0 and side == "short":
+            reasons.append("extreme_funding_rate_short_blocked")
 
     return PreTradeResult(allowed=len(reasons) == 0, reasons=reasons)

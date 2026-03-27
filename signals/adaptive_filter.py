@@ -40,8 +40,10 @@ def check_adaptive_market_filter(
     curr_atr = float(atr_pct.iloc[-1])
     low_thr = float(atr_pct.quantile(atr_q_low))
     high_thr = float(atr_pct.quantile(atr_q_high))
-    if curr_atr < low_thr or curr_atr > high_thr:
-        return False, "adaptive_atr_regime_block"
+    if curr_atr < low_thr:
+        return False, "volatility_too_low_fake_breakout_risk"
+    if curr_atr > high_thr:
+        return False, "volatility_too_high_chaos_risk"
 
     # Non-linear score: volume percentile + trend efficiency ratio.
     vol_rank = volume.rank(pct=True)

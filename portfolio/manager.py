@@ -200,7 +200,7 @@ class PortfolioManager:
             # 分批减仓 50%锁定初始仓位风险 (Risk Free Trade)
             qty = min(pos.initial_position_size * 0.5, pos.position_size)
             if qty > 0:
-                fill_px = self._apply_exit_slippage(pos.side, close_px, slippage_bps)
+                fill_px = close_px  # 隐患1防御：Passive Limit Trailing 避免幽灵滑点穿仓
                 fee_scale = fill_px * qty * fee_rate
                 side_str = pos.side
                 self._close_qty(pos, qty, fill_px, fee_scale)

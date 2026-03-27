@@ -36,7 +36,8 @@ def should_force_exit(
     if reversal and reverse_cross_30m(pos.side, row_30m):
         return ForcedExitDecision(True, "1h_flip_and_30m_reverse_cross")
 
-    if pos.bars_held >= time_stop_bars and pos.r_multiple_current < time_stop_min_r:
-        return ForcedExitDecision(True, "time_stop_under_0.5R")
+    # Time stop-loss is ONLY valid in State 1 (short-term trial). If promoted to State 2, we let profits run.
+    if pos.position_state == 1 and pos.bars_held >= time_stop_bars and pos.r_multiple_current < time_stop_min_r:
+        return ForcedExitDecision(True, "time_stop_insufficient_r")
 
     return ForcedExitDecision(False, "")

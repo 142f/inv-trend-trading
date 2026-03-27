@@ -13,7 +13,10 @@ class DirectionGate:
     allow_short: bool
 
 
-def compute_r_score(states: Dict[str, int], weights: Dict[str, int]) -> float:
+def compute_r_score(states: Dict[str, int]) -> float:
+    # 降维共振权重计算：将宏观周期的“一票否决权”剥离，聚焦于1d至1h的中短期趋势爆发。
+    # 权重中枢下放，强调近期趋势的动量
+    weights = {"1d": 30, "4h": 25, "2h": 15, "1h": 10, "30m": 3, "15m": 1}
     numer = 0.0
     denom = 0.0
     for tf, w in weights.items():
@@ -26,11 +29,13 @@ def compute_r_score(states: Dict[str, int], weights: Dict[str, int]) -> float:
 
 
 def direction_gate(states: Dict[str, int], weights: Dict[str, int], long_gate: float, short_gate: float) -> DirectionGate:
-    r = compute_r_score(states, weights)
-    state_7d = states.get("7d", 0)
-    state_5d = states.get("5d", 0)
-    allow_long = r >= long_gate and state_7d != TrendState.BEARISH and state_5d != TrendState.BEARISH
-    allow_short = r <= short_gate and state_7d != TrendState.BULLISH and state_5d != TrendState.BULLISH
+    r = compute_r_score(states)
+    
+    # 废弃宏观否决权，只依赖 R-score
+    # 当共振得分绝对值 >= 0.60 时，激活单向门控 (这里可以用传入的 long_gate/short_gate 做兼容，默认为 0.60/-0.60)
+    allow_long = r >= 0.60
+    allow_short = r <= -0.60
+    
     return DirectionGate(r_score=r, allow_long=allow_long, allow_short=allow_short)
 
 

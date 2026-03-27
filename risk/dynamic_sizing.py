@@ -47,7 +47,18 @@ def _half_kelly_scalar(settings: Settings, hist: pd.DataFrame, side: str) -> flo
     kelly_cap = max(settings.risk.kelly_fraction_cap, 1e-9)
     norm = float(np.clip(kelly_half / kelly_cap, 0.0, 1.0))
     # Keep a non-zero floor so eligible trades are not eliminated by noisy short windows.
-    return 0.4 + 0.6 * norm
+    kelly_final = 0.4 + 0.6 * norm
+
+    if 'atr14' in hist.columns:
+        atr_series = pd.to_numeric(hist['atr14'], errors='coerce').dropna()
+        if len(atr_series) >= 64:
+            current_atr = atr_series.iloc[-1]
+            atr_mean = atr_series.mean()
+            atr_std = atr_series.std()
+            if atr_std > 0 and (current_atr - atr_mean) / atr_std > 3.0:
+                kelly_final = 1.0
+
+    return kelly_final
 
 
 def _regime_scalar(settings: Settings, hist: pd.DataFrame) -> float:
