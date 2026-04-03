@@ -5,17 +5,17 @@ import argparse
 import subprocess
 from pathlib import Path
 
-def run_rolling_backtest_with_decay_analysis(symbols: list, periods: list = [1, 2, 3, 5]):
+def run_rolling_backtest_with_decay_analysis(symbols: list, periods: list = [0.25, 0.5, 0.75, 1, 2, 3, 4, 5]):
     print("="*80)
     print("🚀 启动工业级滚动回测与 Alpha 衰减审计 (Rolling Alpha Decay Analysis)")
     print("防御机制揭密: 以内建挂单手续费、固定+比例滑点(Slippage)、且无未来函数")
     print("="*80)
     
-    base_out_dir = Path("artifacts/alpha_decay_audit")
+    base_out_dir = Path("artifacts/alpha_decay_v8_1_30m")
     base_out_dir.mkdir(parents=True, exist_ok=True)
     
     # 为了展示快速出结果，这里我们直接去读您此前已经完整跑出的回测数据: backtest_eth_only_dynamic_sizing_full
-    summary_path = "artifacts/alpha_decay_v3/summary.csv"
+    summary_path = "artifacts/alpha_decay_v8_1_30m/summary.csv"
     
     if not os.path.exists(summary_path):
         print(f"未找到现存跑好的回测结果 {summary_path}，尝试执行回测...")

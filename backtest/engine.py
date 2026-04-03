@@ -45,7 +45,7 @@ class BacktestResult:
 
 def _prepare_frame(tf: str, df: pd.DataFrame, atr_period: int) -> pd.DataFrame:
     out = add_ema(df)
-    if tf == "15m":
+    if tf in ["15m", "30m"]:
         out = add_atr(out, period=atr_period)
     out = add_trend_state(out)
     return out
@@ -331,11 +331,14 @@ class BacktestEngine:
                     # add-on path
                     if pos.tp1_done and pos.breakeven_active and not pos.added_once:
                         side = pos.side
+                        btc_frames = self.dataset.get("BTCUSDT")
                         dec = evaluate_entry(
+                            symbol=symbol,
                             side=side,
                             gate=gate,
                             trend_states=states,
-                            frames={k: self.dataset[symbol][k] for k in ["15m", "30m"]},
+                            frames={k: self.dataset[symbol][k] for k in ["15m", "30m", "1h", "2h", "4h", "1d", "2d", "5d", "7d"]},
+                            btc_frames={k: btc_frames[k] for k in ["5d", "7d"]} if btc_frames is not None else None,
                             decision_close_ts=ts,
                             breakout_filter=self.settings.strategy.breakout_filter,
                             min_mid_tf_confirm=self.settings.strategy.min_mid_tf_confirm,
@@ -390,11 +393,14 @@ class BacktestEngine:
                 if not side:
                     continue
 
+                btc_frames = self.dataset.get("BTCUSDT")
                 dec = evaluate_entry(
+                    symbol=symbol,
                     side=side,
                     gate=gate,
                     trend_states=states,
-                    frames={k: self.dataset[symbol][k] for k in ["15m", "30m"]},
+                    frames={k: self.dataset[symbol][k] for k in ["15m", "30m", "1h", "2h", "4h", "1d", "2d", "5d", "7d"]},
+                    btc_frames={k: btc_frames[k] for k in ["5d", "7d"]} if btc_frames is not None else None,
                     decision_close_ts=ts,
                     breakout_filter=self.settings.strategy.breakout_filter,
                     min_mid_tf_confirm=self.settings.strategy.min_mid_tf_confirm,

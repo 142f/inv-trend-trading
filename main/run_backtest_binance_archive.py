@@ -39,7 +39,7 @@ def _args() -> argparse.Namespace:
     p.add_argument("--cache-dir", default="data_cache/binance_vision/futures_um/monthly/15m")
     p.add_argument("--period-years", nargs="*", type=float, default=[1, 2, 3, 5])
     p.add_argument("--end", default="2026-03-01T00:00:00Z")
-    p.add_argument("--warmup-days", type=float, default=45)
+    p.add_argument("--warmup-days", type=float, default=250)
     p.add_argument("--initial-equity", type=float, default=10000.0)
     p.add_argument("--output-dir", default="artifacts/backtest_binance_archive_current")
     return p.parse_args()
