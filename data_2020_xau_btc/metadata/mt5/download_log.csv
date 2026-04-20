@@ -1,0 +1,3 @@
+symbol,timeframe,raw_path,processed_path,bar_count,start,end
+XAUUSDc,H4,data_2020_xau_btc\raw\mt5\XAUUSDc\H4.csv,data_2020_xau_btc\processed\mt5\H4\XAUUSDc.csv,8139,2020-01-02 00:00:00+00:00,2026-04-20 00:00:00+00:00
+BTCUSDc,H4,data_2020_xau_btc\raw\mt5\BTCUSDc\H4.csv,data_2020_xau_btc\processed\mt5\H4\BTCUSDc.csv,13807,2020-01-01 00:00:00+00:00,2026-04-20 00:00:00+00:00

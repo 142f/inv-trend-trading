@@ -1,7 +1,6 @@
-"""MetaTrader 5 data adapter for Turtle backtests.
+"""海龟回测使用的 MetaTrader 5 数据适配器。
 
-The MT5 terminal must be installed, running, and logged in to the target broker
-account before these functions can fetch broker-provided historical bars.
+调用这些函数前，MT5 终端必须已安装、运行并登录到目标券商账户。
 """
 
 from __future__ import annotations
@@ -41,7 +40,7 @@ TIMEFRAME_NAMES = {
 
 
 def mt5_timeframe(name: str) -> int:
-    """Return an MT5 timeframe constant from a readable name."""
+    """把可读周期名转换为 MT5 周期常量。"""
 
     import MetaTrader5 as mt5
 
@@ -59,10 +58,9 @@ def mt5_session(
     password: str | None = None,
     server: str | None = None,
 ) -> Iterator[object]:
-    """Initialize and shutdown an MT5 session.
+    """初始化并在退出时关闭 MT5 会话。
 
-    If login credentials are omitted, the function uses the currently logged-in
-    terminal account.
+    如果不传登录信息，则使用当前终端已经登录的账户。
     """
 
     import MetaTrader5 as mt5
@@ -93,10 +91,9 @@ def fetch_mt5_ohlc(
     end: datetime | str | None = None,
     count: int | None = None,
 ) -> pd.DataFrame:
-    """Fetch OHLC bars for one symbol from the active MT5 session.
+    """从当前 MT5 会话获取单个品种的 OHLC K 线。
 
-    Use either ``start``/``end`` or ``count``. If both are provided, the date
-    range takes precedence.
+    可以使用 ``start``/``end`` 或 ``count``；同时提供时优先使用日期区间。
     """
 
     import MetaTrader5 as mt5
@@ -141,7 +138,7 @@ def fetch_mt5_ohlc_many(
     end: datetime | str | None = None,
     count: int | None = None,
 ) -> dict[str, pd.DataFrame]:
-    """Fetch OHLC bars for multiple MT5 symbols."""
+    """批量获取多个 MT5 品种的 OHLC K 线。"""
 
     return {
         symbol: fetch_mt5_ohlc(
@@ -156,7 +153,7 @@ def fetch_mt5_ohlc_many(
 
 
 def list_mt5_symbols(pattern: str = "*", limit: int = 200) -> list[str]:
-    """Return broker symbols visible to the active MT5 terminal."""
+    """返回当前 MT5 终端可见的券商品种名称。"""
 
     import MetaTrader5 as mt5
 
@@ -172,7 +169,7 @@ def build_mt5_asset_specs(
     symbols: list[str],
     overrides: Mapping[str, Mapping[str, object]] | None = None,
 ) -> dict[str, AssetSpec]:
-    """Build AssetSpec objects from MT5 symbol metadata plus overrides."""
+    """用 MT5 合约元数据和可选覆盖项构建 AssetSpec。"""
 
     import MetaTrader5 as mt5
 
@@ -204,6 +201,7 @@ def build_mt5_asset_specs(
             "max_units": inferred["max_units"],
             "unit_1n_risk_pct": inferred["unit_1n_risk_pct"],
             "max_symbol_1n_risk_pct": inferred["max_symbol_1n_risk_pct"],
+            "max_symbol_leverage": inferred["max_symbol_leverage"],
             "cost_bps": inferred["cost_bps"],
             "slippage_bps": inferred["slippage_bps"],
         }
@@ -215,53 +213,35 @@ def build_mt5_asset_specs(
 def _infer_asset_fields(symbol: str) -> dict[str, object]:
     upper = symbol.upper()
     if "XAU" in upper or "GOLD" in upper:
-        return {
-            "asset_class": "metal",
-            "cluster": "precious_metals",
-            "max_units": 3,
-            "unit_1n_risk_pct": 0.004,
-            "max_symbol_1n_risk_pct": 0.016,
-            "cost_bps": 1.0,
-            "slippage_bps": 3.0,
-        }
+        return _asset_fields("metal", "precious_metals", 3, 0.004, 0.016, 1.0, 1.0, 3.0)
     if "XAG" in upper or "SILVER" in upper:
-        return {
-            "asset_class": "metal",
-            "cluster": "precious_metals",
-            "max_units": 2,
-            "unit_1n_risk_pct": 0.003,
-            "max_symbol_1n_risk_pct": 0.012,
-            "cost_bps": 1.5,
-            "slippage_bps": 4.0,
-        }
+        return _asset_fields("metal", "precious_metals", 2, 0.003, 0.012, 0.7, 1.5, 4.0)
     if "BTC" in upper or "ETH" in upper:
-        return {
-            "asset_class": "crypto",
-            "cluster": "crypto",
-            "max_units": 2,
-            "unit_1n_risk_pct": 0.003,
-            "max_symbol_1n_risk_pct": 0.012,
-            "cost_bps": 3.0,
-            "slippage_bps": 8.0,
-        }
+        return _asset_fields("crypto", "crypto", 2, 0.003, 0.012, 0.5, 3.0, 8.0)
     if upper in {"SPY", "QQQ"} or upper.endswith(".US"):
-        return {
-            "asset_class": "equity",
-            "cluster": "us_equity",
-            "max_units": 3,
-            "unit_1n_risk_pct": 0.004,
-            "max_symbol_1n_risk_pct": 0.016,
-            "cost_bps": 1.0,
-            "slippage_bps": 3.0,
-        }
+        return _asset_fields("equity", "us_equity", 3, 0.004, 0.016, 1.0, 1.0, 3.0)
+    return _asset_fields("other", "other", 2, 0.003, 0.012, 0.5, 2.0, 5.0)
+
+
+def _asset_fields(
+    asset_class: str,
+    cluster: str,
+    max_units: int,
+    unit_1n_risk_pct: float,
+    max_symbol_1n_risk_pct: float,
+    max_symbol_leverage: float,
+    cost_bps: float,
+    slippage_bps: float,
+) -> dict[str, object]:
     return {
-        "asset_class": "other",
-        "cluster": "other",
-        "max_units": 2,
-        "unit_1n_risk_pct": 0.003,
-        "max_symbol_1n_risk_pct": 0.012,
-        "cost_bps": 2.0,
-        "slippage_bps": 5.0,
+        "asset_class": asset_class,
+        "cluster": cluster,
+        "max_units": max_units,
+        "unit_1n_risk_pct": unit_1n_risk_pct,
+        "max_symbol_1n_risk_pct": max_symbol_1n_risk_pct,
+        "max_symbol_leverage": max_symbol_leverage,
+        "cost_bps": cost_bps,
+        "slippage_bps": slippage_bps,
     }
 
 

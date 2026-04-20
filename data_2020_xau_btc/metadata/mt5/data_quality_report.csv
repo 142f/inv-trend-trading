@@ -1,0 +1,3 @@
+symbol,timeframe,bar_count,start_time,end_time,duplicate_count,bad_ohlc_count,large_gap_count,median_spread,max_spread
+XAUUSDc,H4,8139,2020-01-02 00:00:00+00:00,2026-04-20 00:00:00+00:00,0,0,727,0.0,468.0
+BTCUSDc,H4,13807,2020-01-01 00:00:00+00:00,2026-04-20 00:00:00+00:00,0,0,0,1800.0,10944.0

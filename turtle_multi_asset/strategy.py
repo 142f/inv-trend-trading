@@ -1,8 +1,7 @@
-"""Turtle-style multi-asset trend-following strategy.
+"""多品种海龟趋势策略核心。
 
-The numeric defaults in this module are conservative candidate baselines.
-They are not conclusions. Use walk-forward, out-of-sample, cost-stressed
-tests before promoting any parameter set to production.
+本模块只负责生成信号、计算仓位和执行组合层风险预算，不负责真实撮合。
+默认参数是保守研究基线，不是收益结论；实盘前必须做样本外、滚动窗口和成本压力测试。
 """
 
 from __future__ import annotations
@@ -20,7 +19,7 @@ SHORT = -1
 
 @dataclass(frozen=True)
 class AssetSpec:
-    """Trading metadata and risk budget for one symbol."""
+    """单个交易品种的合约、成本和风险预算。"""
 
     symbol: str
     asset_class: str
@@ -34,6 +33,7 @@ class AssetSpec:
     max_units: int = 3
     unit_1n_risk_pct: float = 0.005
     max_symbol_1n_risk_pct: float = 0.02
+    max_symbol_leverage: float = 1.0
     cost_bps: float = 1.0
     slippage_bps: float = 2.0
     entry_freeze_column: str | None = None
@@ -43,19 +43,10 @@ class AssetSpec:
 
 @dataclass(frozen=True)
 class TurtleRules:
-    """Parameterized Turtle rule set.
+    """参数化海龟规则。
 
-    Classic Turtle references:
-    - 20/55 day breakout entries
-    - 10/20 day reverse breakout exits
-    - N based on 20 day true range smoothing
-    - 0.5N pyramiding
-    - 2N protective stop
-
-    Modern extensions:
-    - cluster and direction risk budgets
-    - close-confirmed or intraday breakout triggers
-    - optional fast breakout skip after a winning fast trade
+    经典规则包括 20/55 突破入场、10/20 反向突破出场、20 周期 Wilder N、
+    0.5N 加仓和 2N 保护止损。本实现额外加入方向、品种簇、杠杆和事件冻结约束。
     """
 
     n_period: int = 20
@@ -65,7 +56,7 @@ class TurtleRules:
     slow_exit: int = 20
     stop_n: float = 2.0
     pyramid_step_n: float = 0.5
-    trigger_mode: str = "close"  # "close" or "intraday"
+    trigger_mode: str = "close"  # 可选值为 close 或 intraday
     fast_system_enabled: bool = True
     slow_system_enabled: bool = True
     skip_fast_after_win: bool = True
@@ -74,6 +65,10 @@ class TurtleRules:
     max_direction_1n_risk_pct: float = 0.08
     default_cluster_1n_risk_pct: float = 0.04
     cluster_1n_risk_pct: Mapping[str, float] = field(default_factory=dict)
+    max_total_leverage: float = 2.0
+    max_direction_leverage: float = 1.5
+    default_cluster_leverage: float = 1.0
+    cluster_leverage: Mapping[str, float] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if self.trigger_mode not in {"close", "intraday"}:
@@ -89,6 +84,16 @@ class TurtleRules:
                 raise ValueError(f"{name} must be >= 2")
         if self.stop_n <= 0 or self.pyramid_step_n <= 0:
             raise ValueError("stop_n and pyramid_step_n must be positive")
+        for name in (
+            "max_total_1n_risk_pct",
+            "max_direction_1n_risk_pct",
+            "default_cluster_1n_risk_pct",
+            "max_total_leverage",
+            "max_direction_leverage",
+            "default_cluster_leverage",
+        ):
+            if getattr(self, name) <= 0:
+                raise ValueError(f"{name} must be positive")
 
 
 @dataclass
@@ -97,6 +102,9 @@ class PositionUnit:
     entry_price: float
     n_at_entry: float
     entry_time: Any = None
+    reason: str = ""
+    stop_price_at_entry: float = 0.0
+    entry_cost: float = 0.0
 
 
 @dataclass
@@ -137,6 +145,26 @@ class Position:
     def one_n_risk_value(self, point_value: float) -> float:
         return sum(unit.qty * unit.n_at_entry * point_value for unit in self.units)
 
+    @property
+    def first_entry_time(self) -> Any:
+        return self.units[0].entry_time if self.units else None
+
+    @property
+    def last_add_time(self) -> Any:
+        return self.units[-1].entry_time if self.units else None
+
+    @property
+    def first_entry_price(self) -> float:
+        return self.units[0].entry_price if self.units else 0.0
+
+    @property
+    def entry_reason(self) -> str:
+        return self.units[0].reason if self.units else ""
+
+    @property
+    def entry_cost(self) -> float:
+        return float(sum(unit.entry_cost for unit in self.units))
+
 
 @dataclass
 class PortfolioState:
@@ -147,7 +175,7 @@ class PortfolioState:
 @dataclass(frozen=True)
 class Order:
     symbol: str
-    action: str  # open, add, exit
+    action: str  # 可选值为 open、add、exit
     side: int
     qty: float
     reason: str
@@ -155,6 +183,7 @@ class Order:
     signal_price: float
     n_at_signal: float
     stop_price: float | None = None
+    forced_fill_price: float | None = None
     score: float = 0.0
     risk_1n_pct: float = 0.0
     metadata: Mapping[str, Any] = field(default_factory=dict)
@@ -174,10 +203,10 @@ class EntrySignal:
 
 
 def compute_turtle_indicators(bars: pd.DataFrame, rules: TurtleRules) -> pd.DataFrame:
-    """Return OHLC bars with N, breakout, and exit levels.
+    """返回带 N、突破位和出场位的 K 线。
 
-    Breakout levels are shifted by one row so today's signal never uses today's
-    high or low as its own threshold.
+    突破位全部向后移动一根 K 线，确保当前信号不会使用当前 K 线自身的高低点。
+    N 使用经典 Wilder 平滑：首个值为前 n 个真实波幅均值，之后递推更新。
     """
 
     _require_columns(bars, {"open", "high", "low", "close"})
@@ -192,11 +221,7 @@ def compute_turtle_indicators(bars: pd.DataFrame, rules: TurtleRules) -> pd.Data
         axis=1,
     ).max(axis=1)
     out["tr"] = true_range
-    out["n"] = true_range.ewm(
-        alpha=1 / rules.n_period,
-        adjust=False,
-        min_periods=rules.n_period,
-    ).mean()
+    out["n"] = _wilder_average(true_range, rules.n_period)
 
     periods = {
         rules.fast_entry,
@@ -208,11 +233,12 @@ def compute_turtle_indicators(bars: pd.DataFrame, rules: TurtleRules) -> pd.Data
         out[f"high_{period}"] = out["high"].rolling(period).max().shift(1)
         out[f"low_{period}"] = out["low"].rolling(period).min().shift(1)
 
+    out.attrs["_turtle_rules_key"] = _indicator_rules_key(rules)
     return out
 
 
 class MultiAssetTurtleStrategy:
-    """Signal engine plus portfolio-level risk allocator."""
+    """信号引擎和组合层风险分配器。"""
 
     def __init__(
         self,
@@ -224,28 +250,32 @@ class MultiAssetTurtleStrategy:
 
     def generate_orders(
         self,
-        bars_by_symbol: Mapping[str, pd.DataFrame],
+        rows_by_symbol: Mapping[str, Mapping[str, Any] | pd.Series | pd.DataFrame],
         state: PortfolioState,
         equity: float,
+        tradable_symbols: set[str] | None = None,
     ) -> list[Order]:
-        """Generate next-session orders from close-confirmed histories.
+        """基于已完成 K 线生成下一根 K 线开盘执行的订单。
 
-        This method is suitable for daily research and paper execution. A live
-        implementation should place protective stops in the broker/exchange
-        layer immediately after fills.
+        ``tradable_symbols`` 用于回测多交易日历场景：没有当前 K 线或没有下一根可成交
+        K 线的品种不生成新订单，但仍可纳入已有持仓的风险和杠杆预算。
         """
 
         if equity <= 0:
             return []
+        rows = self._rows_by_symbol(rows_by_symbol)
+        active_symbols = set(rows) if tradable_symbols is None else set(tradable_symbols)
 
         exit_orders: list[Order] = []
         blocked_symbols: set[str] = set()
         for symbol, position in list(state.positions.items()):
-            spec = self.specs.get(symbol)
-            bars = bars_by_symbol.get(symbol)
-            if spec is None or bars is None or bars.empty:
+            if symbol not in active_symbols:
                 continue
-            order = self._exit_order(symbol, bars, position, spec, equity)
+            spec = self.specs.get(symbol)
+            row = rows.get(symbol)
+            if spec is None or row is None:
+                continue
+            order = self._exit_order(symbol, row, position, spec, equity)
             if order is not None:
                 exit_orders.append(order)
                 blocked_symbols.add(symbol)
@@ -253,27 +283,34 @@ class MultiAssetTurtleStrategy:
         add_candidates: list[Order] = []
         entry_candidates: list[Order] = []
         for symbol, spec in self.specs.items():
-            if symbol in blocked_symbols:
+            if symbol in blocked_symbols or symbol not in active_symbols:
                 continue
-            bars = bars_by_symbol.get(symbol)
-            if bars is None or bars.empty:
+            row = rows.get(symbol)
+            if row is None:
                 continue
             position = state.positions.get(symbol)
             if position is None:
-                signal = self._entry_signal(symbol, bars, spec, state)
+                signal = self._entry_signal(symbol, row, spec, state)
                 if signal is not None:
                     order = self._entry_order(signal, spec, equity, action="open")
                     if order is not None:
                         entry_candidates.append(order)
             else:
-                order = self._add_order(symbol, bars, position, spec, equity)
+                order = self._add_order(symbol, row, position, spec, equity)
                 if order is not None:
                     add_candidates.append(order)
 
         current_risk = self.risk_usage(state, equity, excluding=blocked_symbols)
+        current_leverage = self.leverage_usage(
+            state,
+            rows,
+            equity,
+            excluding=blocked_symbols,
+        )
         accepted = self._allocate_by_budget(
             add_candidates + entry_candidates,
             current_risk,
+            current_leverage,
             equity,
         )
         return exit_orders + accepted
@@ -312,22 +349,59 @@ class MultiAssetTurtleStrategy:
             usage["symbols"][symbol] = usage["symbols"].get(symbol, 0.0) + risk_pct
         return usage
 
+    def leverage_usage(
+        self,
+        state: PortfolioState,
+        rows_by_symbol: Mapping[str, Mapping[str, Any]],
+        equity: float,
+        excluding: set[str] | None = None,
+    ) -> dict[str, Any]:
+        excluding = excluding or set()
+        usage: dict[str, Any] = {
+            "total": 0.0,
+            "long": 0.0,
+            "short": 0.0,
+            "clusters": {},
+            "symbols": {},
+        }
+        if equity <= 0:
+            return usage
+        for symbol, position in state.positions.items():
+            if symbol in excluding:
+                continue
+            spec = self.specs.get(symbol)
+            row = rows_by_symbol.get(symbol)
+            if spec is None or row is None:
+                continue
+            price = _finite_float(row.get("close"))
+            if price is None or price <= 0:
+                continue
+            leverage = abs(position.total_qty * price * spec.point_value) / equity
+            usage["total"] += leverage
+            if position.side == LONG:
+                usage["long"] += leverage
+            else:
+                usage["short"] += leverage
+            usage["clusters"][spec.cluster] = (
+                usage["clusters"].get(spec.cluster, 0.0) + leverage
+            )
+            usage["symbols"][symbol] = usage["symbols"].get(symbol, 0.0) + leverage
+        return usage
+
     def _entry_signal(
         self,
         symbol: str,
-        bars: pd.DataFrame,
+        row: Mapping[str, Any],
         spec: AssetSpec,
         state: PortfolioState,
     ) -> EntrySignal | None:
-        data = compute_turtle_indicators(bars, self.rules)
-        row = data.iloc[-1]
         n = _finite_float(row.get("n"))
         close = _finite_float(row.get("close"))
         if n is None or close is None or n <= 0:
             return None
 
         event_frozen = False
-        if spec.entry_freeze_column and spec.entry_freeze_column in row.index:
+        if spec.entry_freeze_column and spec.entry_freeze_column in row:
             event_frozen = bool(row[spec.entry_freeze_column])
         if event_frozen:
             return None
@@ -413,7 +487,7 @@ class MultiAssetTurtleStrategy:
             point_value=spec.point_value,
             qty_step=spec.qty_step,
         )
-        if qty <= spec.min_qty:
+        if qty < spec.min_qty:
             return None
         notional = qty * signal.close * spec.point_value
         if notional < spec.min_notional:
@@ -446,31 +520,39 @@ class MultiAssetTurtleStrategy:
     def _add_order(
         self,
         symbol: str,
-        bars: pd.DataFrame,
+        row: Mapping[str, Any],
         position: Position,
         spec: AssetSpec,
         equity: float,
-    ) -> Order | None:
+        ) -> Order | None:
         if position.unit_count >= spec.max_units:
             return None
-        data = compute_turtle_indicators(bars, self.rules)
-        row = data.iloc[-1]
         n = _finite_float(row.get("n"))
         close = _finite_float(row.get("close"))
         if n is None or close is None or n <= 0:
             return None
         trigger = position.last_add_price + position.side * self.rules.pyramid_step_n * n
-        should_add = close >= trigger if position.side == LONG else close <= trigger
+        if self.rules.trigger_mode == "intraday":
+            high = _finite_float(row.get("high"))
+            low = _finite_float(row.get("low"))
+            if position.side == LONG:
+                should_add = high is not None and high >= trigger
+            else:
+                should_add = low is not None and low <= trigger
+            signal_price = trigger
+        else:
+            should_add = close >= trigger if position.side == LONG else close <= trigger
+            signal_price = close
         if not should_add:
             return None
         signal = EntrySignal(
             symbol=symbol,
             side=position.side,
             system=position.system,
-            close=close,
+            close=signal_price,
             n=n,
             breakout_level=trigger,
-            strength=abs(close - trigger) / n,
+            strength=abs(signal_price - trigger) / n,
             reason=f"add_{self.rules.pyramid_step_n:g}n",
         )
         return self._entry_order(signal, spec, equity, action="add")
@@ -478,13 +560,11 @@ class MultiAssetTurtleStrategy:
     def _exit_order(
         self,
         symbol: str,
-        bars: pd.DataFrame,
+        row: Mapping[str, Any],
         position: Position,
         spec: AssetSpec,
         equity: float,
     ) -> Order | None:
-        data = compute_turtle_indicators(bars, self.rules)
-        row = data.iloc[-1]
         close = _finite_float(row.get("close"))
         n = _finite_float(row.get("n")) or position.units[-1].n_at_entry
         if close is None:
@@ -522,20 +602,30 @@ class MultiAssetTurtleStrategy:
         self,
         candidates: list[Order],
         usage: dict[str, Any],
+        leverage_usage: dict[str, Any],
         equity: float,
     ) -> list[Order]:
+        if equity <= 0:
+            return []
         accepted: list[Order] = []
         candidates = sorted(candidates, key=lambda order: order.score, reverse=True)
         for order in candidates:
             spec = self.specs[order.symbol]
             risk = order.risk_1n_pct
+            leverage = abs(order.qty * order.signal_price * spec.point_value) / equity
             direction_key = "long" if order.side == LONG else "short"
             cluster_limit = self.rules.cluster_1n_risk_pct.get(
                 spec.cluster,
                 self.rules.default_cluster_1n_risk_pct,
             )
+            cluster_leverage_limit = self.rules.cluster_leverage.get(
+                spec.cluster,
+                self.rules.default_cluster_leverage,
+            )
             symbol_risk = usage["symbols"].get(order.symbol, 0.0)
             cluster_risk = usage["clusters"].get(spec.cluster, 0.0)
+            symbol_leverage = leverage_usage["symbols"].get(order.symbol, 0.0)
+            cluster_leverage = leverage_usage["clusters"].get(spec.cluster, 0.0)
             if usage["total"] + risk > self.rules.max_total_1n_risk_pct:
                 continue
             if usage[direction_key] + risk > self.rules.max_direction_1n_risk_pct:
@@ -544,17 +634,29 @@ class MultiAssetTurtleStrategy:
                 continue
             if symbol_risk + risk > spec.max_symbol_1n_risk_pct:
                 continue
+            if leverage_usage["total"] + leverage > self.rules.max_total_leverage:
+                continue
+            if leverage_usage[direction_key] + leverage > self.rules.max_direction_leverage:
+                continue
+            if cluster_leverage + leverage > cluster_leverage_limit:
+                continue
+            if symbol_leverage + leverage > spec.max_symbol_leverage:
+                continue
             accepted.append(order)
             usage["total"] += risk
             usage[direction_key] += risk
             usage["clusters"][spec.cluster] = cluster_risk + risk
             usage["symbols"][order.symbol] = symbol_risk + risk
+            leverage_usage["total"] += leverage
+            leverage_usage[direction_key] += leverage
+            leverage_usage["clusters"][spec.cluster] = cluster_leverage + leverage
+            leverage_usage["symbols"][order.symbol] = symbol_leverage + leverage
         return accepted
 
     def _skip_fast(self, symbol: str, state: PortfolioState) -> bool:
         return self.rules.skip_fast_after_win and state.last_fast_trade_won.get(symbol, False)
 
-    def _breakout_signal(self, row: pd.Series, period: int) -> int | None:
+    def _breakout_signal(self, row: Mapping[str, Any], period: int) -> int | None:
         high_level = _finite_float(row.get(f"high_{period}"))
         low_level = _finite_float(row.get(f"low_{period}"))
         if high_level is None or low_level is None:
@@ -562,9 +664,13 @@ class MultiAssetTurtleStrategy:
         if self.rules.trigger_mode == "intraday":
             high = _finite_float(row.get("high"))
             low = _finite_float(row.get("low"))
-            if high is not None and high > high_level:
+            long_hit = high is not None and high > high_level
+            short_hit = low is not None and low < low_level
+            if long_hit and short_hit:
+                return None
+            if long_hit:
                 return LONG
-            if low is not None and low < low_level:
+            if short_hit:
                 return SHORT
         else:
             close = _finite_float(row.get("close"))
@@ -574,7 +680,7 @@ class MultiAssetTurtleStrategy:
                 return SHORT
         return None
 
-    def _exit_signal(self, row: pd.Series, period: int, position_side: int) -> str | None:
+    def _exit_signal(self, row: Mapping[str, Any], period: int, position_side: int) -> str | None:
         high_level = _finite_float(row.get(f"high_{period}"))
         low_level = _finite_float(row.get(f"low_{period}"))
         close = _finite_float(row.get("close"))
@@ -585,6 +691,22 @@ class MultiAssetTurtleStrategy:
         if position_side == SHORT and close > high_level:
             return f"short_exit_{period}d_high"
         return None
+
+    def _rows_by_symbol(
+        self,
+        rows_by_symbol: Mapping[str, Mapping[str, Any] | pd.Series | pd.DataFrame],
+    ) -> dict[str, Mapping[str, Any]]:
+        rows: dict[str, Mapping[str, Any]] = {}
+        for symbol, value in rows_by_symbol.items():
+            if value is None:
+                continue
+            if isinstance(value, pd.DataFrame):
+                if value.empty:
+                    continue
+                rows[symbol] = _with_indicators(value, self.rules).iloc[-1]
+            else:
+                rows[symbol] = value
+        return rows
 
 
 def _risk_sized_qty(
@@ -598,6 +720,56 @@ def _risk_sized_qty(
         return 0.0
     raw_qty = equity * unit_1n_risk_pct / (n * point_value)
     return _round_down(raw_qty, qty_step)
+
+
+def _with_indicators(bars: pd.DataFrame, rules: TurtleRules) -> pd.DataFrame:
+    required = _indicator_columns(rules)
+    if (
+        required.issubset(bars.columns)
+        and bars.attrs.get("_turtle_rules_key") == _indicator_rules_key(rules)
+    ):
+        return bars
+    return compute_turtle_indicators(bars, rules)
+
+
+def _indicator_columns(rules: TurtleRules) -> set[str]:
+    periods = {
+        rules.fast_entry,
+        rules.slow_entry,
+        rules.fast_exit,
+        rules.slow_exit,
+    }
+    columns = {"tr", "n"}
+    for period in periods:
+        columns.add(f"high_{period}")
+        columns.add(f"low_{period}")
+    return columns
+
+
+def _indicator_rules_key(rules: TurtleRules) -> tuple[int, int, int, int, int]:
+    return (
+        rules.n_period,
+        rules.fast_entry,
+        rules.slow_entry,
+        rules.fast_exit,
+        rules.slow_exit,
+    )
+
+
+def _wilder_average(values: pd.Series, period: int) -> pd.Series:
+    arr = values.to_numpy(dtype=float)
+    out = np.full(len(arr), np.nan, dtype=float)
+    if len(arr) < period:
+        return pd.Series(out, index=values.index)
+
+    seed = arr[:period]
+    if not np.all(np.isfinite(seed)):
+        return pd.Series(out, index=values.index)
+    out[period - 1] = float(np.mean(seed))
+    for idx in range(period, len(arr)):
+        if np.isfinite(arr[idx]) and np.isfinite(out[idx - 1]):
+            out[idx] = (out[idx - 1] * (period - 1) + arr[idx]) / period
+    return pd.Series(out, index=values.index)
 
 
 def _round_down(value: float, step: float) -> float:
