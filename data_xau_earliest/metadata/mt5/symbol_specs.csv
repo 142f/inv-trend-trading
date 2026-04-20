@@ -1,0 +1,2 @@
+name,description,path,currency_base,currency_profit,currency_margin,trade_contract_size,volume_min,volume_max,volume_step,point,digits,trade_tick_size,trade_tick_value,margin_initial,margin_maintenance,swap_long,swap_short
+XAUUSDc,Gold vs US Dollar,Cent\Forex\XAUUSDc,XAU,USD,XAU,1.0,0.01,200.0,0.01,0.001,3,0.001,0.1,0.0,0.0,-601.1,0.0

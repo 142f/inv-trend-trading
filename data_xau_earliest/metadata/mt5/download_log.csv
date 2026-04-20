@@ -1,0 +1,2 @@
+symbol,timeframe,raw_path,processed_path,bar_count,start,end
+XAUUSDc,H4,data_xau_earliest\raw\mt5\XAUUSDc\H4.csv,data_xau_earliest\processed\mt5\H4\XAUUSDc.csv,8607,2018-06-28 00:00:00+00:00,2026-04-20 00:00:00+00:00
