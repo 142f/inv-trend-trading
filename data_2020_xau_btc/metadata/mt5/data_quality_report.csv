@@ -1,3 +1,3 @@
-symbol,timeframe,bar_count,start_time,end_time,duplicate_count,bad_ohlc_count,large_gap_count,median_spread,max_spread
-XAUUSDc,H4,8139,2020-01-02 00:00:00+00:00,2026-04-20 00:00:00+00:00,0,0,727,0.0,468.0
-BTCUSDc,H4,13807,2020-01-01 00:00:00+00:00,2026-04-20 00:00:00+00:00,0,0,0,1800.0,10944.0
+symbol,timeframe,market_type,bar_count,start_time,end_time,duplicate_count,bad_ohlc_count,large_gap_count,normal_session_gap_count,abnormal_gap_count,expected_gap_minutes,median_gap_hours,max_gap_hours,median_spread,max_spread,median_spread_bps,p95_spread_bps,max_spread_bps
+BTCUSDc,H4,24x7,13807,2020-01-01 00:00:00+00:00,2026-04-20 00:00:00+00:00,0,0,0,0,0,240.0,4.0,4.0,1800.0,10944.0,4.517334952045025,10.50450152384792,47.25342643760414
+XAUUSDc,H4,session,8139,2020-01-02 00:00:00+00:00,2026-04-20 00:00:00+00:00,0,0,728,414,314,240.0,4.0,72.0,0.0,468.0,0.0,0.8276406596360908,1.7775211935219228

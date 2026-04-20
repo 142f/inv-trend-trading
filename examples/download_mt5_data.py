@@ -77,6 +77,8 @@ def main() -> None:
                 count=args.count,
             )
             processed = normalize_ohlc(raw, symbol=symbol, timeframe=args.timeframe)
+            info = mt5.symbol_info(symbol)
+            point = _symbol_point(info)
 
             raw_symbol_dir = raw_root / symbol
             raw_symbol_dir.mkdir(parents=True, exist_ok=True)
@@ -85,7 +87,12 @@ def main() -> None:
             raw.to_csv(raw_path)
             processed.to_csv(processed_path, index=False)
 
-            quality = data_quality(processed, symbol=symbol, timeframe=args.timeframe)
+            quality = data_quality(
+                processed,
+                symbol=symbol,
+                timeframe=args.timeframe,
+                point=point,
+            )
             quality_rows.append(quality)
             log_rows.append(
                 {
@@ -99,7 +106,6 @@ def main() -> None:
                 }
             )
 
-            info = mt5.symbol_info(symbol)
             if info is not None:
                 spec_rows.append(symbol_info_row(info))
 
@@ -150,7 +156,13 @@ def normalize_ohlc(df: pd.DataFrame, symbol: str, timeframe: str) -> pd.DataFram
     ]
 
 
-def data_quality(df: pd.DataFrame, symbol: str, timeframe: str) -> dict:
+def data_quality(
+    df: pd.DataFrame,
+    symbol: str,
+    timeframe: str,
+    market_type: str | None = None,
+    point: float | None = None,
+) -> dict:
     duplicate_count = int(df.duplicated(subset=["time"]).sum()) if "time" in df.columns else 0
     bad_ohlc_count = int(
         (
@@ -161,25 +173,110 @@ def data_quality(df: pd.DataFrame, symbol: str, timeframe: str) -> dict:
             | (df["close"] < df["low"])
         ).sum()
     )
-    gaps = pd.to_datetime(df["time"], utc=True).sort_values().diff().dropna()
+    market_type = market_type or infer_market_type(symbol)
+    ordered_times = pd.to_datetime(df["time"], utc=True).sort_values().reset_index(drop=True)
+    gaps = ordered_times.diff().dropna()
     median_gap = gaps.median() if not gaps.empty else pd.NaT
-    large_gap_count = int((gaps > median_gap * 3).sum()) if not gaps.empty and pd.notna(median_gap) else 0
+    expected_gap = timeframe_to_timedelta(timeframe)
+    gap_threshold = (
+        expected_gap * 1.5
+        if expected_gap is not None
+        else median_gap * 3
+        if pd.notna(median_gap)
+        else None
+    )
+    large_gap_count = 0
+    normal_session_gap_count = 0
+    abnormal_gap_count = 0
+    if gap_threshold is not None:
+        for idx in range(1, len(ordered_times)):
+            previous = pd.Timestamp(ordered_times.iloc[idx - 1])
+            current = pd.Timestamp(ordered_times.iloc[idx])
+            gap = current - previous
+            if gap <= gap_threshold:
+                continue
+            large_gap_count += 1
+            if market_type == "session" and is_normal_session_gap(previous, current):
+                normal_session_gap_count += 1
+            else:
+                abnormal_gap_count += 1
+
+    spread = pd.to_numeric(df["spread"], errors="coerce") if "spread" in df else pd.Series(dtype=float)
+    close = pd.to_numeric(df["close"], errors="coerce") if "close" in df else pd.Series(dtype=float)
+    spread_price = spread * float(point) if point is not None and point > 0 else spread
+    spread_bps = (spread_price / close * 10_000).replace([float("inf"), float("-inf")], pd.NA).dropna()
     return {
         "symbol": symbol,
         "timeframe": timeframe.upper(),
+        "market_type": market_type,
         "bar_count": len(df),
         "start_time": df["time"].iloc[0] if not df.empty else "",
         "end_time": df["time"].iloc[-1] if not df.empty else "",
         "duplicate_count": duplicate_count,
         "bad_ohlc_count": bad_ohlc_count,
         "large_gap_count": large_gap_count,
+        "normal_session_gap_count": normal_session_gap_count,
+        "abnormal_gap_count": abnormal_gap_count,
+        "expected_gap_minutes": (
+            expected_gap / pd.Timedelta(minutes=1) if expected_gap is not None else 0.0
+        ),
+        "median_gap_hours": (
+            median_gap / pd.Timedelta(hours=1) if pd.notna(median_gap) else 0.0
+        ),
+        "max_gap_hours": (
+            gaps.max() / pd.Timedelta(hours=1) if not gaps.empty else 0.0
+        ),
         "median_spread": float(df["spread"].median()) if "spread" in df and not df.empty else 0.0,
         "max_spread": float(df["spread"].max()) if "spread" in df and not df.empty else 0.0,
+        "median_spread_bps": float(spread_bps.median()) if not spread_bps.empty else 0.0,
+        "p95_spread_bps": float(spread_bps.quantile(0.95)) if not spread_bps.empty else 0.0,
+        "max_spread_bps": float(spread_bps.max()) if not spread_bps.empty else 0.0,
     }
 
 
 def symbol_info_row(info: object) -> dict:
     return {field: getattr(info, field, None) for field in SPEC_FIELDS}
+
+
+def infer_market_type(symbol: str) -> str:
+    upper = symbol.upper()
+    if any(token in upper for token in ("BTC", "ETH", "SOL", "LTC", "XRP", "CRYPTO")):
+        return "24x7"
+    return "session"
+
+
+def timeframe_to_timedelta(timeframe: str) -> pd.Timedelta | None:
+    key = timeframe.upper()
+    if key.startswith("M") and key[1:].isdigit():
+        return pd.Timedelta(minutes=int(key[1:]))
+    if key.startswith("H") and key[1:].isdigit():
+        return pd.Timedelta(hours=int(key[1:]))
+    if key.startswith("D") and key[1:].isdigit():
+        return pd.Timedelta(days=int(key[1:]))
+    if key.startswith("W") and key[1:].isdigit():
+        return pd.Timedelta(weeks=int(key[1:]))
+    return None
+
+
+def is_normal_session_gap(previous: pd.Timestamp, current: pd.Timestamp) -> bool:
+    start_day = previous.normalize()
+    end_day = current.normalize()
+    day = start_day
+    while day <= end_day:
+        if day.weekday() >= 5:
+            return True
+        day += pd.Timedelta(days=1)
+    return False
+
+
+def _symbol_point(info: object | None) -> float | None:
+    if info is None:
+        return None
+    try:
+        point = float(getattr(info, "point", 0.0) or 0.0)
+    except (TypeError, ValueError):
+        return None
+    return point if point > 0 else None
 
 
 if __name__ == "__main__":
