@@ -1,0 +1,5 @@
+name,description,source,trade_contract_size,volume_min,volume_step,point,digits,cost_bps,slippage_bps
+XAUUSD_DUKAS,Dukascopy XAU/USD bid H4,dukascopy,1.0,0.01,0.01,0.001,3,1.0,3.0
+XAGUSD_DUKAS,Dukascopy XAG/USD bid H4,dukascopy,1.0,0.01,0.01,0.001,3,1.5,4.0
+BTCUSDT_BINANCE,Binance spot BTCUSDT H4,binance,1.0,0.001,0.001,0.01,2,3.0,8.0
+ETHUSDT_BINANCE,Binance spot ETHUSDT H4,binance,1.0,0.001,0.001,0.01,2,3.0,8.0

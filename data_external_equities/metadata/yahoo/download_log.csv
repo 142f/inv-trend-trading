@@ -1,0 +1,19 @@
+symbol,source,timeframe,raw_path,processed_path,bar_count,start,end,status,error
+NVDA,yahoo,D1,,,0,,,failed,no Yahoo data for NVDA
+MU,yahoo,D1,,,0,,,failed,no Yahoo data for MU
+AMD,yahoo,D1,,,0,,,failed,no Yahoo data for AMD
+TSM,yahoo,D1,,,0,,,failed,no Yahoo data for TSM
+SNDK,yahoo,D1,,,0,,,failed,no Yahoo data for SNDK
+AVGO,yahoo,D1,,,0,,,failed,no Yahoo data for AVGO
+QQQ,yahoo,D1,,,0,,,failed,no Yahoo data for QQQ
+SPY,yahoo,D1,,,0,,,failed,no Yahoo data for SPY
+XLY,yahoo,D1,,,0,,,failed,no Yahoo data for XLY
+ORCL,yahoo,D1,,,0,,,failed,no Yahoo data for ORCL
+MSFT,yahoo,D1,,,0,,,failed,no Yahoo data for MSFT
+PLTR,yahoo,D1,,,0,,,failed,no Yahoo data for PLTR
+NFLX,yahoo,D1,,,0,,,failed,no Yahoo data for NFLX
+META,yahoo,D1,,,0,,,failed,no Yahoo data for META
+AAPL,yahoo,D1,,,0,,,failed,no Yahoo data for AAPL
+TSLA,yahoo,D1,,,0,,,failed,no Yahoo data for TSLA
+GOOGL,yahoo,D1,,,0,,,failed,no Yahoo data for GOOGL
+AMZN,yahoo,D1,,,0,,,failed,no Yahoo data for AMZN
