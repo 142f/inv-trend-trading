@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from .strategy import TurtleRules
+from .domain import TurtleRules
 
 
 DEFAULT_CLUSTER_1N_RISK_PCT = {

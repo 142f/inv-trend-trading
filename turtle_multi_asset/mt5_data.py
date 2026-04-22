@@ -11,7 +11,7 @@ from typing import Iterator, Mapping
 
 import pandas as pd
 
-from .strategy import AssetSpec
+from .domain import AssetSpec
 
 
 TIMEFRAME_NAMES = {

@@ -8,18 +8,18 @@ from typing import Mapping
 import numpy as np
 import pandas as pd
 
-from .strategy import (
+from .domain import (
     LONG,
     SHORT,
     AssetSpec,
-    MultiAssetTurtleStrategy,
     Order,
     PortfolioState,
     Position,
     PositionUnit,
     TurtleRules,
-    compute_turtle_indicators,
 )
+from .engine import MultiAssetTurtleStrategy
+from .indicators import compute_turtle_indicators
 
 
 @dataclass(frozen=True)
