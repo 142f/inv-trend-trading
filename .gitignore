@@ -6,5 +6,8 @@ __pycache__/
 # 本地虚拟环境
 .venv/
 
+# Local secrets
+.env
+
 # 回测生成输出
 outputs/
