@@ -5,9 +5,13 @@ __pycache__/
 
 # 本地虚拟环境
 .venv/
-
+.vscode/
+.waylog/
 # Local secrets
 .env
 
 # 回测生成输出
 outputs/
+docs/
+examples/
+processed_data/

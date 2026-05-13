@@ -8,6 +8,7 @@ from typing import Mapping
 import numpy as np
 import pandas as pd
 
+from .backtest_data import BacktestDataStore
 from .domain import (
     LONG,
     SHORT,
@@ -19,7 +20,7 @@ from .domain import (
     TurtleRules,
 )
 from .engine import MultiAssetTurtleStrategy
-from .indicators import compute_turtle_indicators
+from .metrics import compute_backtest_metrics
 
 
 @dataclass(frozen=True)
@@ -48,18 +49,10 @@ class TurtleBacktester:
     ) -> None:
         self.specs = dict(specs)
         self.rules = rules or TurtleRules()
+        self.market_data = BacktestDataStore(data, self.rules)
         self.data = {
-            symbol: self._prepare_bars(symbol, df)
-            for symbol, df in data.items()
-        }
-        self._indexes = {symbol: df.index for symbol, df in self.data.items()}
-        self._index_pos = {
-            symbol: {timestamp: pos for pos, timestamp in enumerate(df.index)}
-            for symbol, df in self.data.items()
-        }
-        self._records = {
-            symbol: df.to_dict("records")
-            for symbol, df in self.data.items()
+            symbol: symbol_data.bars
+            for symbol, symbol_data in self.market_data.by_symbol.items()
         }
         self.strategy = MultiAssetTurtleStrategy(self.specs, self.rules)
         self.initial_equity = float(initial_equity)
@@ -69,7 +62,7 @@ class TurtleBacktester:
         self.cash_model = cash_model
 
     def run(self) -> BacktestResult:
-        dates = self._calendar()
+        dates = self.market_data.calendar
         cash = self.initial_equity
         state = PortfolioState()
         pending_orders: list[Order] = []
@@ -110,12 +103,12 @@ class TurtleBacktester:
                 )
             equity = self._mark_equity(date, cash, state)
             equity_points.append((date, equity))
-            snapshots = self._snapshots_through(date)
+            snapshots = self.market_data.snapshots_through(date)
             new_orders = self.strategy.generate_orders(
                 snapshots,
                 state,
                 equity,
-                tradable_symbols=self._tradable_symbols(date),
+                tradable_symbols=self.market_data.tradable_symbols(date),
             )
             pending_symbols = {order.symbol for order in pending_orders}
             pending_orders.extend(
@@ -135,7 +128,7 @@ class TurtleBacktester:
             trades=trades,
             trade_details=trade_details,
             orders=orders,
-            metrics=_metrics(equity_curve, trades),
+            metrics=compute_backtest_metrics(equity_curve, trades),
         )
 
     def _execute_orders(
@@ -154,7 +147,7 @@ class TurtleBacktester:
             if order.symbol not in self.specs:
                 continue
             try:
-                fill_price = self._price(date, order.symbol, price_column)
+                fill_price = self.market_data.price(date, order.symbol, price_column)
             except KeyError:
                 unfilled.append(order)
                 continue
@@ -181,29 +174,19 @@ class TurtleBacktester:
                 if position.system == "fast":
                     state.last_fast_trade_won[order.symbol] = pnl - position.entry_cost - cost > 0
                 del state.positions[order.symbol]
-                trade_rows.append(
-                    self._trade_row(date, order, position, fill_price, cost, pnl, spec)
-                )
-                trade_detail_rows.extend(
-                    self._trade_detail_rows(date, order, position, fill_price, cost, pnl, spec)
+                self._record_completed_trade(
+                    date,
+                    order,
+                    position,
+                    fill_price,
+                    cost,
+                    pnl,
+                    spec,
+                    trade_rows,
+                    trade_detail_rows,
                 )
             order_rows.append(
-                {
-                    "time": date,
-                    "symbol": order.symbol,
-                    "action": order.action,
-                    "side": order.side,
-                    "qty": order.qty,
-                    "fill_price": fill_price,
-                    "cost": cost,
-                    "reason": order.reason,
-                    "system": order.system,
-                    "risk_1n_pct": order.risk_1n_pct,
-                    "signal_price": order.signal_price,
-                    "n_at_signal": order.n_at_signal,
-                    "stop_price": order.stop_price,
-                    "notional": abs(order.qty * fill_price * spec.point_value),
-                }
+                self._order_row(date, order, fill_price, cost, spec)
             )
         return cash, unfilled
 
@@ -260,7 +243,7 @@ class TurtleBacktester:
     ) -> float:
         stop_orders: list[Order] = []
         for symbol, position in list(state.positions.items()):
-            row = self._row_at_date(symbol, date)
+            row = self.market_data.row_at_date(symbol, date)
             if row is None:
                 continue
             open_price = float(row["open"])
@@ -326,30 +309,95 @@ class TurtleBacktester:
                 state.last_fast_trade_won[order.symbol] = pnl - position.entry_cost - cost > 0
             del state.positions[order.symbol]
             order_rows.append(
-                {
-                    "time": date,
-                    "symbol": order.symbol,
-                    "action": "exit",
-                    "side": position.side,
-                    "qty": position.total_qty,
-                    "fill_price": fill_price,
-                    "cost": cost,
-                    "reason": order.reason,
-                    "system": position.system,
-                    "risk_1n_pct": order.risk_1n_pct,
-                    "signal_price": order.signal_price,
-                    "n_at_signal": order.n_at_signal,
-                    "stop_price": order.stop_price,
-                    "notional": abs(position.total_qty * fill_price * spec.point_value),
-                }
+                self._order_row(
+                    date,
+                    order,
+                    fill_price,
+                    cost,
+                    spec,
+                    side=position.side,
+                    qty=position.total_qty,
+                    system=position.system,
+                )
             )
-            trade_rows.append(
-                self._trade_row(date, order, position, fill_price, cost, pnl, spec)
-            )
-            trade_detail_rows.extend(
-                self._trade_detail_rows(date, order, position, fill_price, cost, pnl, spec)
+            self._record_completed_trade(
+                date,
+                order,
+                position,
+                fill_price,
+                cost,
+                pnl,
+                spec,
+                trade_rows,
+                trade_detail_rows,
             )
         return cash
+
+    def _order_row(
+        self,
+        date: pd.Timestamp,
+        order: Order,
+        fill_price: float,
+        cost: float,
+        spec: AssetSpec,
+        side: int | None = None,
+        qty: float | None = None,
+        system: str | None = None,
+    ) -> dict:
+        row_side = order.side if side is None else side
+        row_qty = order.qty if qty is None else qty
+        row_system = order.system if system is None else system
+        return {
+            "time": date,
+            "symbol": order.symbol,
+            "action": order.action,
+            "side": row_side,
+            "qty": row_qty,
+            "fill_price": fill_price,
+            "cost": cost,
+            "reason": order.reason,
+            "system": row_system,
+            "risk_1n_pct": order.risk_1n_pct,
+            "signal_price": order.signal_price,
+            "n_at_signal": order.n_at_signal,
+            "stop_price": order.stop_price,
+            "notional": abs(row_qty * fill_price * spec.point_value),
+        }
+
+    def _record_completed_trade(
+        self,
+        exit_time: pd.Timestamp,
+        order: Order,
+        position: Position,
+        exit_price: float,
+        exit_cost: float,
+        gross_pnl: float,
+        spec: AssetSpec,
+        trade_rows: list[dict],
+        trade_detail_rows: list[dict],
+    ) -> None:
+        trade_rows.append(
+            self._trade_row(
+                exit_time,
+                order,
+                position,
+                exit_price,
+                exit_cost,
+                gross_pnl,
+                spec,
+            )
+        )
+        trade_detail_rows.extend(
+            self._trade_detail_rows(
+                exit_time,
+                order,
+                position,
+                exit_price,
+                exit_cost,
+                gross_pnl,
+                spec,
+            )
+        )
 
     def _trade_row(
         self,
@@ -364,13 +412,11 @@ class TurtleBacktester:
         entry_cost = position.entry_cost
         net_pnl = gross_pnl - entry_cost - exit_cost
         entry_time = pd.Timestamp(position.first_entry_time)
-        holding_bars = None
-        df = self.data.get(position.symbol)
-        if df is not None and entry_time in df.index and exit_time in df.index:
-            start = df.index.get_loc(entry_time)
-            end = df.index.get_loc(exit_time)
-            if isinstance(start, (int, np.integer)) and isinstance(end, (int, np.integer)):
-                holding_bars = int(end - start)
+        holding_bars = self.market_data.holding_bars(
+            position.symbol,
+            entry_time,
+            exit_time,
+        )
         return {
             "entry_time": position.first_entry_time,
             "exit_time": exit_time,
@@ -459,7 +505,7 @@ class TurtleBacktester:
     ) -> float:
         for symbol, position in state.positions.items():
             spec = self.specs[symbol]
-            row = self._row_at_date(symbol, date)
+            row = self.market_data.row_at_date(symbol, date)
             if row is None:
                 continue
             price = float(row["close"])
@@ -488,7 +534,7 @@ class TurtleBacktester:
         for symbol, position in state.positions.items():
             spec = self.specs[symbol]
             try:
-                price = self._last_price_on_or_before(date, symbol, "close")
+                price = self.market_data.last_price_on_or_before(date, symbol, "close")
             except KeyError:
                 continue
             if self.cash_model == "cash":
@@ -497,24 +543,6 @@ class TurtleBacktester:
                 equity += position.unrealized_pnl(price, spec.point_value)
         return float(equity)
 
-    def _snapshots_through(self, date: pd.Timestamp) -> dict[str, Mapping[str, object]]:
-        snapshots: dict[str, Mapping[str, object]] = {}
-        for symbol in self.data:
-            pos = self._last_pos_on_or_before(symbol, date)
-            if pos is not None:
-                snapshots[symbol] = self._records[symbol][pos]
-        return snapshots
-
-    def _tradable_symbols(self, date: pd.Timestamp) -> set[str]:
-        tradable: set[str] = set()
-        for symbol, index in self._indexes.items():
-            loc = self._index_pos[symbol].get(date)
-            if loc is None:
-                continue
-            if loc < len(index) - 1:
-                tradable.add(symbol)
-        return tradable
-
     def _end_of_data_exit_orders(
         self,
         date: pd.Timestamp,
@@ -522,7 +550,8 @@ class TurtleBacktester:
     ) -> list[Order]:
         orders: list[Order] = []
         for symbol, position in list(state.positions.items()):
-            index = self._indexes.get(symbol)
+            symbol_data = self.market_data.by_symbol.get(symbol)
+            index = None if symbol_data is None else symbol_data.index
             if index is None or date != index[-1]:
                 continue
             orders.append(
@@ -533,90 +562,11 @@ class TurtleBacktester:
                     qty=position.total_qty,
                     reason="end_of_test",
                     system=position.system,
-                    signal_price=self._price(date, symbol, "close"),
+                    signal_price=self.market_data.price(date, symbol, "close"),
                     n_at_signal=position.units[-1].n_at_entry,
                 )
             )
         return orders
-
-    def _calendar(self) -> list[pd.Timestamp]:
-        all_dates: set[pd.Timestamp] = set()
-        for index in self._indexes.values():
-            all_dates.update(pd.Timestamp(x) for x in index)
-        return sorted(all_dates)
-
-    def _prepare_bars(self, symbol: str, df: pd.DataFrame) -> pd.DataFrame:
-        if df.empty:
-            raise ValueError(f"{symbol} has no bars")
-        missing = {"open", "high", "low", "close"} - set(df.columns)
-        if missing:
-            raise ValueError(f"{symbol} missing OHLC columns: {sorted(missing)}")
-        if df.index.has_duplicates:
-            raise ValueError(f"{symbol} has duplicate timestamps")
-
-        out = df.sort_index().copy()
-        for column in ["open", "high", "low", "close"]:
-            out[column] = pd.to_numeric(out[column], errors="coerce")
-
-        ohlc = out[["open", "high", "low", "close"]]
-        finite = np.isfinite(ohlc.to_numpy(dtype=float)).all(axis=1)
-        positive = (ohlc > 0).all(axis=1).to_numpy()
-        ordered = (
-            (out["high"] >= out["low"])
-            & (out["open"] <= out["high"])
-            & (out["open"] >= out["low"])
-            & (out["close"] <= out["high"])
-            & (out["close"] >= out["low"])
-        ).to_numpy()
-        if not bool((finite & positive & ordered).all()):
-            raise ValueError(f"{symbol} has invalid OHLC rows")
-        return compute_turtle_indicators(out, self.rules)
-
-    def _price(self, date: pd.Timestamp, symbol: str, column: str) -> float:
-        row = self._row_at_date(symbol, date)
-        if row is None:
-            raise KeyError(symbol)
-        if column not in row:
-            column = "close"
-        return float(row[column])
-
-    def _last_price_on_or_before(
-        self,
-        date: pd.Timestamp,
-        symbol: str,
-        column: str,
-    ) -> float:
-        pos = self._last_pos_on_or_before(symbol, date)
-        if pos is None:
-            raise KeyError(symbol)
-        row = self._records[symbol][pos]
-        if column not in row:
-            column = "close"
-        return float(row[column])
-
-    def _row_at_date(
-        self,
-        symbol: str,
-        date: pd.Timestamp,
-    ) -> Mapping[str, object] | None:
-        positions = self._index_pos.get(symbol)
-        if positions is None:
-            return None
-        pos = positions.get(date)
-        if pos is None:
-            return None
-        return self._records[symbol][pos]
-
-    def _last_pos_on_or_before(
-        self,
-        symbol: str,
-        date: pd.Timestamp,
-    ) -> int | None:
-        index = self._indexes[symbol]
-        pos = int(index.searchsorted(date, side="right")) - 1
-        if pos < 0:
-            return None
-        return pos
 
 
 def _trade_cost(qty: float, price: float, spec: AssetSpec) -> float:
@@ -635,28 +585,4 @@ def _exit_type(reason: str) -> str:
 
 
 def _metrics(equity_curve: pd.Series, trades: pd.DataFrame) -> dict[str, float]:
-    if equity_curve.empty:
-        return {}
-    returns = equity_curve.pct_change().replace([np.inf, -np.inf], np.nan).dropna()
-    running_max = equity_curve.cummax()
-    drawdown = equity_curve / running_max - 1.0
-    total_return = equity_curve.iloc[-1] / equity_curve.iloc[0] - 1.0
-    years = max((equity_curve.index[-1] - equity_curve.index[0]).days / 365.25, 1 / 365.25)
-    periods_per_year = len(returns) / years if years > 0 else 0.0
-    cagr = (1.0 + total_return) ** (1.0 / years) - 1.0
-    vol = returns.std(ddof=0) * np.sqrt(periods_per_year) if periods_per_year > 0 else 0.0
-    if not np.isfinite(vol):
-        vol = 0.0
-    sharpe = (returns.mean() * periods_per_year / vol) if vol > 0 else 0.0
-    max_dd = float(drawdown.min()) if not drawdown.empty else 0.0
-    mar = cagr / abs(max_dd) if max_dd < 0 else 0.0
-    return {
-        "total_return": float(total_return),
-        "cagr": float(cagr),
-        "max_drawdown": max_dd,
-        "volatility": float(vol),
-        "sharpe_like": float(sharpe),
-        "mar": float(mar),
-        "trade_count": float(0 if trades.empty else len(trades)),
-        "periods_per_year": float(periods_per_year),
-    }
+    return compute_backtest_metrics(equity_curve, trades)

@@ -13,15 +13,23 @@ def compute_turtle_indicators(bars: pd.DataFrame, rules: TurtleRules) -> pd.Data
 
     _require_columns(bars, {"open", "high", "low", "close"})
     out = bars.copy()
-    prev_close = out["close"].shift(1)
-    true_range = pd.concat(
-        [
-            out["high"] - out["low"],
-            (out["high"] - prev_close).abs(),
-            (out["low"] - prev_close).abs(),
-        ],
-        axis=1,
-    ).max(axis=1)
+    high = out["high"].to_numpy(dtype=float)
+    low = out["low"].to_numpy(dtype=float)
+    close = out["close"].to_numpy(dtype=float)
+    prev_close = np.empty_like(close)
+    prev_close[0] = np.nan
+    prev_close[1:] = close[:-1]
+    true_range = np.nanmax(
+        np.vstack(
+            [
+                high - low,
+                np.abs(high - prev_close),
+                np.abs(low - prev_close),
+            ]
+        ),
+        axis=0,
+    )
+    true_range = pd.Series(true_range, index=out.index)
     out["tr"] = true_range
     out["n"] = _wilder_average(true_range, rules.n_period)
 
