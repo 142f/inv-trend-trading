@@ -45,7 +45,9 @@ class TurtleRules:
     slow_exit: int = 20
     stop_n: float = 2.0
     pyramid_step_n: float = 0.5
+    breakout_buffer_n: float = 0.0
     trigger_mode: str = "close"
+    entry_ma_period: int = 0
     fast_system_enabled: bool = True
     slow_system_enabled: bool = True
     skip_fast_after_win: bool = True
@@ -73,6 +75,10 @@ class TurtleRules:
                 raise ValueError(f"{name} must be >= 2")
         if self.stop_n <= 0 or self.pyramid_step_n <= 0:
             raise ValueError("stop_n and pyramid_step_n must be positive")
+        if self.breakout_buffer_n < 0:
+            raise ValueError("breakout_buffer_n must be >= 0")
+        if self.entry_ma_period not in {0, 1} and self.entry_ma_period < 2:
+            raise ValueError("entry_ma_period must be 0 or >= 2")
         for name in (
             "max_total_1n_risk_pct",
             "max_direction_1n_risk_pct",

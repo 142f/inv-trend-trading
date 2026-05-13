@@ -184,8 +184,8 @@ class MultiAssetTurtleStrategy:
         if event_frozen:
             return None
 
-        slow = self._breakout_signal(row, self.rules.slow_entry)
-        fast = self._breakout_signal(row, self.rules.fast_entry)
+        slow = self._breakout_signal(row, self.rules.slow_entry, n)
+        fast = self._breakout_signal(row, self.rules.fast_entry, n)
         if self.rules.trigger_mode == "intraday":
             signal_price = _finite_float(row.get("high")) or close
             short_signal_price = _finite_float(row.get("low")) or close
@@ -196,6 +196,8 @@ class MultiAssetTurtleStrategy:
         if self.rules.fast_system_enabled and fast == LONG:
             if spec.can_long and not self._skip_fast(symbol, state):
                 level = float(row[f"high_{self.rules.fast_entry}"])
+                if not self._trend_filter_allows(row, LONG, signal_price):
+                    return None
                 return EntrySignal(
                     symbol=symbol,
                     side=LONG,
@@ -209,6 +211,8 @@ class MultiAssetTurtleStrategy:
         if self.rules.fast_system_enabled and fast == SHORT:
             if self.rules.allow_short and spec.can_short and not self._skip_fast(symbol, state):
                 level = float(row[f"low_{self.rules.fast_entry}"])
+                if not self._trend_filter_allows(row, SHORT, short_signal_price):
+                    return None
                 return EntrySignal(
                     symbol=symbol,
                     side=SHORT,
@@ -222,6 +226,8 @@ class MultiAssetTurtleStrategy:
 
         if self.rules.slow_system_enabled and slow == LONG and spec.can_long:
             level = float(row[f"high_{self.rules.slow_entry}"])
+            if not self._trend_filter_allows(row, LONG, signal_price):
+                return None
             return EntrySignal(
                 symbol=symbol,
                 side=LONG,
@@ -239,6 +245,8 @@ class MultiAssetTurtleStrategy:
             and spec.can_short
         ):
             level = float(row[f"low_{self.rules.slow_entry}"])
+            if not self._trend_filter_allows(row, SHORT, short_signal_price):
+                return None
             return EntrySignal(
                 symbol=symbol,
                 side=SHORT,
@@ -322,6 +330,8 @@ class MultiAssetTurtleStrategy:
             should_add = close >= trigger if position.side == LONG else close <= trigger
             signal_price = close
         if not should_add:
+            return None
+        if not self._trend_filter_allows(row, position.side, signal_price):
             return None
         signal = EntrySignal(
             symbol=symbol,
@@ -434,16 +444,18 @@ class MultiAssetTurtleStrategy:
     def _skip_fast(self, symbol: str, state: PortfolioState) -> bool:
         return self.rules.skip_fast_after_win and state.last_fast_trade_won.get(symbol, False)
 
-    def _breakout_signal(self, row: Mapping[str, Any], period: int) -> int | None:
+    def _breakout_signal(self, row: Mapping[str, Any], period: int, n: float) -> int | None:
         high_level = _finite_float(row.get(f"high_{period}"))
         low_level = _finite_float(row.get(f"low_{period}"))
         if high_level is None or low_level is None:
             return None
+        high_threshold = high_level + self.rules.breakout_buffer_n * n
+        low_threshold = low_level - self.rules.breakout_buffer_n * n
         if self.rules.trigger_mode == "intraday":
             high = _finite_float(row.get("high"))
             low = _finite_float(row.get("low"))
-            long_hit = high is not None and high > high_level
-            short_hit = low is not None and low < low_level
+            long_hit = high is not None and high > high_threshold
+            short_hit = low is not None and low < low_threshold
             if long_hit and short_hit:
                 return None
             if long_hit:
@@ -452,11 +464,22 @@ class MultiAssetTurtleStrategy:
                 return SHORT
         else:
             close = _finite_float(row.get("close"))
-            if close is not None and close > high_level:
+            if close is not None and close > high_threshold:
                 return LONG
-            if close is not None and close < low_level:
+            if close is not None and close < low_threshold:
                 return SHORT
         return None
+
+    def _trend_filter_allows(self, row: Mapping[str, Any], side: int, signal_price: float) -> bool:
+        period = self.rules.entry_ma_period
+        if period < 2:
+            return True
+        moving_average = _finite_float(row.get(f"sma_{period}"))
+        if moving_average is None:
+            return False
+        if side == LONG:
+            return signal_price >= moving_average
+        return signal_price <= moving_average
 
     def _exit_signal(self, row: Mapping[str, Any], period: int, position_side: int) -> str | None:
         high_level = _finite_float(row.get(f"high_{period}"))

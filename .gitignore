@@ -11,7 +11,8 @@ __pycache__/
 .env
 
 # 回测生成输出
-outputs/
+
 docs/
 examples/
+outputs/
 processed_data/

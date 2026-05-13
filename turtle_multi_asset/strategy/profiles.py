@@ -45,6 +45,8 @@ def classic_bar_rules(
     return _rules_for_bar_scale(
         bars_per_day=1,
         allow_short=allow_short,
+        breakout_buffer_n=0.5,
+        pyramid_step_n=0.75,
     )
 
 
@@ -62,6 +64,8 @@ def h4_daily_equivalent_rules(
 def _rules_for_bar_scale(
     bars_per_day: int,
     allow_short: bool,
+    breakout_buffer_n: float = 0.0,
+    pyramid_step_n: float = 0.5,
 ) -> TurtleRules:
     return TurtleRules(
         n_period=20 * bars_per_day,
@@ -70,7 +74,8 @@ def _rules_for_bar_scale(
         fast_exit=10 * bars_per_day,
         slow_exit=20 * bars_per_day,
         stop_n=2.0,
-        pyramid_step_n=0.5,
+        pyramid_step_n=pyramid_step_n,
+        breakout_buffer_n=breakout_buffer_n,
         trigger_mode="close",
         allow_short=allow_short,
         max_total_1n_risk_pct=0.08,

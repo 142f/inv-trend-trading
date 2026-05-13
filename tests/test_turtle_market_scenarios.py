@@ -363,3 +363,50 @@ def test_high_costs_reduce_net_equity_and_are_recorded() -> None:
     assert high_cost.trades["total_cost"].sum() > 0.0
     assert high_cost.equity_curve.iloc[-1] < zero_cost.equity_curve.iloc[-1]
     assert high_cost.trades["pnl"].iloc[0] < zero_cost.trades["pnl"].iloc[0]
+
+
+def test_trend_filter_blocks_countertrend_breakout() -> None:
+    rules = _scenario_rules(entry_ma_period=10)
+    strategy = MultiAssetTurtleStrategy({"TEST": _asset_spec()}, rules)
+    row = {
+        "open": 99.0,
+        "high": 101.0,
+        "low": 98.0,
+        "close": 100.0,
+        "n": 4.0,
+        "sma_10": 105.0,
+        "high_5": 96.0,
+        "low_5": 90.0,
+        "high_8": 97.0,
+        "low_8": 88.0,
+        "high_3": 95.0,
+        "low_3": 91.0,
+    }
+
+    orders = strategy.generate_orders({"TEST": row}, PortfolioState(), equity=10_000.0)
+
+    assert orders == []
+
+
+def test_breakout_buffer_requires_stronger_close() -> None:
+    rules = _scenario_rules(breakout_buffer_n=0.5)
+    strategy = MultiAssetTurtleStrategy({"TEST": _asset_spec()}, rules)
+    weak_row = {
+        "open": 100.0,
+        "high": 106.0,
+        "low": 99.0,
+        "close": 104.0,
+        "n": 4.0,
+        "high_5": 103.0,
+        "low_5": 90.0,
+        "high_8": 103.0,
+        "low_8": 88.0,
+        "high_3": 102.0,
+        "low_3": 91.0,
+    }
+    strong_row = dict(weak_row, close=105.5, high=107.0)
+
+    assert strategy.generate_orders({"TEST": weak_row}, PortfolioState(), equity=10_000.0) == []
+    orders = strategy.generate_orders({"TEST": strong_row}, PortfolioState(), equity=10_000.0)
+    assert len(orders) == 1
+    assert orders[0].reason == "long_5d_breakout"

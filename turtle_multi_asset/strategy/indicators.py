@@ -42,6 +42,8 @@ def compute_turtle_indicators(bars: pd.DataFrame, rules: TurtleRules) -> pd.Data
     for period in periods:
         out[f"high_{period}"] = out["high"].rolling(period).max().shift(1)
         out[f"low_{period}"] = out["low"].rolling(period).min().shift(1)
+    if rules.entry_ma_period >= 2:
+        out[f"sma_{rules.entry_ma_period}"] = out["close"].rolling(rules.entry_ma_period).mean()
 
     out.attrs["_turtle_rules_key"] = _indicator_rules_key(rules)
     return out
@@ -68,16 +70,19 @@ def _indicator_columns(rules: TurtleRules) -> set[str]:
     for period in periods:
         columns.add(f"high_{period}")
         columns.add(f"low_{period}")
+    if rules.entry_ma_period >= 2:
+        columns.add(f"sma_{rules.entry_ma_period}")
     return columns
 
 
-def _indicator_rules_key(rules: TurtleRules) -> tuple[int, int, int, int, int]:
+def _indicator_rules_key(rules: TurtleRules) -> tuple[int, int, int, int, int, int]:
     return (
         rules.n_period,
         rules.fast_entry,
         rules.slow_entry,
         rules.fast_exit,
         rules.slow_exit,
+        rules.entry_ma_period,
     )
 
 
