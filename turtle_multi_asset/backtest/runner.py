@@ -8,8 +8,8 @@ from typing import Mapping
 import numpy as np
 import pandas as pd
 
-from .backtest_data import BacktestDataStore
-from .domain import (
+from .data_store import BacktestDataStore
+from ..models.domain import (
     LONG,
     SHORT,
     AssetSpec,
@@ -19,7 +19,7 @@ from .domain import (
     PositionUnit,
     TurtleRules,
 )
-from .engine import MultiAssetTurtleStrategy
+from ..strategy.engine import MultiAssetTurtleStrategy
 from .metrics import compute_backtest_metrics
 
 
