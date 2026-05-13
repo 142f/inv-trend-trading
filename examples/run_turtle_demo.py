@@ -1,7 +1,6 @@
-"""Run a small synthetic multi-asset Turtle backtest.
+"""运行一个小型合成数据多品种海龟回测。
 
-This demo uses generated data only. Replace ``data`` with real, adjusted OHLC
-data before drawing any trading conclusion.
+该示例只使用生成数据；做任何交易判断前必须替换为真实、已校正的 OHLC 数据。
 """
 
 from __future__ import annotations

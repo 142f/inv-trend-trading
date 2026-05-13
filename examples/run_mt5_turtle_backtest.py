@@ -1,4 +1,4 @@
-"""Run the multi-asset Turtle backtest with broker history from MetaTrader 5."""
+"""使用 MetaTrader 5 券商历史数据运行多品种海龟回测。"""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ import json
 import sys
 from pathlib import Path
 
-from turtle_multi_asset import TurtleBacktester, TurtleRules
+from turtle_multi_asset import TurtleBacktester, classic_bar_rules
 from turtle_multi_asset.mt5_data import (
     build_mt5_asset_specs,
     fetch_mt5_ohlc_many,
@@ -75,17 +75,7 @@ def main() -> None:
         )
         raise SystemExit(2) from exc
 
-    rules = TurtleRules(
-        trigger_mode="close",
-        max_total_1n_risk_pct=0.08,
-        max_direction_1n_risk_pct=0.06,
-        cluster_1n_risk_pct={
-            "us_equity": 0.035,
-            "precious_metals": 0.025,
-            "crypto": 0.015,
-            "other": 0.02,
-        },
-    )
+    rules = classic_bar_rules()
     result = TurtleBacktester(
         data=data,
         specs=specs,
@@ -96,6 +86,7 @@ def main() -> None:
     result.equity_curve.to_csv(out_dir / "equity_curve.csv")
     result.orders.to_csv(out_dir / "orders.csv", index=False)
     result.trades.to_csv(out_dir / "trades.csv", index=False)
+    result.trade_details.to_csv(out_dir / "trade_details.csv", index=False)
     (out_dir / "metrics.json").write_text(
         json.dumps(result.metrics, indent=2, ensure_ascii=False),
         encoding="utf-8",
