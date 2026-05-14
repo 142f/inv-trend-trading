@@ -15,4 +15,5 @@ __pycache__/
 docs/
 examples/
 outputs/
+research/
 processed_data/
