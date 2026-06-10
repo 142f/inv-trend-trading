@@ -285,7 +285,7 @@ class MultiAssetTurtleStrategy:
         risk_pct = qty * signal.n * spec.point_value / equity
         score = signal.strength
         if signal.system == "slow":
-            score += 0.25
+            score += self.rules.slow_entry_score_bonus
         score -= (spec.cost_bps + spec.slippage_bps) / 10000
         return Order(
             symbol=signal.symbol,

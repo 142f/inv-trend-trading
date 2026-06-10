@@ -25,7 +25,7 @@ from .pipeline import (
     unify_dates,
     validate_data,
 )
-from ..integrations.mt5 import _infer_asset_fields
+from ..profiles.asset_profiles import infer_asset_fields
 from ..strategy.profiles import turtle_rules
 from ..backtest.runner import TurtleBacktester
 from ..models.domain import AssetSpec
@@ -285,7 +285,7 @@ def exclusion_reason(priority: str, base_reason: str, rows: int) -> str:
 def build_asset_specs(symbols: list[str]) -> dict[str, AssetSpec]:
     specs: dict[str, AssetSpec] = {}
     for symbol in symbols:
-        inferred = _infer_asset_fields(symbol)
+        inferred = infer_asset_fields(symbol)
         specs[symbol] = AssetSpec(
             symbol=symbol,
             asset_class=str(inferred["asset_class"]),

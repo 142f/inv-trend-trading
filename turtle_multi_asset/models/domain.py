@@ -60,6 +60,7 @@ class TurtleRules:
     max_direction_leverage: float = 1.5
     default_cluster_leverage: float = 1.0
     cluster_leverage: Mapping[str, float] = field(default_factory=dict)
+    slow_entry_score_bonus: float = 0.25
 
     def __post_init__(self) -> None:
         if self.trigger_mode not in {"close", "intraday"}:
@@ -79,6 +80,8 @@ class TurtleRules:
             raise ValueError("breakout_buffer_n must be >= 0")
         if self.entry_ma_period not in {0, 1} and self.entry_ma_period < 2:
             raise ValueError("entry_ma_period must be 0 or >= 2")
+        if self.slow_entry_score_bonus < 0:
+            raise ValueError("slow_entry_score_bonus must be >= 0")
         for name in (
             "max_total_1n_risk_pct",
             "max_direction_1n_risk_pct",

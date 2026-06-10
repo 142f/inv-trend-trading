@@ -14,6 +14,9 @@ __pycache__/
 
 docs/
 examples/
+!examples/
+!examples/__init__.py
+!examples/download_mt5_data.py
 outputs/
 research/
 processed_data/
