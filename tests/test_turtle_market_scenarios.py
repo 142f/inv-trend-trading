@@ -244,6 +244,83 @@ def test_fast_skip_after_win_falls_back_to_slow_breakout() -> None:
     assert orders[0].reason == "long_5d_breakout"
 
 
+def test_exit_signal_does_not_release_risk_budget_before_fill() -> None:
+    rules = _scenario_rules(
+        fast_entry=3,
+        slow_entry=5,
+        fast_exit=2,
+        slow_exit=3,
+        n_period=3,
+        skip_fast_after_win=False,
+        max_total_1n_risk_pct=0.01,
+        max_direction_1n_risk_pct=0.01,
+    )
+    specs = {
+        "EXIT": AssetSpec(
+            "EXIT",
+            "synthetic",
+            "test",
+            qty_step=1,
+            unit_1n_risk_pct=0.01,
+            max_symbol_1n_risk_pct=1.0,
+            max_symbol_leverage=10.0,
+        ),
+        "ENTRY": AssetSpec(
+            "ENTRY",
+            "synthetic",
+            "test",
+            qty_step=1,
+            unit_1n_risk_pct=0.01,
+            max_symbol_1n_risk_pct=1.0,
+            max_symbol_leverage=10.0,
+        ),
+    }
+    strategy = MultiAssetTurtleStrategy(specs, rules)
+    state = PortfolioState(
+        positions={
+            "EXIT": Position(
+                symbol="EXIT",
+                side=1,
+                system="fast",
+                units=[PositionUnit(qty=10, entry_price=100.0, n_at_entry=10.0)],
+                last_add_price=100.0,
+                stop_price=95.0,
+            )
+        }
+    )
+
+    orders = strategy.generate_orders(
+        {
+            "EXIT": {
+                "open": 94.0,
+                "high": 95.0,
+                "low": 90.0,
+                "close": 94.0,
+                "n": 10.0,
+                "high_2": 105.0,
+                "low_2": 96.0,
+                "high_3": 106.0,
+                "low_3": 97.0,
+            },
+            "ENTRY": {
+                "open": 120.0,
+                "high": 121.0,
+                "low": 119.0,
+                "close": 120.0,
+                "n": 10.0,
+                "high_3": 110.0,
+                "low_3": 90.0,
+                "high_5": 115.0,
+                "low_5": 85.0,
+            },
+        },
+        state,
+        equity=10_000.0,
+    )
+
+    assert [order.action for order in orders] == ["exit"]
+
+
 def test_regime_shift_expands_n_reduces_size_and_add_frequency() -> None:
     rules = _scenario_rules(
         fast_entry=3,

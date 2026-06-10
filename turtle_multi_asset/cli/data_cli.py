@@ -6,6 +6,7 @@ import argparse
 
 from ..data.builder import DEFAULT_DATASET_DIRS, build_unified_processed_data
 from ..data.core_dataset import build_metal_tech_core_dataset
+from ..us_trend_alerts import TrendAlertConfig, run_us_trend_alerts
 
 
 def main() -> None:
@@ -19,6 +20,15 @@ def main() -> None:
     core.add_argument("--processed-dir", default="processed_data")
     core.add_argument("--output-dir", default="processed_data")
     core.add_argument("--reports-dir", default="outputs")
+    alerts = subparsers.add_parser("us-trend-alerts", help="Scan SPY/QQQ top holdings for 20/55 day breakouts.")
+    alerts.add_argument("--etfs", nargs="+", default=["SPY", "QQQ"])
+    alerts.add_argument("--top-n", type=int, default=100)
+    alerts.add_argument("--lookback-days", type=int, default=180)
+    alerts.add_argument("--cache-dir", default="processed_data/us_trend_alerts/cache")
+    alerts.add_argument("--output-dir", default="outputs/us_trend_alerts")
+    alerts.add_argument("--local-bars-dir", default=None)
+    alerts.add_argument("--force-refresh", action="store_true")
+    alerts.add_argument("--verbose", action="store_true")
 
     args = parser.parse_args()
     if args.command == "build":
@@ -38,6 +48,24 @@ def main() -> None:
         print("Metal + tech core build summary")
         for key, value in summary.items():
             print(f"{key}: {value}")
+    if args.command == "us-trend-alerts":
+        import logging
+
+        logging.basicConfig(
+            level=logging.INFO if args.verbose else logging.WARNING,
+            format="%(asctime)s %(levelname)s %(message)s",
+        )
+        run_us_trend_alerts(
+            TrendAlertConfig(
+                etfs=tuple(str(x).upper() for x in args.etfs),
+                top_n=args.top_n,
+                lookback_days=args.lookback_days,
+                cache_dir=args.cache_dir,
+                output_dir=args.output_dir,
+                local_bars_dir=args.local_bars_dir,
+                force_refresh=args.force_refresh,
+            )
+        )
 
 
 if __name__ == "__main__":

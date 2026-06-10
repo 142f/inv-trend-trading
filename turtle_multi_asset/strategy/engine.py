@@ -78,12 +78,11 @@ class MultiAssetTurtleStrategy:
                 if order is not None:
                     add_candidates.append(order)
 
-        current_risk = self.risk_usage(state, equity, excluding=blocked_symbols)
+        current_risk = self.risk_usage(state, equity)
         current_leverage = self.leverage_usage(
             state,
             rows,
             equity,
-            excluding=blocked_symbols,
         )
         accepted = self._allocate_by_budget(
             add_candidates + entry_candidates,
