@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from turtle_multi_asset.mt5_data import _infer_asset_fields, _to_utc_datetime
+from turtle_multi_asset.integrations.mt5 import _infer_asset_fields, _to_utc_datetime
 
 
 def test_infer_asset_fields_for_core_assets() -> None:
