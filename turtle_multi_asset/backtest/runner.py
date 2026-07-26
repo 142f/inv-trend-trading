@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Mapping
+from typing import Any, Mapping
 
 import numpy as np
 import pandas as pd
@@ -21,6 +21,7 @@ from ..models.domain import (
 )
 from ..strategy.engine import MultiAssetTurtleStrategy
 from .metrics import compute_backtest_metrics
+from ..config import BacktestConfig
 
 
 @dataclass(frozen=True)
@@ -30,6 +31,21 @@ class BacktestResult:
     trade_details: pd.DataFrame
     orders: pd.DataFrame
     metrics: dict[str, float]
+
+
+def _resolve_rules(
+    rules: TurtleRules | None,
+    configured_rules: Mapping[str, Any],
+) -> TurtleRules:
+    """Build rules from configuration unless the caller supplied a rule set."""
+
+    if rules is not None:
+        return rules
+    unknown = set(configured_rules) - set(TurtleRules.__dataclass_fields__)
+    if unknown:
+        names = ", ".join(sorted(unknown))
+        raise ValueError(f"unsupported TurtleRules configuration: {names}")
+    return TurtleRules(**dict(configured_rules))
 
 
 class TurtleBacktester:
@@ -43,23 +59,31 @@ class TurtleBacktester:
         data: Mapping[str, pd.DataFrame],
         specs: Mapping[str, AssetSpec],
         rules: TurtleRules | None = None,
-        initial_equity: float = 100_000.0,
-        liquidate_at_end: bool = True,
-        cash_model: str = "derivative",
+        initial_equity: float | None = None,
+        liquidate_at_end: bool | None = None,
+        cash_model: str | None = None,
+        *,
+        config: BacktestConfig | None = None,
     ) -> None:
+        self.config = config or BacktestConfig()
         self.specs = dict(specs)
-        self.rules = rules or TurtleRules()
+        self.rules = _resolve_rules(rules, self.config.rules)
         self.market_data = BacktestDataStore(data, self.rules)
         self.data = {
             symbol: symbol_data.bars
             for symbol, symbol_data in self.market_data.by_symbol.items()
         }
         self.strategy = MultiAssetTurtleStrategy(self.specs, self.rules)
-        self.initial_equity = float(initial_equity)
-        self.liquidate_at_end = liquidate_at_end
-        if cash_model not in {"derivative", "cash"}:
+        resolved_initial_equity = self.config.initial_equity if initial_equity is None else initial_equity
+        self.initial_equity = float(resolved_initial_equity)
+        if self.initial_equity <= 0:
+            raise ValueError("initial_equity must be positive")
+        self.liquidate_at_end = (
+            self.config.liquidate_at_end if liquidate_at_end is None else liquidate_at_end
+        )
+        self.cash_model = self.config.cash_model if cash_model is None else cash_model
+        if self.cash_model not in {"derivative", "cash"}:
             raise ValueError("cash_model must be 'derivative' or 'cash'")
-        self.cash_model = cash_model
 
     def run(self) -> BacktestResult:
         dates = self.market_data.calendar

@@ -20,6 +20,16 @@ class BacktestConfig:
     rules: Mapping[str, Any] = field(default_factory=dict)
     paths: Mapping[str, str] = field(default_factory=dict)
 
+    def __post_init__(self) -> None:
+        if self.initial_equity <= 0:
+            raise ValueError("initial_equity must be positive")
+        if self.cash_model not in {"derivative", "cash"}:
+            raise ValueError("cash_model must be 'derivative' or 'cash'")
+        if not isinstance(self.rules, Mapping):
+            raise ValueError("rules must be a mapping")
+        if not isinstance(self.paths, Mapping):
+            raise ValueError("paths must be a mapping")
+
 
 def load_config(path: str | Path | None = None) -> BacktestConfig:
     """Load config from YAML when available, otherwise return safe defaults.

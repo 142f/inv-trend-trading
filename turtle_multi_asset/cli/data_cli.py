@@ -6,6 +6,7 @@ import argparse
 
 from ..data.builder import DEFAULT_DATASET_DIRS, build_unified_processed_data
 from ..data.core_dataset import build_metal_tech_core_dataset
+from ..config import load_config
 from ..us_trend_alerts import TrendAlertConfig, run_us_trend_alerts
 
 
@@ -20,6 +21,11 @@ def main() -> None:
     core.add_argument("--processed-dir", default="processed_data")
     core.add_argument("--output-dir", default="processed_data")
     core.add_argument("--reports-dir", default="outputs")
+    core.add_argument(
+        "--config",
+        default=None,
+        help="Optional YAML backtest configuration (defaults to config/defaults.yaml).",
+    )
     alerts = subparsers.add_parser("us-trend-alerts", help="Scan SPY/QQQ top holdings for 20/55 day breakouts.")
     alerts.add_argument("--etfs", nargs="+", default=["SPY", "QQQ"])
     alerts.add_argument("--top-n", type=int, default=100)
@@ -44,6 +50,7 @@ def main() -> None:
             processed_dir=args.processed_dir,
             output_dir=args.output_dir,
             reports_dir=args.reports_dir,
+            backtest_config=load_config(args.config),
         )
         print("Metal + tech core build summary")
         for key, value in summary.items():

@@ -28,6 +28,7 @@ from .pipeline import (
 from ..profiles.asset_profiles import infer_asset_fields
 from ..strategy.profiles import turtle_rules
 from ..backtest.runner import TurtleBacktester
+from ..config import BacktestConfig
 from ..models.domain import AssetSpec
 
 
@@ -74,6 +75,7 @@ def build_metal_tech_core_dataset(
     processed_dir: str | Path = "processed_data",
     output_dir: str | Path = "processed_data",
     reports_dir: str | Path = "outputs",
+    backtest_config: BacktestConfig | None = None,
 ) -> dict[str, object]:
     processed_root = Path(processed_dir)
     outputs = ensure_processed_layout(output_dir)
@@ -210,6 +212,7 @@ def build_metal_tech_core_dataset(
         backtest_path=backtest_path,
         selected_frames=selected_frames,
         reports_dir=reports_dir,
+        backtest_config=backtest_config,
     )
 
     report_json_path = Path(reports_dir) / CORE_DATASET_NAME / "report.json"
@@ -310,6 +313,7 @@ def run_core_backtest_and_compare(
     backtest_path: Path,
     selected_frames: dict[str, pd.DataFrame],
     reports_dir: str | Path,
+    backtest_config: BacktestConfig | None = None,
 ) -> dict[str, object]:
     reports_root = Path(reports_dir) / CORE_DATASET_NAME
     reports_root.mkdir(parents=True, exist_ok=True)
@@ -322,8 +326,18 @@ def run_core_backtest_and_compare(
     specs = build_asset_specs(sorted(selected_frames))
     rules = turtle_rules("classic-bars")
 
-    baseline_result = TurtleBacktester(original_data, specs, rules, initial_equity=100_000.0).run()
-    rebuilt_result = TurtleBacktester(merged_data, specs, rules, initial_equity=100_000.0).run()
+    baseline_result = TurtleBacktester(
+        original_data,
+        specs,
+        rules,
+        config=backtest_config,
+    ).run()
+    rebuilt_result = TurtleBacktester(
+        merged_data,
+        specs,
+        rules,
+        config=backtest_config,
+    ).run()
 
     baseline_summary = summarize_backtest_result(baseline_result)
     rebuilt_summary = summarize_backtest_result(rebuilt_result)

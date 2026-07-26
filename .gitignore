@@ -18,5 +18,17 @@ examples/
 !examples/__init__.py
 !examples/download_mt5_data.py
 outputs/
+!outputs/
+outputs/*
+!outputs/README.md
+!outputs/us_trend_alerts/
+outputs/us_trend_alerts/*
+!outputs/us_trend_alerts/README.md
 research/
+!research/
+research/*
+!research/README.md
 processed_data/
+!processed_data/
+processed_data/*
+!processed_data/README.md
