@@ -244,6 +244,52 @@ def test_fast_skip_after_win_falls_back_to_slow_breakout() -> None:
     assert orders[0].reason == "long_5d_breakout"
 
 
+def test_fast_skip_eligibility_resets_after_virtual_loser() -> None:
+    rules = _scenario_rules(
+        fast_entry=3,
+        slow_entry=5,
+        fast_exit=2,
+        slow_exit=3,
+        n_period=3,
+        slow_system_enabled=False,
+        skip_fast_after_win=True,
+    )
+    strategy = MultiAssetTurtleStrategy({"TEST": _asset_spec()}, rules)
+    breakout = {
+        "open": 118.0,
+        "high": 122.0,
+        "low": 117.0,
+        "close": 120.0,
+        "n": 5.0,
+        "high_3": 110.0,
+        "low_3": 90.0,
+        "high_5": 115.0,
+        "low_5": 85.0,
+        "high_2": 109.0,
+        "low_2": 91.0,
+    }
+    state = PortfolioState(last_fast_trade_won={"TEST": True})
+
+    assert strategy.generate_orders({"TEST": breakout}, state, equity=10_000.0) == []
+    assert "TEST" in state.skipped_fast_trades
+
+    virtual_stop = dict(
+        breakout,
+        open=112.0,
+        high=113.0,
+        low=109.0,
+        close=111.0,
+        high_3=125.0,
+    )
+    assert strategy.generate_orders({"TEST": virtual_stop}, state, equity=10_000.0) == []
+    assert state.last_fast_trade_won["TEST"] is False
+    assert "TEST" not in state.skipped_fast_trades
+
+    orders = strategy.generate_orders({"TEST": breakout}, state, equity=10_000.0)
+    assert len(orders) == 1
+    assert orders[0].system == "fast"
+
+
 def test_exit_signal_does_not_release_risk_budget_before_fill() -> None:
     rules = _scenario_rules(
         fast_entry=3,

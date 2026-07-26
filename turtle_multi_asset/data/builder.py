@@ -50,6 +50,11 @@ def build_unified_processed_data(
             source=source.source,
             timeframe=source.timeframe,
         )
+        input_quality = validate_ohlcv_frame(
+            normalized,
+            source.symbol,
+            source.timeframe,
+        )
         cleaned = clean_ohlcv_frame(normalized)
         cleaned_name = data_filename(
             [source.symbol],
@@ -66,6 +71,12 @@ def build_unified_processed_data(
                 "source": source.source,
                 "input_path": str(source.path),
                 "cleaned_path": str(cleaned_path),
+                "input_row_count": input_quality["row_count"],
+                "input_duplicate_date_count": input_quality["duplicate_date_count"],
+                "input_null_count": input_quality["null_count"],
+                "input_non_positive_price_count": input_quality["non_positive_price_count"],
+                "input_bad_ohlc_count": input_quality["bad_ohlc_count"],
+                "rejected_row_count": int(input_quality["row_count"]) - len(cleaned),
             }
         )
         quality_rows.append(quality)

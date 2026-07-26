@@ -9,6 +9,7 @@ from .domain import (
     PortfolioState,
     Position,
     PositionUnit,
+    SkippedFastTrade,
     TurtleRules,
 )
 
@@ -21,5 +22,6 @@ __all__ = [
     "PortfolioState",
     "Position",
     "PositionUnit",
+    "SkippedFastTrade",
     "TurtleRules",
 ]

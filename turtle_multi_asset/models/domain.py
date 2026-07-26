@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import math
 from typing import Any, Mapping
 
 
@@ -32,6 +33,45 @@ class AssetSpec:
     entry_freeze_column: str | None = None
     funding_rate_column: str | None = None
     borrow_rate_column: str | None = None
+
+    def __post_init__(self) -> None:
+        if not self.symbol:
+            raise ValueError("symbol must not be empty")
+        if not self.asset_class or not self.cluster:
+            raise ValueError("asset_class and cluster must not be empty")
+        if (
+            not math.isfinite(self.point_value)
+            or not math.isfinite(self.qty_step)
+            or self.point_value <= 0
+            or self.qty_step <= 0
+        ):
+            raise ValueError("point_value and qty_step must be positive")
+        if (
+            not math.isfinite(self.min_qty)
+            or not math.isfinite(self.min_notional)
+            or self.min_qty < 0
+            or self.min_notional < 0
+        ):
+            raise ValueError("minimum quantity and notional must be non-negative")
+        if self.max_units < 1:
+            raise ValueError("max_units must be >= 1")
+        for name in (
+            "unit_1n_risk_pct",
+            "max_symbol_1n_risk_pct",
+            "max_symbol_leverage",
+        ):
+            value = getattr(self, name)
+            if not math.isfinite(value) or value <= 0:
+                raise ValueError(f"{name} must be positive")
+        if self.unit_1n_risk_pct > self.max_symbol_1n_risk_pct:
+            raise ValueError("unit risk cannot exceed the symbol risk cap")
+        if (
+            not math.isfinite(self.cost_bps)
+            or not math.isfinite(self.slippage_bps)
+            or self.cost_bps < 0
+            or self.slippage_bps < 0
+        ):
+            raise ValueError("cost and slippage must be non-negative")
 
 
 @dataclass(frozen=True)
@@ -90,8 +130,20 @@ class TurtleRules:
             "max_direction_leverage",
             "default_cluster_leverage",
         ):
-            if getattr(self, name) <= 0:
+            value = getattr(self, name)
+            if not math.isfinite(value) or value <= 0:
                 raise ValueError(f"{name} must be positive")
+        for name in ("cluster_1n_risk_pct", "cluster_leverage"):
+            mapping = getattr(self, name)
+            invalid = [
+                key
+                for key, value in mapping.items()
+                if not math.isfinite(float(value)) or float(value) <= 0
+            ]
+            if invalid:
+                raise ValueError(
+                    f"{name} values must be positive and finite: {sorted(invalid)}"
+                )
 
 
 @dataclass
@@ -168,6 +220,17 @@ class Position:
 class PortfolioState:
     positions: dict[str, Position] = field(default_factory=dict)
     last_fast_trade_won: dict[str, bool] = field(default_factory=dict)
+    skipped_fast_trades: dict[str, "SkippedFastTrade"] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class SkippedFastTrade:
+    """Virtual System 1 trade used to update eligibility after a skipped breakout."""
+
+    side: int
+    entry_price: float
+    n_at_entry: float
+    stop_price: float
 
 
 @dataclass(frozen=True)

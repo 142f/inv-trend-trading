@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+from pathlib import Path
+from unittest.mock import patch
+
 import numpy as np
 import pandas as pd
+import pytest
 
 from turtle_multi_asset.backtest import TurtleBacktester
-from turtle_multi_asset.config import BacktestConfig
+from turtle_multi_asset.config import BacktestConfig, load_config
 from turtle_multi_asset.models import AssetSpec, TurtleRules
 
 
@@ -67,3 +71,68 @@ def test_explicit_backtest_arguments_override_config() -> None:
     assert backtester.cash_model == "derivative"
     assert backtester.liquidate_at_end is True
     assert backtester.rules is explicit_rules
+
+
+def test_explicit_missing_config_fails_closed() -> None:
+    missing = Path(".definitely_missing_backtest_config.yaml")
+    assert not missing.exists()
+    with pytest.raises(FileNotFoundError, match="missing config file"):
+        load_config(missing)
+
+
+def test_unknown_config_key_is_rejected() -> None:
+    path = Path("virtual-invalid-config.yaml")
+    with (
+        patch.object(Path, "exists", return_value=True),
+        patch.object(
+            Path,
+            "read_text",
+            return_value="initial_equity: 10000\nunknown_option: true\n",
+        ),
+        pytest.raises(ValueError, match="unknown_option"),
+    ):
+        load_config(path)
+
+
+def test_evaluation_start_uses_prior_bars_for_indicator_warmup() -> None:
+    rules = TurtleRules(
+        n_period=3,
+        fast_entry=3,
+        slow_entry=5,
+        fast_exit=2,
+        slow_exit=3,
+        skip_fast_after_win=False,
+    )
+    bars = _bars()
+    evaluation_start = bars.index[15]
+    previous_close = float(bars.loc[bars.index[14], "close"])
+    bars.loc[evaluation_start, ["open", "high", "low", "close"]] = [
+        previous_close,
+        previous_close + 21.0,
+        previous_close - 1.0,
+        previous_close + 20.0,
+    ]
+    result = TurtleBacktester(
+        {"TEST": bars},
+        {"TEST": AssetSpec("TEST", "synthetic", "test")},
+        rules=rules,
+        evaluation_start=evaluation_start,
+    ).run()
+
+    assert result.equity_curve.index[0] == evaluation_start
+    assert not result.orders.empty
+    assert result.orders.iloc[0]["time"] == bars.index[16]
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"qty_step": 0.0},
+        {"cost_bps": -1.0},
+        {"max_units": 0},
+        {"point_value": float("nan")},
+    ],
+)
+def test_asset_spec_rejects_invalid_trading_parameters(kwargs) -> None:
+    with pytest.raises(ValueError):
+        AssetSpec("TEST", "synthetic", "test", **kwargs)

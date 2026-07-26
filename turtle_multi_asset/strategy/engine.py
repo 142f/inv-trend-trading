@@ -15,6 +15,7 @@ from ..models.domain import (
     Order,
     PortfolioState,
     Position,
+    SkippedFastTrade,
     TurtleRules,
 )
 from .indicators import _with_indicators
@@ -43,6 +44,11 @@ class MultiAssetTurtleStrategy:
             return []
         rows = self._rows_by_symbol(rows_by_symbol)
         active_symbols = set(rows) if tradable_symbols is None else set(tradable_symbols)
+        resolved_virtual_symbols = self._update_skipped_fast_trades(
+            rows,
+            state,
+            active_symbols,
+        )
 
         exit_orders: list[Order] = []
         blocked_symbols: set[str] = set()
@@ -61,7 +67,11 @@ class MultiAssetTurtleStrategy:
         add_candidates: list[Order] = []
         entry_candidates: list[Order] = []
         for symbol, spec in self.specs.items():
-            if symbol in blocked_symbols or symbol not in active_symbols:
+            if (
+                symbol in blocked_symbols
+                or symbol in resolved_virtual_symbols
+                or symbol not in active_symbols
+            ):
                 continue
             row = rows.get(symbol)
             if row is None:
@@ -193,35 +203,53 @@ class MultiAssetTurtleStrategy:
             short_signal_price = close
 
         if self.rules.fast_system_enabled and fast == LONG:
-            if spec.can_long and not self._skip_fast(symbol, state):
+            if spec.can_long and self._trend_filter_allows(row, LONG, signal_price):
                 level = float(row[f"high_{self.rules.fast_entry}"])
-                if not self._trend_filter_allows(row, LONG, signal_price):
-                    return None
-                return EntrySignal(
-                    symbol=symbol,
-                    side=LONG,
-                    system="fast",
-                    close=signal_price,
-                    n=n,
-                    breakout_level=level,
-                    strength=max((signal_price - level) / n, 0.0),
-                    reason=f"long_{self.rules.fast_entry}d_breakout",
-                )
+                if self._skip_fast(symbol, state):
+                    self._track_skipped_fast_trade(
+                        symbol,
+                        LONG,
+                        signal_price,
+                        n,
+                        state,
+                    )
+                else:
+                    return EntrySignal(
+                        symbol=symbol,
+                        side=LONG,
+                        system="fast",
+                        close=signal_price,
+                        n=n,
+                        breakout_level=level,
+                        strength=max((signal_price - level) / n, 0.0),
+                        reason=f"long_{self.rules.fast_entry}d_breakout",
+                    )
         if self.rules.fast_system_enabled and fast == SHORT:
-            if self.rules.allow_short and spec.can_short and not self._skip_fast(symbol, state):
+            if (
+                self.rules.allow_short
+                and spec.can_short
+                and self._trend_filter_allows(row, SHORT, short_signal_price)
+            ):
                 level = float(row[f"low_{self.rules.fast_entry}"])
-                if not self._trend_filter_allows(row, SHORT, short_signal_price):
-                    return None
-                return EntrySignal(
-                    symbol=symbol,
-                    side=SHORT,
-                    system="fast",
-                    close=short_signal_price,
-                    n=n,
-                    breakout_level=level,
-                    strength=max((level - short_signal_price) / n, 0.0),
-                    reason=f"short_{self.rules.fast_entry}d_breakout",
-                )
+                if self._skip_fast(symbol, state):
+                    self._track_skipped_fast_trade(
+                        symbol,
+                        SHORT,
+                        short_signal_price,
+                        n,
+                        state,
+                    )
+                else:
+                    return EntrySignal(
+                        symbol=symbol,
+                        side=SHORT,
+                        system="fast",
+                        close=short_signal_price,
+                        n=n,
+                        breakout_level=level,
+                        strength=max((level - short_signal_price) / n, 0.0),
+                        reason=f"short_{self.rules.fast_entry}d_breakout",
+                    )
 
         if self.rules.slow_system_enabled and slow == LONG and spec.can_long:
             level = float(row[f"high_{self.rules.slow_entry}"])
@@ -442,6 +470,68 @@ class MultiAssetTurtleStrategy:
 
     def _skip_fast(self, symbol: str, state: PortfolioState) -> bool:
         return self.rules.skip_fast_after_win and state.last_fast_trade_won.get(symbol, False)
+
+    def _track_skipped_fast_trade(
+        self,
+        symbol: str,
+        side: int,
+        entry_price: float,
+        n: float,
+        state: PortfolioState,
+    ) -> None:
+        if symbol in state.skipped_fast_trades:
+            return
+        stop_price = (
+            entry_price - self.rules.stop_n * n
+            if side == LONG
+            else entry_price + self.rules.stop_n * n
+        )
+        state.skipped_fast_trades[symbol] = SkippedFastTrade(
+            side=side,
+            entry_price=entry_price,
+            n_at_entry=n,
+            stop_price=stop_price,
+        )
+
+    def _update_skipped_fast_trades(
+        self,
+        rows: Mapping[str, Mapping[str, Any]],
+        state: PortfolioState,
+        active_symbols: set[str],
+    ) -> set[str]:
+        """Close virtual skipped trades and return symbols blocked for this bar."""
+
+        resolved: set[str] = set()
+        for symbol, tracker in list(state.skipped_fast_trades.items()):
+            if symbol not in active_symbols:
+                continue
+            row = rows.get(symbol)
+            if row is None:
+                continue
+            close = _finite_float(row.get("close"))
+            high = _finite_float(row.get("high"))
+            low = _finite_float(row.get("low"))
+            if close is None:
+                continue
+
+            exit_price: float | None = None
+            if tracker.side == LONG and low is not None and low <= tracker.stop_price:
+                exit_price = tracker.stop_price
+            elif tracker.side == SHORT and high is not None and high >= tracker.stop_price:
+                exit_price = tracker.stop_price
+            else:
+                reason = self._exit_signal(row, self.rules.fast_exit, tracker.side)
+                if reason is not None:
+                    exit_price = close
+            if exit_price is None:
+                continue
+
+            state.last_fast_trade_won[symbol] = (
+                tracker.side * (exit_price - tracker.entry_price) > 0
+            )
+            del state.skipped_fast_trades[symbol]
+            resolved.add(symbol)
+        return resolved
 
     def _breakout_signal(self, row: Mapping[str, Any], period: int, n: float) -> int | None:
         high_level = _finite_float(row.get(f"high_{period}"))

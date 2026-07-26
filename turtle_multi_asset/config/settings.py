@@ -32,26 +32,30 @@ class BacktestConfig:
 
 
 def load_config(path: str | Path | None = None) -> BacktestConfig:
-    """Load config from YAML when available, otherwise return safe defaults.
+    """Load and strictly validate a YAML backtest configuration."""
 
-    PyYAML is intentionally optional so importing the package does not require
-    extra dependencies in test or minimal runtime environments.
-    """
-
+    explicit_path = path is not None
     if path is None:
         path = Path(__file__).with_name("defaults.yaml")
     path = Path(path)
     if not path.exists():
+        if explicit_path:
+            raise FileNotFoundError(f"missing config file: {path}")
         return BacktestConfig()
 
     try:
         import yaml  # type: ignore
-    except ImportError:
-        return BacktestConfig()
+    except ImportError as exc:
+        raise RuntimeError(
+            f"PyYAML is required to load backtest configuration: {path}"
+        ) from exc
 
     raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
     if not isinstance(raw, dict):
         raise ValueError(f"config file must contain a mapping: {path}")
     allowed = set(BacktestConfig.__dataclass_fields__)
-    values = {key: value for key, value in raw.items() if key in allowed}
-    return BacktestConfig(**values)
+    unknown = set(raw) - allowed
+    if unknown:
+        names = ", ".join(sorted(unknown))
+        raise ValueError(f"unsupported backtest configuration keys: {names}")
+    return BacktestConfig(**raw)

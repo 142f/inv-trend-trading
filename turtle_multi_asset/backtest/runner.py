@@ -64,6 +64,7 @@ class TurtleBacktester:
         cash_model: str | None = None,
         *,
         config: BacktestConfig | None = None,
+        evaluation_start: str | pd.Timestamp | None = None,
     ) -> None:
         self.config = config or BacktestConfig()
         self.specs = dict(specs)
@@ -84,9 +85,20 @@ class TurtleBacktester:
         self.cash_model = self.config.cash_model if cash_model is None else cash_model
         if self.cash_model not in {"derivative", "cash"}:
             raise ValueError("cash_model must be 'derivative' or 'cash'")
+        self.evaluation_start = (
+            None
+            if evaluation_start is None
+            else _as_utc_timestamp(evaluation_start)
+        )
 
     def run(self) -> BacktestResult:
         dates = self.market_data.calendar
+        if self.evaluation_start is not None:
+            dates = [date for date in dates if date >= self.evaluation_start]
+            if not dates:
+                raise ValueError(
+                    "evaluation_start is after the available market data"
+                )
         cash = self.initial_equity
         state = PortfolioState()
         pending_orders: list[Order] = []
@@ -596,6 +608,13 @@ class TurtleBacktester:
 def _trade_cost(qty: float, price: float, spec: AssetSpec) -> float:
     notional = abs(qty * price * spec.point_value)
     return notional * (spec.cost_bps + spec.slippage_bps) / 10000.0
+
+
+def _as_utc_timestamp(value: str | pd.Timestamp) -> pd.Timestamp:
+    timestamp = pd.Timestamp(value)
+    if timestamp.tzinfo is None:
+        return timestamp.tz_localize("UTC")
+    return timestamp.tz_convert("UTC")
 
 
 def _exit_type(reason: str) -> str:

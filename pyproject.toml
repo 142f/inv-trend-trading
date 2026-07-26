@@ -1,0 +1,43 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "inv-trend-trading"
+version = "0.1.0"
+description = "Multi-asset Turtle trend-following research system"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "numpy>=1.26,<3",
+  "pandas>=2.2,<4",
+  "PyYAML>=6,<7",
+]
+
+[project.optional-dependencies]
+okx = [
+  "python-dotenv>=1,<2",
+  "python-okx>=0.4.1,<0.5",
+  "websockets>=12,<16",
+]
+mt5 = [
+  "MetaTrader5>=5.0.45; platform_system == 'Windows'",
+]
+test = [
+  "coverage>=7,<8",
+  "pytest>=8,<10",
+  "ruff>=0.8,<1",
+]
+
+[project.scripts]
+turtle-data = "turtle_multi_asset.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["turtle_multi_asset*"]
+
+[tool.setuptools.package-data]
+"turtle_multi_asset.config" = ["defaults.yaml"]
+
+[tool.ruff]
+target-version = "py310"
+line-length = 100
