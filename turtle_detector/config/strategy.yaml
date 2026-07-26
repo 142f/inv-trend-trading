@@ -1,0 +1,20 @@
+strategy:
+  atr_period: 20
+  system1_entry: 20
+  system2_entry: 55
+  system1_exit: 10
+  system2_exit: 20
+  confirmation_mode: close
+  skip_system1_after_win: true
+  stop_atr: 2.0
+  pyramid_step_atr: 0.5
+  max_additions: 3
+  stop_mode: unified
+  approaching_atr: 0.25
+  overextended_atr: 1.5
+  retest_tolerance_atr: 0.25
+  false_breakout_bars: 3
+  max_holding_bars: 0
+  volatility_lookback: 120
+  volume_filter: false
+  trend_filter: false

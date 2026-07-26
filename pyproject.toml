@@ -31,12 +31,14 @@ test = [
 
 [project.scripts]
 turtle-data = "turtle_multi_asset.cli:main"
+turtle-detect = "turtle_detector.cli:main"
 
 [tool.setuptools.packages.find]
-include = ["turtle_multi_asset*"]
+include = ["turtle_multi_asset*", "turtle_detector*"]
 
 [tool.setuptools.package-data]
 "turtle_multi_asset.config" = ["defaults.yaml"]
+"turtle_detector.config" = ["*.yaml"]
 
 [tool.ruff]
 target-version = "py310"
