@@ -1,0 +1,53 @@
+instruments:
+  BTC:
+    source_symbol: BTCUSDT
+    asset_class: crypto
+    market: binance_spot
+    instrument_type: spot
+    quote_currency: USDT
+    timezone: UTC
+    session: 24x7
+    primary_source: binance
+    fallback_sources: []
+    cross_validation_sources: []
+    earliest_valid_date: "2017-08-17"
+    license: Binance API terms
+  ETH:
+    source_symbol: ETHUSDT
+    asset_class: crypto
+    market: binance_spot
+    instrument_type: spot
+    quote_currency: USDT
+    timezone: UTC
+    session: 24x7
+    primary_source: binance
+    fallback_sources: []
+    cross_validation_sources: []
+    earliest_valid_date: "2017-08-17"
+    license: Binance API terms
+  XAU:
+    source_symbol: XAUUSD_DUKAS
+    asset_class: precious_metal
+    market: dukascopy_otc
+    instrument_type: cfd
+    quote_currency: USD
+    timezone: UTC
+    session: 24x5
+    primary_source: licensed_csv
+    fallback_sources: []
+    cross_validation_sources: []
+    earliest_valid_date: "2000-01-01"
+    license: configured vendor terms
+  XAG:
+    source_symbol: XAGUSD_DUKAS
+    asset_class: precious_metal
+    market: dukascopy_otc
+    instrument_type: cfd
+    quote_currency: USD
+    timezone: UTC
+    session: 24x5
+    primary_source: licensed_csv
+    fallback_sources: []
+    cross_validation_sources: []
+    earliest_valid_date: "2000-01-01"
+    license: configured vendor terms

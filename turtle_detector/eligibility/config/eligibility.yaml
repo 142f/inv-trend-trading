@@ -1,0 +1,76 @@
+# 海龟交易前置条件审查配置
+# 按资产类别分组，每类资产的阈值可独立配置
+
+liquidity:
+  min_daily_volume_usd: 50000000
+  max_spread_bps: 50
+  min_turnover_ratio: 0.01
+  max_estimated_slippage_bps: 30
+  estimated_spread_bps: 10
+  max_market_impact_pct: 0.01
+
+volatility:
+  min_atr_pct: 0.005
+  max_atr_pct: 0.10
+  min_atr_percentile: 0.10
+  max_atr_percentile: 0.90
+  max_gap_atr: 1.5
+  max_chase_distance_atr: 1.0
+  max_stop_distance_atr: 3.0
+
+market_regime:
+  trend_ma_short: 60
+  trend_ma_long: 120
+  adx_threshold: 20
+  adx_strong_threshold: 30
+  donchian_width_percentile_low: 0.20
+  donchian_width_percentile_high: 0.80
+  false_breakout_lookback: 20
+
+breakout_quality:
+  min_close_location: 0.60
+  max_wick_ratio: 0.50
+  min_breakout_magnitude_atr: 0.10
+  volume_confirmation_ratio: 1.0
+  max_overextended_atr: 1.5
+  retest_tolerance_atr: 0.25
+
+risk_budget:
+  single_trade_risk_pct: 0.01
+  max_symbol_risk_pct: 0.04
+  max_asset_class_risk_pct: 0.12
+  max_portfolio_risk_pct: 0.25
+  max_drawdown_pct: 0.25
+  max_consecutive_losses: 5
+  min_position_size: 0
+  risk_reduction_after_losses: 0.5
+
+correlation:
+  high_correlation: 0.70
+  risk_group_max_exposure_pct: 0.15
+  max_same_direction_signals: 3
+
+event_risk:
+  earnings_blackout_days: 3
+  fomc_blackout_hours: 24
+  economic_data_blackout_hours: 4
+  max_funding_rate: 0.001
+  max_open_interest_change_pct: 0.20
+
+backtest:
+  min_data_years: 3.0
+  min_trades: 30
+  min_sharpe: 0.3
+  max_drawdown_pct: 0.35
+  min_calmar: 0.3
+  max_false_breakout_rate: 0.40
+  max_consecutive_losses: 8
+
+data:
+  require_adjustment: false
+  require_contract_roll_handling: false
+  session: "24x7"
+  min_history_bars: 250
+  max_missing_ratio: 0.02
+  exchange_whitelist: []
+  forbidden_mixing: []

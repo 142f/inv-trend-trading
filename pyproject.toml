@@ -11,6 +11,7 @@ requires-python = ">=3.10"
 dependencies = [
   "numpy>=1.26,<3",
   "pandas>=2.2,<4",
+  "pyarrow>=15,<22",
   "PyYAML>=6,<7",
 ]
 
@@ -32,13 +33,15 @@ test = [
 [project.scripts]
 turtle-data = "turtle_multi_asset.cli:main"
 turtle-detect = "turtle_detector.cli:main"
+market-data = "historical_data.cli:main"
 
 [tool.setuptools.packages.find]
-include = ["turtle_multi_asset*", "turtle_detector*"]
+include = ["turtle_multi_asset*", "turtle_detector*", "historical_data*"]
 
 [tool.setuptools.package-data]
 "turtle_multi_asset.config" = ["defaults.yaml"]
 "turtle_detector.config" = ["*.yaml"]
+"historical_data.config" = ["*.yaml"]
 
 [tool.ruff]
 target-version = "py310"
