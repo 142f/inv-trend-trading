@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Mapping
 
 import numpy as np
@@ -19,6 +19,10 @@ from ..models.domain import (
     PositionUnit,
     TurtleRules,
 )
+from ..models.order_intent import PendingOrderIntent, ReservationBook
+from ..risk.expiry import ExpiryPolicy
+from ..risk.fill_guard import FillRiskGuard
+from ..strategy.budget_policy import PortfolioBudgetPolicy
 from ..strategy.engine import MultiAssetTurtleStrategy
 from .metrics import compute_backtest_metrics
 from ..config import BacktestConfig
@@ -101,18 +105,22 @@ class TurtleBacktester:
                 )
         cash = self.initial_equity
         state = PortfolioState()
-        pending_orders: list[Order] = []
+        reservations = ReservationBook()
+        fill_guard = FillRiskGuard(PortfolioBudgetPolicy(self.rules, self.specs))
+        expiry = ExpiryPolicy()
         equity_points: list[tuple[pd.Timestamp, float]] = []
         order_rows: list[dict] = []
         trade_rows: list[dict] = []
         trade_detail_rows: list[dict] = []
 
         for date in dates:
-            cash, pending_orders = self._execute_orders(
+            cash = self._execute_pending_intents(
                 date,
-                pending_orders,
                 cash,
                 state,
+                reservations,
+                fill_guard,
+                expiry,
                 order_rows,
                 trade_rows,
                 trade_detail_rows,
@@ -146,10 +154,25 @@ class TurtleBacktester:
                 equity,
                 tradable_symbols=self.market_data.tradable_symbols(date),
             )
-            pending_symbols = {order.symbol for order in pending_orders}
-            pending_orders.extend(
-                order for order in new_orders if order.symbol not in pending_symbols
-            )
+            pending_symbols = {intent.order.symbol for intent in reservations.intents.values()}
+            for order in new_orders:
+                if order.symbol in pending_symbols:
+                    continue
+                spec = self.specs[order.symbol]
+                reservations.reserve(PendingOrderIntent(
+                    order=order,
+                    created_at=date.isoformat(),
+                    signal_bar_time=date.isoformat(),
+                    entry_period=self.rules.fast_entry if order.system == "fast" else self.rules.slow_entry,
+                    breakout_level=float(order.metadata.get("breakout_level", order.signal_price)),
+                    requested_qty=order.qty,
+                    reserved_risk=order.risk_1n_pct if order.action in {"open", "add"} else 0.0,
+                    reserved_notional=(
+                        abs(order.qty * order.signal_price * spec.point_value) / equity
+                        if order.action in {"open", "add"} and equity > 0 else 0.0
+                    ),
+                    eligible_from=None,
+                ))
 
         equity_curve = pd.Series(
             [point[1] for point in equity_points],
@@ -166,6 +189,98 @@ class TurtleBacktester:
             orders=orders,
             metrics=compute_backtest_metrics(equity_curve, trades),
         )
+
+    def _execute_pending_intents(
+        self,
+        date: pd.Timestamp,
+        cash: float,
+        state: PortfolioState,
+        reservations: ReservationBook,
+        fill_guard: FillRiskGuard,
+        expiry: ExpiryPolicy,
+        order_rows: list[dict],
+        trade_rows: list[dict],
+        trade_detail_rows: list[dict],
+    ) -> float:
+        """Fill at this bar's open, using no current-bar close for risk checks."""
+        prices_at_open = {
+            symbol: float(row["open"])
+            for symbol in self.specs
+            if (row := self.market_data.row_at_date(symbol, date)) is not None
+            and np.isfinite(float(row["open"])) and float(row["open"]) > 0
+        }
+        equity_at_open = self._mark_equity_at_open(cash, state, prices_at_open)
+        for intent_id, intent in list(reservations.intents.items()):
+            row = self.market_data.row_at_date(intent.order.symbol, date)
+            if row is None:
+                continue
+            fill_price = float(row["open"])
+            if not np.isfinite(fill_price) or fill_price <= 0:
+                continue
+            expiry_result = expiry.check_before_fill(
+                intent, self.market_data.row_at_previous(intent.order.symbol, date), fill_price
+            )
+            if expiry_result.status != "pending":
+                intent.status = expiry_result.status
+                intent.resolution = expiry_result.reason
+                intent.resolved_at = date.isoformat()
+                order_rows.append({
+                    **self._order_row(date, intent.order, fill_price, 0.0, self.specs[intent.order.symbol]),
+                    "status": intent.status,
+                    "resolution": intent.resolution,
+                    "intent_id": intent.intent_id,
+                })
+                reservations.release(intent_id)
+                continue
+            order = intent.order
+            if order.action in {"open", "add"}:
+                decision = fill_guard.validate(
+                    intent, fill_price, state, reservations, equity_at_open, prices_at_open
+                )
+                if not decision.allowed:
+                    intent.status = "rejected"
+                    intent.resolution = decision.reason
+                    intent.resolved_at = date.isoformat()
+                    order_rows.append({
+                        **self._order_row(date, order, fill_price, 0.0, self.specs[order.symbol]),
+                        "status": intent.status,
+                        "resolution": intent.resolution,
+                        "intent_id": intent.intent_id,
+                    })
+                    reservations.release(intent_id)
+                    continue
+                intent.approved_qty = decision.approved_qty
+                order = replace(order, qty=decision.approved_qty)
+            intent.fill_attempts_completed += 1
+            cash, unfilled = self._execute_orders(
+                date, [order], cash, state, order_rows, trade_rows, trade_detail_rows
+            )
+            if unfilled:
+                # Keep the reservation only while the exchange has not supplied
+                # a usable opening price; this branch normally cannot occur here.
+                continue
+            intent.status = "filled"
+            intent.resolved_at = date.isoformat()
+            reservations.release(intent_id)
+        return cash
+
+    def _mark_equity_at_open(
+        self,
+        cash: float,
+        state: PortfolioState,
+        prices_at_open: Mapping[str, float],
+    ) -> float:
+        equity = cash
+        for symbol, position in state.positions.items():
+            price = prices_at_open.get(symbol)
+            spec = self.specs.get(symbol)
+            if price is None or spec is None:
+                continue
+            if self.cash_model == "cash":
+                equity += position.market_value(price, spec.point_value)
+            else:
+                equity += position.unrealized_pnl(price, spec.point_value)
+        return float(equity)
 
     def _execute_orders(
         self,

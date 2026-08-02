@@ -6,21 +6,20 @@ __pycache__/
 *.py[cod]
 .pytest_cache/
 
-# 本地虚拟环境
+# 本地虚拟环境及IDE
 .venv/
 .vscode/
 .tmp/
-# Trae IDE 对话历史记录（本地开发日志，无需纳入版本控制）
 .waylog/
-# Local secrets
+
+# 本地敏感配置
 .env
-# 本地配置文件覆盖（含敏感信息，不纳入版本控制）
 *.local.*
 *.secret.*
 *.override.*
 config.local.*
 
-# Markdown 文档（保留已跟踪的 README 和审计报告）
+# 文档（仅保留根目录和特定子目录的 README 等）
 *.md
 !README.md
 !CODE_AUDIT.md
@@ -29,13 +28,16 @@ config.local.*
 !processed_data/README.md
 !research/README.md
 
-# 回测生成输出
+# 测试目录（完全忽略）
+tests/
+test-temp/
 
-docs/
+# 示例目录（仅保留指定文件）
 examples/
-!examples/
 !examples/__init__.py
 !examples/download_mt5_data.py
+
+# 输出目录（忽略所有文件，保留目录结构和 README）
 outputs/
 !outputs/
 outputs/*
@@ -43,6 +45,8 @@ outputs/*
 !outputs/us_trend_alerts/
 outputs/us_trend_alerts/*
 !outputs/us_trend_alerts/README.md
+
+# 研究目录（忽略所有文件，保留目录结构和特定脚本）
 research/
 !research/
 research/*
@@ -58,6 +62,8 @@ research/strategy_variants/*
 !research/strategy_variants/__init__.py
 !research/strategy_variants/scripts/
 !research/strategy_variants/scripts/*.py
+
+# 处理数据目录（忽略所有文件，保留 README）
 processed_data/
 !processed_data/
 processed_data/*

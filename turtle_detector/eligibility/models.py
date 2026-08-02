@@ -21,6 +21,15 @@ class EligibilityStatus(str, Enum):
     SUSPENDED = "SUSPENDED"
 
 
+class EligibilityVerdict(str, Enum):
+    """Whether a non-eligible candidate may be evaluated again later."""
+
+    ACCEPT = "accept"
+    REJECT_TERMINAL = "reject_terminal"
+    DEFER_RETRYABLE = "defer_retryable"
+    OBSERVE = "observe"
+
+
 class SignalReadiness(str, Enum):
     """数据就绪状态。"""
 
@@ -35,6 +44,8 @@ class SignalReadiness(str, Enum):
     BACKTEST_VALIDATED = "backtest_validated"
     EXECUTION_READY = "execution_ready"
     TRADE_ELIGIBLE = "trade_eligible"
+    NOT_VALIDATED = "not_validated"
+    NOT_READY = "not_ready"
 
 
 class MarketRegime(str, Enum):

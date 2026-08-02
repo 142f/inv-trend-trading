@@ -49,6 +49,18 @@ class BacktestDataStore:
             return None
         return symbol_data.records[pos]
 
+    def row_at_previous(
+        self,
+        symbol: str,
+        date: pd.Timestamp,
+    ) -> Mapping[str, object] | None:
+        """Return only the bar completed before ``date``; never today's close."""
+        symbol_data = self.by_symbol.get(symbol)
+        if symbol_data is None:
+            return None
+        pos = int(symbol_data.index.searchsorted(date, side="left")) - 1
+        return None if pos < 0 else symbol_data.records[pos]
+
     def snapshots_through(self, date: pd.Timestamp) -> dict[str, Mapping[str, object]]:
         positions = self._last_positions_by_date.get(date, {})
         return {

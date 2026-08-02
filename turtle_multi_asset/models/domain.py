@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 import math
+from types import MappingProxyType
 from typing import Any, Mapping
 
 
@@ -144,6 +145,10 @@ class TurtleRules:
                 raise ValueError(
                     f"{name} values must be positive and finite: {sorted(invalid)}"
                 )
+        # A frozen dataclass alone does not freeze dictionaries supplied by the
+        # caller.  Snapshot them so rule fingerprints and run manifests remain stable.
+        object.__setattr__(self, "cluster_1n_risk_pct", MappingProxyType(dict(self.cluster_1n_risk_pct)))
+        object.__setattr__(self, "cluster_leverage", MappingProxyType(dict(self.cluster_leverage)))
 
 
 @dataclass

@@ -36,7 +36,14 @@ turtle-detect = "turtle_detector.cli:main"
 market-data = "historical_data.cli:main"
 
 [tool.setuptools.packages.find]
-include = ["turtle_multi_asset*", "turtle_detector*", "historical_data*"]
+include = [
+  "turtle_multi_asset*",
+  "turtle_detector*",
+  "historical_data*",
+  "inv_trend_core*",
+  "inv_trend_application*",
+  "inv_trend_observability*",
+]
 
 [tool.setuptools.package-data]
 "turtle_multi_asset.config" = ["defaults.yaml"]

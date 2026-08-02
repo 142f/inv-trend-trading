@@ -8,18 +8,19 @@
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field, replace
-from typing import Any, Mapping
+from dataclasses import dataclass, field
+from typing import Any
 
 import numpy as np
 import pandas as pd
 
-from ..models import AssetConfig, Direction, SignalType, TurtleSignal
+from ..models import AssetConfig, SignalType, TurtleSignal
 from .models import (
     BlockedReason,
     BreakoutQuality,
     EligibilityResult,
     EligibilityStatus,
+    EligibilityVerdict,
     EligibilityThresholds,
     MarketRegime,
     RiskLevel,
@@ -28,6 +29,14 @@ from .models import (
 from .thresholds import get_risk_group, get_thresholds_for_market
 
 LOGGER = logging.getLogger(__name__)
+
+_RETRYABLE_BLOCKS = {
+    BlockedReason.ACCOUNT_NOT_SYNCED,
+    BlockedReason.API_NOT_CONNECTED,
+    BlockedReason.DATA_INCOMPLETE,
+    BlockedReason.BAR_NOT_CLOSED,
+    BlockedReason.MARKET_CLOSED,
+}
 
 
 @dataclass
@@ -81,6 +90,7 @@ class TradeEligibilityChecker:
         account: AccountSnapshot | None = None,
         backtest_validated: bool = False,
         execution_ready: bool = False,
+        require_account: bool = False,
     ) -> EligibilityResult:
         """执行完整的前置条件审查。
 
@@ -155,6 +165,9 @@ class TradeEligibilityChecker:
         portfolio_risk_passed = SignalReadiness.PORTFOLIO_RISK_PASSED
         position_size = 0.0
         risk_unit = 0.0
+        if require_account and account is None:
+            hard_blocks.append(BlockedReason.ACCOUNT_NOT_SYNCED)
+            portfolio_risk_passed = SignalReadiness.NOT_READY
         if account is not None:
             (
                 portfolio_risk_passed,
@@ -187,13 +200,13 @@ class TradeEligibilityChecker:
         backtest_ready = SignalReadiness.BACKTEST_VALIDATED
         if not backtest_validated:
             soft_warnings.append(BlockedReason.BACKTEST_NOT_VALIDATED)
-            backtest_ready = SignalReadiness.BACKTEST_VALIDATED
+            backtest_ready = SignalReadiness.NOT_VALIDATED
 
         # 11. 执行系统
         exec_ready = SignalReadiness.EXECUTION_READY
         if not execution_ready:
             soft_warnings.append(BlockedReason.API_NOT_CONNECTED)
-            exec_ready = SignalReadiness.EXECUTION_READY
+            exec_ready = SignalReadiness.NOT_READY
 
         # 12. 最终判定
         overall_score = self._compute_overall_score(
@@ -244,6 +257,14 @@ class TradeEligibilityChecker:
                 "atr_pct": signal.atr_pct,
             },
         )
+
+    @staticmethod
+    def verdict(result: EligibilityResult) -> EligibilityVerdict:
+        if result.trade_eligible:
+            return EligibilityVerdict.ACCEPT
+        if any(reason in _RETRYABLE_BLOCKS for reason in result.hard_blocks):
+            return EligibilityVerdict.DEFER_RETRYABLE
+        return EligibilityVerdict.REJECT_TERMINAL
 
     # ── 1. 数据完整性 ────────────────────────────────────────────────────
 
