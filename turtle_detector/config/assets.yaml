@@ -42,7 +42,7 @@ assets:
   - symbol: NVDA
     instrument: NVDA
     market: us_equity
-    data_source: nasdaq
+    data_source: yahoo_chart
     price_type: equity
     timeframes: [D1, W1]
     timezone: America/New_York
@@ -51,7 +51,7 @@ assets:
   - symbol: MSFT
     instrument: MSFT
     market: us_equity
-    data_source: nasdaq
+    data_source: yahoo_chart
     price_type: equity
     timeframes: [D1, W1]
     timezone: America/New_York
@@ -60,7 +60,7 @@ assets:
   - symbol: GOOGL
     instrument: GOOGL
     market: us_equity
-    data_source: nasdaq
+    data_source: yahoo_chart
     price_type: equity
     timeframes: [D1, W1]
     timezone: America/New_York
@@ -69,7 +69,7 @@ assets:
   - symbol: AMZN
     instrument: AMZN
     market: us_equity
-    data_source: nasdaq
+    data_source: yahoo_chart
     price_type: equity
     timeframes: [D1, W1]
     timezone: America/New_York
@@ -78,7 +78,7 @@ assets:
   - symbol: META
     instrument: META
     market: us_equity
-    data_source: nasdaq
+    data_source: yahoo_chart
     price_type: equity
     timeframes: [D1, W1]
     timezone: America/New_York
@@ -87,7 +87,7 @@ assets:
   - symbol: AVGO
     instrument: AVGO
     market: us_equity
-    data_source: nasdaq
+    data_source: yahoo_chart
     price_type: equity
     timeframes: [D1, W1]
     timezone: America/New_York
@@ -96,7 +96,7 @@ assets:
   - symbol: TSM
     instrument: TSM
     market: us_equity
-    data_source: nasdaq
+    data_source: yahoo_chart
     price_type: equity
     timeframes: [D1, W1]
     timezone: America/New_York
@@ -105,7 +105,7 @@ assets:
   - symbol: AMD
     instrument: AMD
     market: us_equity
-    data_source: nasdaq
+    data_source: yahoo_chart
     price_type: equity
     timeframes: [D1, W1]
     timezone: America/New_York

@@ -6,11 +6,8 @@ __pycache__/
 *.py[cod]
 .pytest_cache/
 
-# 本地虚拟环境及IDE
-.venv/
-.vscode/
-.tmp/
-.waylog/
+# 本地虚拟环境及IDE（所有 . 开头文件夹）
+.*/
 
 # 本地敏感配置
 .env
@@ -31,7 +28,7 @@ config.local.*
 # 测试目录（完全忽略）
 tests/
 test-temp/
-
+deliverables/
 # 示例目录（仅保留指定文件）
 examples/
 !examples/__init__.py
@@ -68,3 +65,7 @@ processed_data/
 !processed_data/
 processed_data/*
 !processed_data/README.md
+
+# Local immutable market-data lake
+/data/*
+!/data/README.md

@@ -13,6 +13,7 @@ def load_instruments(path: str | Path | None = None) -> dict[str, InstrumentConf
     payload = yaml.safe_load(source.read_text(encoding="utf-8"))
     result: dict[str, InstrumentConfig] = {}
     for symbol, values in payload["instruments"].items():
+        symbol = str(symbol).upper()
         values = dict(values)
         for key in ("fallback_sources", "cross_validation_sources"):
             values[key] = tuple(values.get(key, ()))

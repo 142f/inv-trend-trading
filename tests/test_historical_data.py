@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import json
 from pathlib import Path
 
 import pandas as pd
@@ -8,14 +9,18 @@ import pytest
 
 from historical_data.api import HistoricalDataService
 from historical_data.config import load_instruments
-from historical_data.models import ProviderResult, SurvivorshipBiasError
+from historical_data.models import DataLineageError, DataQualityError, InstrumentNotImplementedError, ProviderResult, SurvivorshipBiasError
+from historical_data.providers import CsvBarsProvider
 from historical_data.processing import (
     apply_equity_adjustments,
     build_back_adjusted_continuous,
     normalize_bars,
+    resample_ohlcv_session,
 )
 from historical_data.providers import QqqHoldingsCsvProvider
+from historical_data.legacy import migrate_legacy_csv
 from historical_data.storage import sha256_file
+from historical_data.storage import DataLake
 
 pytest.importorskip("pyarrow")
 UTC = timezone.utc
@@ -72,7 +77,18 @@ def test_duplicate_invalid_ohlc_and_early_crypto_are_quarantined():
     reasons = ";".join(result.quarantine["quarantine_reason"])
     assert "before_verified_history" in reasons
     assert "invalid_ohlc" in reasons
+    # Same timestamp with a different volume is a conflict, never a silent overwrite.
+    assert "conflicting_duplicate" in reasons
+
+
+def test_exact_duplicate_bars_are_deduped_with_audit():
+    frame = bars().iloc[:2].copy()
+    exact = frame.copy()
+    result = normalize_bars(pd.concat([frame, exact]), load_instruments()["BTC"], "D1", "x")
+    assert result.clean["timestamp"].nunique() == len(result.clean)
+    reasons = ";".join(result.quarantine["quarantine_reason"])
     assert "duplicate_superseded" in reasons
+    assert "conflicting_duplicate" not in reasons
 
 
 def test_timezone_conversion_and_missing_detection():
@@ -116,6 +132,19 @@ def test_incremental_update_is_idempotent(tmp_path: Path):
     pd.testing.assert_frame_equal(before, after)
 
 
+def test_outside_overlap_revision_requires_review_and_keeps_current_version(tmp_path: Path):
+    service = HistoricalDataService(tmp_path, providers={"binance": FakeProvider(bars())})
+    config = service.instruments["BTC"]
+    service.instruments["BTC"] = config.__class__(**{**config.__dict__, "revision_overlap_bars": 1})
+    first = service.ingest("BTC", "D1", datetime(2024, 1, 1, tzinfo=UTC), datetime(2024, 1, 4, tzinfo=UTC))
+    revised = bars()
+    revised.loc[0, "close"] = 10
+    service.providers["binance"] = FakeProvider(revised)
+    second = service.ingest("BTC", "D1", datetime(2024, 1, 1, tzinfo=UTC), datetime(2024, 1, 4, tzinfo=UTC))
+    assert second.quality_status == "REVIEW_REQUIRED"
+    assert service.status("BTC", "D1")["version"] == first.dataset_version
+
+
 def test_qqq_snapshot_date_prevents_survivorship_bias(tmp_path: Path):
     csv = tmp_path / "holdings.csv"
     pd.DataFrame({
@@ -127,3 +156,108 @@ def test_qqq_snapshot_date_prevents_survivorship_bias(tmp_path: Path):
     assert service.load_qqq_holdings("2024-02-01").attrs["snapshot_date"] == "2024-01-31"
     with pytest.raises(SurvivorshipBiasError):
         service.load_qqq_holdings("2023-12-31")
+
+
+def test_research_data_requires_explicit_opt_in(tmp_path: Path):
+    class ResearchProvider(FakeProvider):
+        name = "yahoo_chart"
+
+        def fetch(self, request):
+            result = super().fetch(request)
+            result.source = self.name
+            result.metadata = {"research_only": True}
+            return result
+
+    service = HistoricalDataService(tmp_path, providers={"yahoo_chart": ResearchProvider(bars())})
+    service.ingest("QQQ", "D1", datetime(2024, 1, 1, tzinfo=UTC), datetime(2024, 1, 4, tzinfo=UTC))
+    with pytest.raises(DataQualityError):
+        service.load_bars("QQQ", "D1")
+    assert len(service.load_bars("QQQ", "D1", allow_research=True)) == 2
+
+
+def test_csv_provider_filters_requested_range(tmp_path: Path):
+    csv = tmp_path / "xau.csv"
+    pd.DataFrame({
+        "timestamp": ["2024-01-01", "2024-01-02", "2024-01-03"],
+        "open": [1, 2, 3], "high": [2, 3, 4], "low": [0.5, 1.5, 2.5], "close": [1.5, 2.5, 3.5],
+    }).to_csv(csv, index=False)
+    service = HistoricalDataService(tmp_path / "lake", providers={"licensed_csv": CsvBarsProvider(csv)})
+    base = service.instruments["XAU"]
+    service.instruments["XAU"] = base.__class__(**{**base.__dict__, "primary_source": "licensed_csv"})
+    manifest = service.ingest("XAU", "D1", datetime(2024, 1, 2, tzinfo=UTC), datetime(2024, 1, 2, tzinfo=UTC))
+    assert manifest.row_count == 1
+
+
+def test_reserved_instrument_raises_explicit_error(tmp_path: Path):
+    with pytest.raises(InstrumentNotImplementedError):
+        HistoricalDataService(tmp_path).load_bars("600519", "D1")
+
+
+def test_h4_resample_uses_new_york_1700_boundary():
+    frame = pd.DataFrame({
+        # 22:00 UTC is 17:00 in New York during standard time: an OTC session boundary.
+        "timestamp": pd.date_range("2024-01-01 22:00", periods=6, freq="h", tz="UTC"),
+        "open": [1, 2, 3, 4, 5, 6], "high": [2, 3, 4, 5, 6, 7],
+        "low": [0, 1, 2, 3, 4, 5], "close": [1.5, 2.5, 3.5, 4.5, 5.5, 6.5], "volume": [1] * 6,
+    })
+    out = resample_ohlcv_session(frame, "H4", session_timezone="America/New_York")
+    assert len(out) == 2
+    assert out.iloc[0]["open"] == 1
+    assert out.iloc[0]["close"] == 4.5
+
+
+def test_coverage_uses_dataset_version_quality_report(tmp_path: Path):
+    service = HistoricalDataService(tmp_path, providers={"binance": FakeProvider(bars())})
+    manifest = service.ingest("BTC", "D1", datetime(2024, 1, 1, tzinfo=UTC), datetime(2024, 1, 4, tzinfo=UTC))
+    coverage = service.coverage("BTC", "D1")
+    assert coverage["quality_report"].endswith(f"{manifest.dataset_version}.json")
+
+
+def test_review_approval_publishes_readable_curated_version(tmp_path: Path):
+    service = HistoricalDataService(tmp_path, providers={"binance": FakeProvider(bars())})
+    config = service.instruments["BTC"]
+    service.instruments["BTC"] = config.__class__(**{**config.__dict__, "revision_overlap_bars": 1})
+    service.ingest("BTC", "D1", datetime(2024, 1, 1, tzinfo=UTC), datetime(2024, 1, 4, tzinfo=UTC))
+    revised = bars()
+    revised.loc[0, "close"] = 10
+    service.providers["binance"] = FakeProvider(revised)
+    review = service.ingest("BTC", "D1", datetime(2024, 1, 1, tzinfo=UTC), datetime(2024, 1, 4, tzinfo=UTC))
+    version = service.approve_review(review.run_id, "verified", actor="test")
+    assert service.status("BTC", "D1")["version"] == version
+    assert len(service.load_bars("BTC", "D1")) == 2
+    assert any(item["decision"] == "approved" for item in service.lake.list_reviews())
+    assert service.approve_review(review.run_id, "verified", actor="test") == version
+    with pytest.raises(DataLineageError):
+        service.approve_review(review.run_id, "different reason", actor="test")
+    approval = json.loads((tmp_path / "manifests" / f"approval-{version}.json").read_text(encoding="utf-8"))
+    assert set(approval["file_paths"]) == set(approval["file_hashes"])
+    assert all(sha256_file(Path(path)) == digest for path, digest in approval["file_hashes"].items())
+
+
+def test_coverage_fails_closed_when_quality_report_is_missing(tmp_path: Path):
+    service = HistoricalDataService(tmp_path, providers={"binance": FakeProvider(bars())})
+    manifest = service.ingest("BTC", "D1", datetime(2024, 1, 1, tzinfo=UTC), datetime(2024, 1, 4, tzinfo=UTC))
+    (tmp_path / "quality_reports" / f"{manifest.dataset_version}.json").unlink()
+    with pytest.raises(DataLineageError):
+        service.coverage("BTC", "D1")
+
+
+def test_catalog_backend_conflict_fails_closed(tmp_path: Path):
+    DataLake(tmp_path)
+    active = next(tmp_path.glob("catalog.*"))
+    alternate = tmp_path / ("catalog.duckdb" if active.name == "catalog.sqlite3" else "catalog.sqlite3")
+    alternate.write_bytes(b"conflict")
+    with pytest.raises(DataLineageError):
+        DataLake(tmp_path)
+
+
+def test_legacy_migration_is_idempotent(tmp_path: Path):
+    source = tmp_path / "processed" / "cleaned"
+    source.mkdir(parents=True)
+    pd.DataFrame({"symbol": ["OLD"], "timeframe": ["D1"], "timestamp": ["2024-01-01"],
+                  "open": [1], "high": [2], "low": [0.5], "close": [1.5]}).to_csv(source / "old.csv", index=False)
+    first = migrate_legacy_csv(tmp_path / "processed", tmp_path / "lake")
+    second = migrate_legacy_csv(tmp_path / "processed", tmp_path / "lake")
+    assert first["migrated"][0]["status"] == "migrated"
+    assert second["migrated"][0]["status"] == "already_migrated"
+    assert len(HistoricalDataService(tmp_path / "lake").load_bars("OLD", "D1", allow_legacy=True, min_quality_score=10)) == 1

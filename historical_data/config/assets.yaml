@@ -1,53 +1,381 @@
 instruments:
   BTC:
+    instrument_id: BTCUSDT.BINANCE.SPOT
     source_symbol: BTCUSDT
     asset_class: crypto
     market: binance_spot
+    venue: binance
+    base_asset: BTC
+    quote_asset: USDT
     instrument_type: spot
     quote_currency: USDT
     timezone: UTC
+    session_timezone: UTC
+    bar_close_rule: provider_native
+    price_basis: last
     session: 24x7
     primary_source: binance
     fallback_sources: []
     cross_validation_sources: []
     earliest_valid_date: "2017-08-17"
     license: Binance API terms
+    revision_overlap_bars: 10
   ETH:
+    instrument_id: ETHUSDT.BINANCE.SPOT
     source_symbol: ETHUSDT
     asset_class: crypto
     market: binance_spot
+    venue: binance
+    base_asset: ETH
+    quote_asset: USDT
     instrument_type: spot
     quote_currency: USDT
     timezone: UTC
+    session_timezone: UTC
+    bar_close_rule: provider_native
+    price_basis: last
     session: 24x7
     primary_source: binance
     fallback_sources: []
     cross_validation_sources: []
     earliest_valid_date: "2017-08-17"
     license: Binance API terms
+    revision_overlap_bars: 10
   XAU:
+    instrument_id: XAUUSD.DUKAS.BID.CFD
     source_symbol: XAUUSD_DUKAS
     asset_class: precious_metal
     market: dukascopy_otc
+    venue: dukascopy_otc
+    base_asset: XAU
+    quote_asset: USD
     instrument_type: cfd
     quote_currency: USD
     timezone: UTC
+    session_timezone: America/New_York
+    bar_close_rule: ny_1700
+    price_basis: bid
     session: 24x5
-    primary_source: licensed_csv
+    primary_source: dukascopy
     fallback_sources: []
     cross_validation_sources: []
-    earliest_valid_date: "2000-01-01"
-    license: configured vendor terms
+    earliest_valid_date: "2005-01-01"
+    license: Dukascopy terms
+    revision_overlap_bars: 10
   XAG:
+    instrument_id: XAGUSD.DUKAS.BID.CFD
     source_symbol: XAGUSD_DUKAS
     asset_class: precious_metal
     market: dukascopy_otc
+    venue: dukascopy_otc
+    base_asset: XAG
+    quote_asset: USD
     instrument_type: cfd
     quote_currency: USD
     timezone: UTC
+    session_timezone: America/New_York
+    bar_close_rule: ny_1700
+    price_basis: bid
     session: 24x5
-    primary_source: licensed_csv
+    primary_source: dukascopy
     fallback_sources: []
     cross_validation_sources: []
-    earliest_valid_date: "2000-01-01"
-    license: configured vendor terms
+    earliest_valid_date: "2015-01-01"
+    license: Dukascopy terms
+    revision_overlap_bars: 10
+  QQQ:
+    instrument_id: QQQ.XNAS.ETF
+    source_symbol: QQQ
+    asset_class: equity
+    market: xnas
+    venue: xnas
+    base_asset: QQQ
+    quote_asset: USD
+    instrument_type: etf
+    quote_currency: USD
+    timezone: America/New_York
+    session_timezone: America/New_York
+    bar_close_rule: provider_native
+    price_basis: last
+    adjustment_method: provider_adjusted_close
+    session: regular
+    primary_source: yahoo_chart
+    fallback_sources: [alpha_vantage]
+    cross_validation_sources: []
+    earliest_valid_date: "1999-03-10"
+    adjustment_policy: provider_adjusted_close
+    license: Yahoo Finance terms
+    revision_overlap_bars: 10
+  SPY:
+    instrument_id: SPY.XNYS.ETF
+    source_symbol: SPY
+    asset_class: equity
+    market: xnys
+    venue: xnys
+    base_asset: SPY
+    quote_asset: USD
+    instrument_type: etf
+    quote_currency: USD
+    timezone: America/New_York
+    session_timezone: America/New_York
+    bar_close_rule: provider_native
+    price_basis: last
+    adjustment_method: provider_adjusted_close
+    session: regular
+    primary_source: yahoo_chart
+    fallback_sources: [alpha_vantage]
+    cross_validation_sources: []
+    earliest_valid_date: "1993-01-29"
+    adjustment_policy: provider_adjusted_close
+    license: Yahoo Finance terms
+    revision_overlap_bars: 10
+  NVDA:
+    instrument_id: NVDA.XNAS.EQUITY
+    source_symbol: NVDA
+    asset_class: equity
+    market: xnas
+    venue: xnas
+    base_asset: NVDA
+    quote_asset: USD
+    instrument_type: equity
+    quote_currency: USD
+    timezone: America/New_York
+    session_timezone: America/New_York
+    bar_close_rule: provider_native
+    price_basis: last
+    adjustment_method: provider_adjusted_close
+    session: regular
+    primary_source: yahoo_chart
+    fallback_sources: [alpha_vantage]
+    cross_validation_sources: []
+    earliest_valid_date: "1999-01-22"
+    adjustment_policy: provider_adjusted_close
+    license: Yahoo Finance terms
+    revision_overlap_bars: 10
+  MSFT:
+    instrument_id: MSFT.XNAS.EQUITY
+    source_symbol: MSFT
+    asset_class: equity
+    market: xnas
+    venue: xnas
+    base_asset: MSFT
+    quote_asset: USD
+    instrument_type: equity
+    quote_currency: USD
+    timezone: America/New_York
+    session_timezone: America/New_York
+    bar_close_rule: provider_native
+    price_basis: last
+    adjustment_method: provider_adjusted_close
+    session: regular
+    primary_source: yahoo_chart
+    fallback_sources: [alpha_vantage]
+    cross_validation_sources: []
+    earliest_valid_date: "1986-03-13"
+    adjustment_policy: provider_adjusted_close
+    license: Yahoo Finance terms
+    revision_overlap_bars: 10
+  GOOGL:
+    instrument_id: GOOGL.XNAS.EQUITY
+    source_symbol: GOOGL
+    asset_class: equity
+    market: xnas
+    venue: xnas
+    base_asset: GOOGL
+    quote_asset: USD
+    instrument_type: equity
+    quote_currency: USD
+    timezone: America/New_York
+    session_timezone: America/New_York
+    bar_close_rule: provider_native
+    price_basis: last
+    adjustment_method: provider_adjusted_close
+    session: regular
+    primary_source: yahoo_chart
+    fallback_sources: [alpha_vantage]
+    cross_validation_sources: []
+    earliest_valid_date: "2004-08-19"
+    adjustment_policy: provider_adjusted_close
+    license: Yahoo Finance terms
+    revision_overlap_bars: 10
+  AMZN:
+    instrument_id: AMZN.XNAS.EQUITY
+    source_symbol: AMZN
+    asset_class: equity
+    market: xnas
+    venue: xnas
+    base_asset: AMZN
+    quote_asset: USD
+    instrument_type: equity
+    quote_currency: USD
+    timezone: America/New_York
+    session_timezone: America/New_York
+    bar_close_rule: provider_native
+    price_basis: last
+    adjustment_method: provider_adjusted_close
+    session: regular
+    primary_source: yahoo_chart
+    fallback_sources: [alpha_vantage]
+    cross_validation_sources: []
+    earliest_valid_date: "1997-05-15"
+    adjustment_policy: provider_adjusted_close
+    license: Yahoo Finance terms
+    revision_overlap_bars: 10
+  META:
+    instrument_id: META.XNAS.EQUITY
+    source_symbol: META
+    asset_class: equity
+    market: xnas
+    venue: xnas
+    base_asset: META
+    quote_asset: USD
+    instrument_type: equity
+    quote_currency: USD
+    timezone: America/New_York
+    session_timezone: America/New_York
+    bar_close_rule: provider_native
+    price_basis: last
+    adjustment_method: provider_adjusted_close
+    session: regular
+    primary_source: yahoo_chart
+    fallback_sources: [alpha_vantage]
+    cross_validation_sources: []
+    earliest_valid_date: "2012-05-18"
+    adjustment_policy: provider_adjusted_close
+    license: Yahoo Finance terms
+    revision_overlap_bars: 10
+  AVGO:
+    instrument_id: AVGO.XNAS.EQUITY
+    source_symbol: AVGO
+    asset_class: equity
+    market: xnas
+    venue: xnas
+    base_asset: AVGO
+    quote_asset: USD
+    instrument_type: equity
+    quote_currency: USD
+    timezone: America/New_York
+    session_timezone: America/New_York
+    bar_close_rule: provider_native
+    price_basis: last
+    adjustment_method: provider_adjusted_close
+    session: regular
+    primary_source: yahoo_chart
+    fallback_sources: [alpha_vantage]
+    cross_validation_sources: []
+    earliest_valid_date: "2009-08-06"
+    adjustment_policy: provider_adjusted_close
+    license: Yahoo Finance terms
+    revision_overlap_bars: 10
+  TSM:
+    instrument_id: TSM.XNYS.EQUITY
+    source_symbol: TSM
+    asset_class: equity
+    market: xnys
+    venue: xnys
+    base_asset: TSM
+    quote_asset: USD
+    instrument_type: equity
+    quote_currency: USD
+    timezone: America/New_York
+    session_timezone: America/New_York
+    bar_close_rule: provider_native
+    price_basis: last
+    adjustment_method: provider_adjusted_close
+    session: regular
+    primary_source: yahoo_chart
+    fallback_sources: [alpha_vantage]
+    cross_validation_sources: []
+    earliest_valid_date: "1997-10-09"
+    adjustment_policy: provider_adjusted_close
+    license: Yahoo Finance terms
+    revision_overlap_bars: 10
+  AMD:
+    instrument_id: AMD.XNAS.EQUITY
+    source_symbol: AMD
+    asset_class: equity
+    market: xnas
+    venue: xnas
+    base_asset: AMD
+    quote_asset: USD
+    instrument_type: equity
+    quote_currency: USD
+    timezone: America/New_York
+    session_timezone: America/New_York
+    bar_close_rule: provider_native
+    price_basis: last
+    adjustment_method: provider_adjusted_close
+    session: regular
+    primary_source: yahoo_chart
+    fallback_sources: [alpha_vantage]
+    cross_validation_sources: []
+    earliest_valid_date: "1972-09-27"
+    adjustment_policy: provider_adjusted_close
+    license: Yahoo Finance terms
+    revision_overlap_bars: 10
+  AAPL:
+    instrument_id: AAPL.XNAS.EQUITY
+    source_symbol: AAPL
+    asset_class: equity
+    market: xnas
+    venue: xnas
+    base_asset: AAPL
+    quote_asset: USD
+    instrument_type: equity
+    quote_currency: USD
+    timezone: America/New_York
+    session_timezone: America/New_York
+    bar_close_rule: provider_native
+    price_basis: last
+    adjustment_method: provider_adjusted_close
+    session: regular
+    primary_source: yahoo_chart
+    fallback_sources: [alpha_vantage]
+    cross_validation_sources: []
+    earliest_valid_date: "1980-12-12"
+    adjustment_policy: provider_adjusted_close
+    license: Yahoo Finance terms
+    revision_overlap_bars: 10
+  ORCL:
+    instrument_id: ORCL.XNYS.EQUITY
+    source_symbol: ORCL
+    asset_class: equity
+    market: xnys
+    venue: xnys
+    base_asset: ORCL
+    quote_asset: USD
+    instrument_type: equity
+    quote_currency: USD
+    timezone: America/New_York
+    session_timezone: America/New_York
+    bar_close_rule: provider_native
+    price_basis: last
+    adjustment_method: provider_adjusted_close
+    session: regular
+    primary_source: yahoo_chart
+    fallback_sources: [alpha_vantage]
+    cross_validation_sources: []
+    earliest_valid_date: "1986-03-12"
+    adjustment_policy: provider_adjusted_close
+    license: Yahoo Finance terms
+    revision_overlap_bars: 10
+  600519:
+    instrument_id: 600519.SSE.EQUITY
+    source_symbol: 600519
+    asset_class: equity
+    market: sse
+    venue: sse
+    base_asset: 600519
+    quote_asset: CNY
+    instrument_type: equity
+    quote_currency: CNY
+    timezone: Asia/Shanghai
+    session_timezone: Asia/Shanghai
+    bar_close_rule: provider_native
+    session: regular
+    primary_source: baostock
+    fallback_sources: []
+    cross_validation_sources: []
+    earliest_valid_date: "2001-08-27"
+    status: RESERVED
+    license: provider terms apply

@@ -33,6 +33,7 @@ def main() -> None:
     alerts.add_argument("--cache-dir", default="processed_data/us_trend_alerts/cache")
     alerts.add_argument("--output-dir", default="outputs/us_trend_alerts")
     alerts.add_argument("--local-bars-dir", default=None)
+    alerts.add_argument("--data-root", default="data")
     alerts.add_argument("--force-refresh", action="store_true")
     alerts.add_argument("--verbose", action="store_true")
 
@@ -70,6 +71,7 @@ def main() -> None:
                 cache_dir=args.cache_dir,
                 output_dir=args.output_dir,
                 local_bars_dir=args.local_bars_dir,
+                data_root=args.data_root,
                 force_refresh=args.force_refresh,
             )
         )

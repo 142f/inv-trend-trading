@@ -49,6 +49,8 @@ class TrendAlertConfig:
     cache_dir: Path = Path(DEFAULT_CACHE_DIR)
     output_dir: Path = Path(DEFAULT_OUTPUT_DIR)
     local_bars_dir: Path | None = None
+    data_root: Path = Path("data")
+    allow_research_data: bool = True
     force_refresh: bool = False
     request_sleep_seconds: float = 0.15
     yahoo_timeout_seconds: int = 20
@@ -57,6 +59,7 @@ class TrendAlertConfig:
     def __post_init__(self) -> None:
         object.__setattr__(self, "cache_dir", Path(self.cache_dir))
         object.__setattr__(self, "output_dir", Path(self.output_dir))
+        object.__setattr__(self, "data_root", Path(self.data_root))
         if self.local_bars_dir is not None:
             object.__setattr__(self, "local_bars_dir", Path(self.local_bars_dir))
         if self.top_n < 1:
@@ -165,6 +168,15 @@ def fetch_daily_bars(symbol: str, config: TrendAlertConfig) -> pd.DataFrame:
     """获取日 K 数据，优先缓存，失败时回退到已有缓存。"""
 
     symbol = _normalize_symbol(symbol)
+    try:
+        from historical_data import load_bars
+        bars = load_bars(symbol, "D1", root=config.data_root, allow_research=config.allow_research_data)
+        return _normalize_bars(bars.rename(columns={"timestamp": "date"}), symbol)
+    except (FileNotFoundError, KeyError):
+        # The legacy cache/download route remains only for symbols not yet registered
+        # in the P0 research registry; registered instruments must be refreshed by
+        # the market-data CLI so they retain immutable lineage.
+        pass
     cache_path = config.cache_dir / "bars" / f"{symbol}.csv"
     local_path = Path(config.local_bars_dir) / f"{symbol}.csv" if config.local_bars_dir else None
     if local_path and local_path.exists() and not config.force_refresh:

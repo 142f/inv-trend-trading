@@ -17,26 +17,61 @@
 ## 数据流和存储
 
 ```text
-provider -> immutable raw -> normalize/validate
-         -> quarantine + audit flags
-         -> partitioned normalized parquet
-         -> quality report + manifest + SQLite catalog
+provider adapter -> immutable raw (payload + parsed frame, 双写)
+   -> normalize/validate -> quarantine + audit flags
+   -> partitioned normalized parquet (zstd, 原子提交)
+   -> quality report + manifest + DuckDB/SQLite catalog
 ```
 
 目录为：
 
 ```text
 data/
-  raw/{asset_class}/{symbol}/{run_id}.parquet
-  normalized/{d1|h4|h1}/asset_class=.../symbol=.../timeframe=.../year=.../
+  raw/provider=.../instrument=.../request_date=YYYY-MM-DD/{run_id}.{parquet,json}
+  normalized/asset_class=.../instrument=.../timeframe=.../year=.../part-*.parquet
   reference/qqq_holdings/snapshot_date=YYYY-MM-DD/top20.parquet
-  manifests/{symbol}/{timeframe}/{run_id}.json
-  quality_reports/{symbol}/{timeframe}/{run_id}.json
-  quarantine/{symbol}/{timeframe}/{run_id}.parquet
-  catalog.sqlite3
+  manifests/{run_id}.json
+  quality_reports/{dataset_version}.json
+  quarantine/run_id={run_id}/rows.parquet
+  reviews/candidate={run_id}/bars.parquet
+  catalog.sqlite3 | catalog.duckdb (+ catalog_backend.json 标记)
 ```
 
-原始文件按内容生成 `run_id`，只读、不可覆盖。Manifest 记录来源、请求/实际品种、范围、频率、行数、路径、SHA-256、许可、缺失、异常、清洗版本与质量结论。异常不会被静默删除：无效数据进入 quarantine，极端跳变保留在标准化数据并标记人工复核。
+原始响应（payload）与 provider 解析后的原始 frame 都按 `run_id` 只读落盘，
+绝不覆盖；`market-data reprocess --run-id ...` 可在不联网的情况下从 Raw 重跑
+预处理，内容寻址保证复现完全相同的 dataset_version。所有 Parquet 使用 zstd
+压缩并通过临时文件 + fsync + 原子改名提交，进程中断不会留下半成品。
+
+`HistoricalDataService.update()` 先计算缺失区间（尾部 + 24×7 品种的内部缺口），
+只下载真正缺失的区间，重复执行幂等：无缺失时直接返回当前版本的 manifest，
+不产生任何网络请求。`update-gaps` 仅补齐内部缺口，`missing` 命令只读展示
+缺失区间。
+
+Catalog（datasets 表）记录 run_id、symbol、instrument_id、timeframe、source、
+status、version、asset_class、start_time、end_time、row_count、schema_version、
+checksum、raw_source、created_at、updated_at，保证 Dataset→Raw→Provider
+血缘可追溯；旧库在首次打开时自动迁移新增列。
+
+Curated 层只发布 `is_complete == True` 的完整 K 线（当天未收盘 D1 不进入正式
+回测数据）；Quality Report 同时记录 stored/complete/incomplete 行数与
+latest_stored_bar/latest_complete_bar，`backtest_suitable` 仅按完整 K 线视图
+判定。`market-data audit --symbols ...` 独立复算全部统计（不信任已有报告），
+`market-data verify` 审计 Catalog 行、Manifest、Curated 文件与 hash 链，
+并单独列出 legacy 污染的 current 指针。
+
+去重是冲突检测而非静默 `keep="last"`：完全相同（timestamp+OHLCV）→ 去重并
+记入 audit；相同 timestamp 但 OHLCV 不同 → `CONFLICTING_DUPLICATE` →
+REVIEW_REQUIRED（写入 reviews/ 候选，不推进 current）。Repository 读取正式
+Curated 时若仍检测到冲突抛 `DataConflictError`。
+
+美股/ETF（xnas/xnys）的缺失按 NYSE 交易日历分类：weekend/holiday 不计缺失，
+真实交易日缺失记为 provider_gap，halt 标记为 UNKNOWN。加密资产（24x7）要求
+日线连续：缺一天即质量失败（QUARANTINED）。stock instrument 请求早于上市日
+的时间不算缺失。
+
+Provider 适配器统一实现 `fetch / fetch_range / normalize_symbol /
+validate_response`；HTTP 请求带超时、指数退避重试，429/5xx 遵循
+Retry-After 退避。
 
 ## 使用
 
@@ -49,8 +84,17 @@ market-data download --symbol BTC --timeframe D1 `
 受许可金属 CSV：
 
 ```powershell
-market-data download --symbol XAU --timeframe D1 `
-  --start 2000-01-01T00:00:00Z --csv C:\licensed\xau.csv
+market-data download --symbol BTC --timeframe D1 `
+  --start 2017-08-17T00:00:00Z --root data
+```
+
+增量与缺口管理：
+
+```powershell
+market-data update --symbol BTC --timeframe D1 --root data
+market-data missing --symbol BTC --timeframe D1 --root data
+market-data update-gaps --symbol BTC --timeframe D1 --root data
+market-data reprocess --symbol BTC --timeframe D1 --run-id <run_id> --root data
 ```
 
 QQQ 快照：
@@ -69,11 +113,11 @@ bars = load_bars("BTC", "D1", adjusted=True, root="data")
 # timestamp 升序唯一、仅完整 K 线；attrs 含来源、复权口径、质量报告路径
 ```
 
-`HistoricalDataService.update()` 从本地末尾向前重查 5 根 K 线，失败重试并按配置切换备用源；内容寻址分区与读取时去重使重复更新幂等。股票 `adjusted=True` 会按 `adjusted_close / close` 同步调整 OHLC，避免拆股形成虚假突破。
+`HistoricalDataService.update()` 从本地末尾向前重查 5 根 K 线，失败重试并按配置切换备用源；内容寻址分区与读取时去重使重复更新幂等。股票 `adjusted=True` 会按 `adjusted_close / close` 同步调整 OHLC，避免拆股形成虚假突破。质量评估按请求区间计算理论 K 线数：只有实际数据首尾的"部分下载"会被如实判定为缺失并隔离，未收盘的尾部边界不计缺失。
 
 ## 质量和实施阶段
 
-- P0（已实现）：统一 Schema、Binance/CSV 下载、真实历史下限、清洗隔离、Parquet、Manifest、质量报告、SQLite 索引、增量更新、统一读取、QQQ 快照日期保护、复权和期货换月工具。
+- P0（已实现）：统一 Schema、Provider 适配器（重试/限流/响应校验）、Binance/CSV 下载、真实历史下限、清洗隔离、Parquet(zstd)+原子写入、Manifest、质量报告、DuckDB/SQLite 索引、缺失区间增量更新、统一读取、Raw 重放预处理、QQQ 快照日期保护、复权和期货换月工具。
 - P1：部署持牌 Nasdaq/贵金属账户适配器，补齐交易所节假日日历、公司行动和历史 QQQ 快照，并配置真实备用源交叉验证。
 - P2：任务调度、数据延迟监控、供应商 SLA、对象存储镜像和全量历史回填审计。
 
