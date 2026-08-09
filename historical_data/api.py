@@ -13,7 +13,7 @@ import pandas as pd
 
 from .config import load_instruments
 from .models import (
-    DataLineageError, DataQualityError, DownloadRequest,
+    DataLineageError, DataQualityError, DatasetManifest, DownloadRequest,
     InstrumentConfig, Manifest, ProviderResult, SurvivorshipBiasError,
     path_text, utc_now,
 )
@@ -97,12 +97,13 @@ class HistoricalDataService:
         normalized_paths = self.lake.write_normalized(clean, instrument.asset_class, instrument.instrument_id, timeframe)
         if not normalized.quarantine.empty:
             self.lake.write_frame(normalized.quarantine, Path("quarantine") / f"run_id={request_id}" / "rows.parquet")
-        combined, conflicts = self._merge_current(instrument.symbol, timeframe, clean)
+        combined, conflicts, rejected_incoming = self._merge_current(instrument.symbol, timeframe, clean)
         full_result = NormalizationResult(combined, pd.DataFrame(), normalized.audit, 0, 0,
                                           int(combined.get("quality_flags", pd.Series(dtype=str)).astype(str).str.contains("extreme_jump_review").sum()),
                                           len(conflicts))
         quality = assess_quality(full_result, instrument, timeframe, provider=result.source,
                                  requested_start=start, requested_end=end)
+        quality.provider_available_start = str(result.metadata.get("provider_available_start", ""))
         status = "RESEARCH_ONLY" if result.metadata.get("research_only") else "CURATED"
         quality_ok = quality.quality_score >= 50 and quality.backtest_suitable
         if outside_window_revisions or conflicts:
@@ -125,8 +126,14 @@ class HistoricalDataService:
             and bool((~existing_curated["is_complete"].astype(bool)).any())
         )
         complete_mask = combined["is_complete"].astype(bool) if len(combined) else pd.Series(dtype=bool)
+        complete_count = int(complete_mask.sum())
+        # A rule upgrade (RULE_VERSION) must re-derive the content-addressed
+        # version even when the bar content itself is unchanged.
+        current_manifest = self._current_manifest(instrument.symbol, timeframe)
+        current_rule_matches = current_manifest is not None and current_manifest.cleaning_rule_version == RULE_VERSION
         unchanged_replay = (
-            bool(complete_mask.any())
+            complete_count > 0
+            and current_rule_matches
             and request_id not in set(combined.loc[complete_mask, "request_id"].astype(str))
             and not legacy_partial_in_current
         )
@@ -140,42 +147,139 @@ class HistoricalDataService:
         combined["quality_score"] = quality.quality_score
         combined["quality_status"] = status
         quality.quality_status = status
-        curated_view = combined.loc[complete_mask] if complete_mask.any() else combined
+        # P0: Curated must never fall back to publishing incomplete bars.  With
+        # zero complete bars the dataset cannot be published at all.
+        if complete_count == 0:
+            publishable = False
+            if status not in {"REVIEW_REQUIRED"}:
+                status = "QUARANTINED"
+                quality.quality_status = status
+        curated_view = combined.loc[complete_mask] if complete_count else combined.iloc[0:0]
+        current_pointer = self.lake.current_version(instrument.symbol, timeframe)
+        parent_dataset_version = str(current_pointer["version"]) if current_pointer else None
+        is_new_dataset = parent_dataset_version != dataset_version
         curated_path: Path | None = None
-        if publishable:
+        dataset_manifest_path: Path | None = None
+        if publishable and is_new_dataset:
             curated_path = self.lake.publish_curated(
                 curated_view, symbol=instrument.symbol, instrument_id=instrument.instrument_id,
-                asset_class=instrument.asset_class, timeframe=timeframe, version=dataset_version, run_id=request_id,
+                asset_class=instrument.asset_class, timeframe=timeframe, version=dataset_version,
+                run_id=request_id, activate=False,
             )
+            dataset_quality = assess_quality(
+                NormalizationResult(curated_view, pd.DataFrame(), [], 0, 0, 0, 0),
+                instrument, timeframe, provider=result.source,
+                requested_start=curated_view["timestamp"].min().to_pydatetime(),
+                requested_end=(curated_view["timestamp"].max() + pd.Timedelta(FRAME_DELTAS[timeframe])).to_pydatetime(),
+            )
+            dataset_quality.provider_available_start = str(
+                result.metadata.get("provider_available_start", "")
+            )
+            dataset_quality.quality_status = status
+            dataset_quality_payload = dataset_quality.to_dict() | {
+                "run_id": request_id,
+                "publication_run_id": request_id,
+                "dataset_version": dataset_version,
+                "parent_dataset_version": parent_dataset_version,
+                "instrument_id": instrument.instrument_id,
+            }
+            quality_relative = Path("quality_reports") / f"{dataset_version}.json"
+            quality_path = self.lake.write_json(dataset_quality_payload, quality_relative)
+            dataset_manifest = DatasetManifest(
+                dataset_version=dataset_version,
+                parent_dataset_version=parent_dataset_version,
+                publication_run_id=request_id,
+                symbol=instrument.symbol,
+                instrument_id=instrument.instrument_id,
+                timeframe=timeframe,
+                full_actual_start=curated_view["timestamp"].min().isoformat(),
+                full_actual_end=curated_view["timestamp"].max().isoformat(),
+                row_count=len(curated_view),
+                curated_path=path_text(curated_path, self.lake.root),
+                curated_sha256=sha256_file(curated_path),
+                quality_report_path=path_text(quality_path, self.lake.root),
+                quality_report_sha256=sha256_file(quality_path),
+                published_at=utc_now().isoformat(),
+                cleaning_rule_version=RULE_VERSION,
+            )
+            dataset_manifest_path = self.lake.write_json(
+                dataset_manifest.to_dict(), Path("dataset_manifests") / f"{dataset_version}.json"
+            )
+            self.lake.activate_curated(
+                instrument.symbol, timeframe, dataset_version, request_id, curated_path,
+                dataset_manifest_path=dataset_manifest_path,
+            )
+        elif publishable and current_pointer is not None:
+            curated_path = self.lake._resolve_root_relative(str(current_pointer["path"]))
+            manifest_ref = current_pointer.get("dataset_manifest_path")
+            if manifest_ref:
+                dataset_manifest_path = self.lake._resolve_root_relative(str(manifest_ref))
         elif status == "REVIEW_REQUIRED":
-            self.lake.write_frame(combined, Path("reviews") / f"candidate={request_id}" / "bars.parquet")
-        quality_payload = quality.to_dict() | {
+            # Review candidates preserve both sides of every conflict so a human
+            # can approve either the published (base) or the incoming values.
+            candidate_dir = Path("reviews") / f"candidate={request_id}"
+            if not existing_curated.empty:
+                self.lake.write_frame(existing_curated, candidate_dir / "base.parquet")
+            if not rejected_incoming.empty:
+                self.lake.write_frame(rejected_incoming, candidate_dir / "incoming.parquet")
+            if conflicts:
+                self.lake.write_json({"conflicts": conflicts, "run_id": request_id,
+                                      "symbol": instrument.symbol, "timeframe": timeframe,
+                                      "created_at": utc_now().isoformat()},
+                                     candidate_dir / "conflicts.json")
+            self.lake.write_json({"run_id": request_id, "symbol": instrument.symbol,
+                                  "timeframe": timeframe, "instrument_id": instrument.instrument_id,
+                                  "dataset_version": dataset_version,
+                                  "conflict_count": len(conflicts),
+                                  "base_rows": len(existing_curated),
+                                  "incoming_rows": len(rejected_incoming),
+                                  "created_at": utc_now().isoformat()},
+                                 candidate_dir / "candidate_manifest.json")
+            self.lake.write_frame(combined, candidate_dir / "bars.parquet")
+        run_quality_payload = quality.to_dict() | {
             "run_id": request_id, "dataset_version": dataset_version, "instrument_id": instrument.instrument_id,
             "missing_intervals": quality.missing_intervals, "provider_failures": errors,
             "outside_overlap_revisions": outside_window_revisions,
             "conflicting_duplicates": conflicts,
         }
-        quality_relative = Path("quality_reports") / f"{dataset_version}.json"
-        quality_path = self.lake.root / quality_relative
-        if not quality_path.exists():
-            quality_path = self.lake.write_json(quality_payload, quality_relative)
+        run_quality_path = self.lake.write_json(
+            run_quality_payload, Path("ingestion_reports") / f"{request_id}.json"
+        )
         paths: list[Path] = []
         for candidate in (raw_path, raw_frame_path):
             if candidate not in paths:
                 paths.append(candidate)
-        paths += [*normalized_paths, quality_path, *([curated_path] if curated_path else [])]
+        paths += [*normalized_paths, run_quality_path]
+        root_path = self.lake.root
         manifest = Manifest(
-            request_id, result.source, instrument.symbol, result.actual_symbol, start.isoformat(), end.isoformat(),
-            curated_view["timestamp"].min().isoformat() if len(curated_view) else None,
-            curated_view["timestamp"].max().isoformat() if len(curated_view) else None,
-            timeframe, len(curated_view), [path_text(p) for p in paths], {path_text(p): sha256_file(p) for p in paths},
-            utc_now().isoformat(), result.license, [str(x) for x in quality.missing_intervals],
-            len(normalized.audit), RULE_VERSION, publishable, {**result.metadata, "provider_failures": errors},
-            instrument.instrument_id, dataset_version, quality.quality_score, status,
-            request_id, raw_snapshot_id, request_id, dataset_version, config_hash, metadata_hash,
-            instrument.earliest_valid_date or "", curated_view["timestamp"].min().isoformat() if len(curated_view) else "",
-            start.isoformat(), end.isoformat(),
-            (pd.Timestamp(end) - pd.Timedelta(FRAME_DELTAS[timeframe])).isoformat(),
+            run_id=request_id, data_source=result.source, requested_symbol=instrument.symbol,
+            actual_symbol=result.actual_symbol, requested_start=start.isoformat(), requested_end=end.isoformat(),
+            actual_start=clean["timestamp"].min().isoformat() if len(clean) else None,
+            actual_end=clean["timestamp"].max().isoformat() if len(clean) else None,
+            timeframe=timeframe, row_count=len(clean),
+            file_paths=[path_text(p, root_path) for p in paths],
+            file_hashes={path_text(p, root_path): sha256_file(p) for p in paths},
+            downloaded_at=utc_now().isoformat(), license=result.license,
+            missing_intervals=[str(x) for x in quality.missing_intervals],
+            anomaly_count=len(normalized.audit), cleaning_rule_version=RULE_VERSION,
+            quality_passed=publishable, provider_metadata={**result.metadata, "provider_failures": errors},
+            instrument_id=instrument.instrument_id, dataset_version=dataset_version,
+            quality_score=quality.quality_score, quality_status=status, request_id=request_id,
+            raw_snapshot_id=raw_snapshot_id, processing_run_id=request_id, curated_version=dataset_version,
+            config_hash=config_hash, provider_metadata_hash=metadata_hash,
+            listing_start=instrument.earliest_valid_date or "",
+            # provider_available_start is only recorded when the provider
+            # explicitly declares a verified earliest coverage; it is never
+            # derived from actual_start.
+            provider_available_start=result.metadata.get("provider_available_start", ""),
+            requested_start_explicit=start.isoformat(), requested_end_explicit=end.isoformat(),
+            actual_end_explicit=(pd.Timestamp(end) - pd.Timedelta(FRAME_DELTAS[timeframe])).isoformat(),
+            session_timezone=instrument.session_timezone, bar_close_rule=instrument.bar_close_rule,
+            parent_dataset_version=parent_dataset_version if is_new_dataset else None,
+            publication_run_id=request_id if publishable and is_new_dataset else (
+                str(current_pointer.get("run_id", "")) if current_pointer else ""
+            ),
+            dataset_manifest_path=path_text(dataset_manifest_path, root_path) if dataset_manifest_path else "",
         )
         manifest_path = self.lake.write_json(manifest.to_dict(), Path("manifests") / f"{request_id}.json")
         self.lake.catalog(request_id, instrument.symbol, timeframe, result.source, manifest_path,
@@ -183,7 +287,7 @@ class HistoricalDataService:
                           asset_class=instrument.asset_class,
                           start_time=manifest.actual_start or "", end_time=manifest.actual_end or "",
                           row_count=manifest.row_count, schema_version=RULE_VERSION,
-                          checksum=sha256_file(manifest_path), raw_source=path_text(raw_frame_path))
+                          checksum=sha256_file(manifest_path), raw_source=path_text(raw_frame_path, root_path))
         self.lake.log_event({"run_id": request_id, "instrument_id": instrument.instrument_id, "timeframe": timeframe,
                              "provider": result.source, "severity": "INFO" if publishable else "WARNING",
                              "error_type": "", "message": "published" if publishable else "not published",
@@ -253,18 +357,20 @@ class HistoricalDataService:
                         time.sleep(min(2 ** (attempt - 1), 4))
         raise RuntimeError("all configured providers failed: " + " | ".join(errors))
 
-    def _merge_current(self, symbol: str, timeframe: str, incoming: pd.DataFrame) -> tuple[pd.DataFrame, list[dict[str, object]]]:
+    def _merge_current(self, symbol: str, timeframe: str, incoming: pd.DataFrame) -> tuple[pd.DataFrame, list[dict[str, object]], pd.DataFrame]:
         """Merge incoming bars with the published view; detect OHLCV conflicts.
 
         Exact duplicates are dropped silently with an audit note.  Conflicting
         duplicates (same timestamp, different OHLCV) are never silently
-        overwritten: they are returned for REVIEW_REQUIRED routing.
+        overwritten: the incoming rows are returned separately so a review
+        candidate can preserve both sides of the conflict.
         """
         try:
             existing = self.lake.read_bars(symbol, timeframe)
         except FileNotFoundError:
             existing = pd.DataFrame(columns=incoming.columns)
         conflicts: list[dict[str, object]] = []
+        rejected: list[pd.DataFrame] = []
         if not existing.empty and not incoming.empty:
             prior = existing.set_index("timestamp")
             value_columns = [c for c in ("open", "high", "low", "close", "adjusted_close", "volume", "is_complete")
@@ -291,10 +397,13 @@ class HistoricalDataService:
                                   "existing_value": {c: (None if pd.isna(old[c]) else old[c]) for c in value_columns},
                                   "incoming_value": {c: (None if pd.isna(row[c]) else row[c]) for c in value_columns},
                                   "changed_fields": changed})
+                rejected.append(row)
                 keep_incoming.append(False)
             incoming = incoming.loc[keep_incoming]
         combined = pd.concat([existing, incoming], ignore_index=True, sort=False)
-        return combined.sort_values(["timestamp", "ingested_at"]).drop_duplicates("timestamp", keep="last").reset_index(drop=True), conflicts
+        rejected_frame = pd.DataFrame(rejected, columns=incoming.columns) if rejected else pd.DataFrame()
+        return (combined.sort_values(["timestamp", "ingested_at"]).drop_duplicates("timestamp", keep="last").reset_index(drop=True),
+                conflicts, rejected_frame)
 
     def missing_intervals(
         self, symbol: str, timeframe: str, *, end: datetime | None = None
@@ -318,9 +427,15 @@ class HistoricalDataService:
         if existing.empty:
             if not instrument.earliest_valid_date:
                 raise ValueError("cold download requires earliest_valid_date")
+            # Reuse the most recent request range when a prior ingest was
+            # quarantined; requesting all the way back to the listing date
+            # would re-introduce head-truncation for instruments whose data
+            # legitimately starts later than the verified listing.
+            requested_start = self._last_requested_start(symbol, timeframe)
             earliest = pd.Timestamp(instrument.earliest_valid_date, tz="UTC")
-            if earliest <= end:
-                intervals.append({"start": earliest.to_pydatetime(), "end": end.to_pydatetime(),
+            start_bound = max(requested_start, earliest) if requested_start is not None else earliest
+            if start_bound <= end:
+                intervals.append({"start": start_bound.to_pydatetime(), "end": end.to_pydatetime(),
                                   "classification": "full"})
             return intervals
         stamps = pd.to_datetime(existing["timestamp"], utc=True).drop_duplicates().sort_values()
@@ -365,6 +480,25 @@ class HistoricalDataService:
             return current
         raise RuntimeError(f"no missing intervals and no current manifest for {symbol}/{timeframe}")
 
+    def _last_requested_start(self, symbol: str, timeframe: str) -> pd.Timestamp | None:
+        """Latest requested_start recorded for this symbol/timeframe, else None."""
+        try:
+            with self.lake._connect() as db:
+                rows = db.execute(
+                    "SELECT run_id FROM datasets WHERE symbol=? AND timeframe=? "
+                    "ORDER BY created_at DESC LIMIT 1",
+                    (symbol.upper(), timeframe.upper()),
+                ).fetchall()
+        except Exception:
+            rows = []
+        for (run_id,) in rows:
+            manifest_file = self.lake.root / "manifests" / f"{run_id}.json"
+            if manifest_file.exists():
+                payload = json.loads(manifest_file.read_text(encoding="utf-8"))
+                if payload.get("requested_start"):
+                    return pd.Timestamp(payload["requested_start"])
+        return None
+
     def _current_manifest(self, symbol: str, timeframe: str) -> Manifest | None:
         try:
             current = self.lake.current_version(symbol.upper(), timeframe.upper())
@@ -372,13 +506,8 @@ class HistoricalDataService:
             return None
         if not current:
             return None
-        with self.lake._connect() as db:
-            rows = db.execute(
-                "SELECT run_id FROM datasets WHERE symbol=? AND timeframe=? AND version=? "
-                "ORDER BY created_at DESC LIMIT 1",
-                (symbol.upper(), timeframe.upper(), current["version"]),
-            ).fetchall()
-        for (run_id,) in rows:
+        run_id = current.get("run_id")
+        if run_id:
             path = self.lake.root / "manifests" / f"{run_id}.json"
             if path.exists():
                 return Manifest(**json.loads(path.read_text(encoding="utf-8")))
@@ -436,11 +565,14 @@ class HistoricalDataService:
                 frame[f"unadjusted_{column}"] = frame[column]
                 frame[column] = frame[column] * factor
         frame = frame.sort_values("timestamp").drop_duplicates("timestamp", keep="last").reset_index(drop=True)
+        quality_report = ""
+        if str(frame["quality_status"].iloc[-1]) != "LEGACY_ONLY":
+            quality_report = self._current_quality_report_path(symbol, timeframe)
         frame.attrs.update({"symbol": symbol.upper(), "instrument_id": instrument.instrument_id,
                             "timeframe": timeframe.upper(), "adjustment": instrument.adjustment_policy if adjusted else "none",
                             "data_sources": sorted(frame["data_source"].dropna().unique().tolist()),
                             "dataset_version": str(frame["dataset_version"].iloc[-1]),
-                            "quality_report": str(self.lake.root / "quality_reports" / f"{frame['dataset_version'].iloc[-1]}.json")})
+                            "quality_report": quality_report})
         return frame
 
     def status(self, symbol: str, timeframe: str) -> dict[str, object]:
@@ -453,16 +585,21 @@ class HistoricalDataService:
                 "latest_complete_bar": bars.loc[bars["is_complete"].astype(bool), "timestamp"].max().isoformat()}
 
     def verify_catalog(self) -> dict[str, object]:
-        """Audit every catalog row against its manifest, curated file and hashes.
+        """Audit every catalog row against its manifest and every declared artifact.
 
-        Reports valid records plus missing manifest / missing curated / dangling
-        current pointers.  Legacy records are counted separately and never
-        considered part of the formal universe.
+        Reports valid records plus separately missing raw / normalized /
+        quality / curated artifacts, hash mismatches, dangling or
+        legacy-contaminated current pointers, and pointer-vs-catalog drift.
+        A missing file is never hidden behind a "0 hash mismatch" number.
         """
         result = {"valid_dataset_records": 0, "missing_manifest_records": [],
-                  "missing_curated_records": [], "dangling_current_records": [],
-                  "hash_mismatch_records": [], "legacy_records": 0, "total_records": 0,
-                  "legacy_contaminated_current": []}
+                  "missing_raw_records": [], "missing_normalized_records": [],
+                  "missing_quality_report_records": [], "missing_curated_records": [],
+                  "missing_dataset_manifest_records": [],
+                  "dangling_current_records": [], "hash_mismatch_records": [],
+                  "legacy_records": 0, "total_records": 0,
+                  "legacy_contaminated_current": [], "pointer_catalog_mismatch": [],
+                  "valid_current_records": 0}
         with self.lake._connect() as db:
             rows = db.execute(
                 "SELECT run_id, symbol, timeframe, status, version, manifest_path, checksum "
@@ -478,21 +615,44 @@ class HistoricalDataService:
                 result["missing_manifest_records"].append({"run_id": run_id, "symbol": symbol, "timeframe": timeframe})
                 continue
             manifest = json.loads(manifest_file.read_text(encoding="utf-8"))
-            curated_files = [Path(p) for p in manifest.get("file_paths", []) if "curated" in p and "bars.parquet" in p]
-            if not curated_files or not curated_files[0].exists():
-                result["missing_curated_records"].append({"run_id": run_id, "symbol": symbol, "timeframe": timeframe, "version": version})
-                continue
-            bad = [p for p in manifest.get("file_paths", []) if Path(p).exists() and sha256_file(Path(p)) != manifest["file_hashes"].get(p)]
+            bucket = {"raw": [], "normalized": [], "quality": [], "curated": []}
+            for raw_path in manifest.get("file_paths", []):
+                candidate = self._resolve_lake_path(raw_path)
+                portable = raw_path.replace("\\", "/")
+                if portable.startswith("raw/") or "/raw/" in portable:
+                    bucket["raw"].append((raw_path, candidate))
+                elif portable.startswith("normalized/") or "/normalized/" in portable:
+                    bucket["normalized"].append((raw_path, candidate))
+                elif portable.startswith("ingestion_reports/"):
+                    bucket["quality"].append((raw_path, candidate))
+                elif (portable.startswith("curated/") or "/curated/" in portable) and raw_path.endswith("bars.parquet"):
+                    bucket["curated"].append((raw_path, candidate))
+            for kind, key in (("raw", "missing_raw_records"), ("normalized", "missing_normalized_records"),
+                              ("quality", "missing_quality_report_records"), ("curated", "missing_curated_records")):
+                missing = [p for p, resolved in bucket[kind] if not resolved.exists()]
+                if missing and kind == "curated" and status in {"QUARANTINED", "REVIEW_REQUIRED"}:
+                    continue  # quarantined/review rows legitimately have no curated artifact
+                if missing:
+                    result[key].append({"run_id": run_id, "symbol": symbol, "timeframe": timeframe,
+                                        "missing_files": missing, "version": version})
+            bad = []
+            for raw_path in manifest.get("file_paths", []):
+                candidate = self._resolve_lake_path(raw_path)
+                if candidate.exists() and sha256_file(candidate) != manifest["file_hashes"].get(raw_path):
+                    bad.append(raw_path)
             if bad:
                 result["hash_mismatch_records"].append({"run_id": run_id, "symbol": symbol, "files": bad})
                 continue
-            result["valid_dataset_records"] += 1
+            # A record is valid only when every declared artifact exists and hashes match.
+            all_declared_exist = all(
+                self._resolve_lake_path(p).exists() for p in manifest.get("file_paths", [])
+            )
+            if all_declared_exist:
+                result["valid_dataset_records"] += 1
         for pointer in (self.lake.root / "curated").glob("symbol=*/timeframe=*/*.json"):
             payload = json.loads(pointer.read_text(encoding="utf-8"))
             raw_target = str(payload.get("path", ""))
-            target = self.lake.root / raw_target
-            if not target.exists():
-                target = Path(raw_target)  # pointer paths are project-relative
+            target = self._resolve_lake_path(raw_target)
             if not target.exists():
                 result["dangling_current_records"].append({
                     "pointer": str(pointer), "version": payload.get("version"),
@@ -503,7 +663,84 @@ class HistoricalDataService:
                     "pointer": str(pointer), "version": payload.get("version"),
                     "path": raw_target,
                 })
+        # Pointer vs catalog drift for the formal channel.
+        with self.lake._connect() as db:
+            catalog_current = {
+                (row[0].upper(), row[1].upper()): (row[2], row[3])
+                for row in db.execute("SELECT symbol, timeframe, version, run_id FROM current_versions").fetchall()
+            }
+        for symbol_dir in (self.lake.root / "curated").glob("symbol=*"):
+            symbol = symbol_dir.name.split("=", 1)[1].upper()
+            for timeframe_dir in symbol_dir.glob("timeframe=*"):
+                timeframe = timeframe_dir.name.split("=", 1)[1].upper()
+                pointer = self.lake.current_version(symbol, timeframe)
+                catalog_entry = catalog_current.get((symbol, timeframe))
+                catalog_version = catalog_entry[0] if catalog_entry else None
+                catalog_run_id = catalog_entry[1] if catalog_entry else None
+                if pointer is not None and (
+                    pointer.get("version") != catalog_version or pointer.get("run_id") != catalog_run_id
+                ):
+                    result["pointer_catalog_mismatch"].append({
+                        "symbol": symbol, "timeframe": timeframe,
+                        "pointer_version": pointer.get("version"), "catalog_version": catalog_version,
+                        "pointer_run_id": pointer.get("run_id"), "catalog_run_id": catalog_run_id,
+                    })
+                if pointer is None:
+                    continue
+                dataset_manifest_ref = pointer.get("dataset_manifest_path")
+                dataset_manifest_path = (
+                    self._resolve_lake_path(str(dataset_manifest_ref)) if dataset_manifest_ref
+                    else self.lake.root / "dataset_manifests" / f"{pointer.get('version')}.json"
+                )
+                if not dataset_manifest_path.exists():
+                    result["missing_dataset_manifest_records"].append({
+                        "symbol": symbol, "timeframe": timeframe,
+                        "version": pointer.get("version"), "path": str(dataset_manifest_path),
+                    })
+                    continue
+                dataset_manifest = json.loads(dataset_manifest_path.read_text(encoding="utf-8"))
+                curated = self._resolve_lake_path(str(dataset_manifest.get("curated_path", "")))
+                quality = self._resolve_lake_path(str(dataset_manifest.get("quality_report_path", "")))
+                dataset_ok = bool(
+                    dataset_manifest.get("dataset_version") == pointer.get("version")
+                    and dataset_manifest.get("publication_run_id") == pointer.get("run_id")
+                    and curated.exists() and quality.exists()
+                    and sha256_file(curated) == dataset_manifest.get("curated_sha256")
+                    and sha256_file(quality) == dataset_manifest.get("quality_report_sha256")
+                )
+                if dataset_ok:
+                    report = json.loads(quality.read_text(encoding="utf-8"))
+                    frame = pd.read_parquet(curated, columns=["dataset_version"])
+                    dataset_ok = bool(
+                        report.get("dataset_version") == pointer.get("version")
+                        and not frame.empty
+                        and set(frame["dataset_version"].astype(str)) == {str(pointer.get("version"))}
+                        and len(frame) == int(dataset_manifest.get("row_count", -1))
+                    )
+                if dataset_ok and pointer.get("version") == catalog_version:
+                    result["valid_current_records"] += 1
+                elif not dataset_ok:
+                    result["hash_mismatch_records"].append({
+                        "run_id": pointer.get("run_id"), "symbol": symbol,
+                        "files": [str(dataset_manifest_path)], "kind": "dataset_lineage",
+                    })
         return result
+
+    def _resolve_lake_path(self, raw_path: str) -> Path:
+        """Resolve a manifest/pointer path against the data root (portable paths).
+
+        Accepts root-relative paths (``curated/...``), project-relative legacy
+        paths (``data\\curated\\...``) and absolute paths for backwards compat.
+        """
+        candidate = Path(raw_path)
+        if candidate.is_absolute():
+            return candidate
+        root_relative = self.lake.root / candidate
+        if root_relative.exists():
+            return root_relative
+        if candidate.exists():
+            return candidate
+        return root_relative
 
     def coverage(self, symbol: str, timeframe: str) -> dict[str, object]:
         """Return current coverage plus the persisted gap-classification report."""
@@ -512,7 +749,7 @@ class HistoricalDataService:
             return result
         bars = self.lake.read_bars(symbol.upper(), timeframe.upper())
         dataset_version = str(bars["dataset_version"].iloc[-1])
-        report_path = self.lake.root / "quality_reports" / f"{dataset_version}.json"
+        report_path = Path(self._current_quality_report_path(symbol, timeframe))
         if not report_path.exists():
             raise DataLineageError(f"missing quality report for current dataset version: {dataset_version}")
         report = json.loads(report_path.read_text(encoding="utf-8"))
@@ -524,10 +761,83 @@ class HistoricalDataService:
             "missing_intervals": report.get("missing_intervals", []),
         }
 
-    def approve_review(self, run_id: str, reason: str = "", *, actor: str = "") -> str:
-        """Publish a new audited version from an immutable review candidate."""
+    def _current_quality_report_path(self, symbol: str, timeframe: str) -> str:
+        current = self.lake.current_version(symbol.upper(), timeframe.upper())
+        if not current or not current.get("dataset_manifest_path"):
+            raise DataLineageError(f"current dataset manifest is missing for {symbol.upper()}/{timeframe.upper()}")
+        dataset_manifest_path = self.lake._resolve_root_relative(str(current["dataset_manifest_path"]))
+        if not dataset_manifest_path.exists():
+            raise DataLineageError(f"current dataset manifest is missing: {dataset_manifest_path}")
+        dataset_manifest = json.loads(dataset_manifest_path.read_text(encoding="utf-8"))
+        return str(self.lake._resolve_root_relative(str(dataset_manifest["quality_report_path"])))
+
+    def repair_current_lineage(self, symbol: str, timeframe: str) -> dict[str, object]:
+        """Materialize formal dataset lineage for a pre-separation current pointer."""
+        symbol, timeframe = symbol.upper(), timeframe.upper()
+        current = self.lake.current_version(symbol, timeframe)
+        if not current:
+            raise FileNotFoundError(f"no current dataset for {symbol}/{timeframe}")
+        existing_ref = current.get("dataset_manifest_path")
+        if existing_ref and self.lake._resolve_root_relative(str(existing_ref)).exists():
+            return {"symbol": symbol, "timeframe": timeframe, "version": current["version"],
+                    "action": "unchanged", "dataset_manifest_path": str(existing_ref)}
+        frame = self.lake.read_bars(symbol, timeframe)
+        instrument = self.instrument(symbol)
+        version = str(current["version"])
+        publication_run_id = str(current["run_id"])
+        quality = assess_quality(
+            NormalizationResult(frame, pd.DataFrame(), [], 0, 0, 0, 0),
+            instrument, timeframe,
+            provider=str(frame["data_source"].iloc[-1]) if "data_source" in frame else "",
+            requested_start=frame["timestamp"].min().to_pydatetime(),
+            requested_end=(frame["timestamp"].max() + pd.Timedelta(FRAME_DELTAS[timeframe])).to_pydatetime(),
+        )
+        quality.quality_status = "CURATED"
+        quality_path = self.lake.write_json(
+            quality.to_dict() | {
+                "run_id": publication_run_id, "publication_run_id": publication_run_id,
+                "dataset_version": version, "parent_dataset_version": None,
+                "instrument_id": instrument.instrument_id,
+            },
+            Path("quality_reports") / f"{version}.dataset.json",
+        )
+        curated_path = self.lake._resolve_root_relative(str(current["path"]))
+        dataset_manifest = DatasetManifest(
+            dataset_version=version, parent_dataset_version=None,
+            publication_run_id=publication_run_id, symbol=symbol,
+            instrument_id=instrument.instrument_id, timeframe=timeframe,
+            full_actual_start=frame["timestamp"].min().isoformat(),
+            full_actual_end=frame["timestamp"].max().isoformat(), row_count=len(frame),
+            curated_path=path_text(curated_path, self.lake.root), curated_sha256=sha256_file(curated_path),
+            quality_report_path=path_text(quality_path, self.lake.root),
+            quality_report_sha256=sha256_file(quality_path), published_at=utc_now().isoformat(),
+            cleaning_rule_version=RULE_VERSION,
+        )
+        dataset_manifest_path = self.lake.write_json(
+            dataset_manifest.to_dict(), Path("dataset_manifests") / f"{version}.json"
+        )
+        self.lake.activate_curated(
+            symbol, timeframe, version, publication_run_id, curated_path,
+            dataset_manifest_path=dataset_manifest_path,
+        )
+        return {"symbol": symbol, "timeframe": timeframe, "version": version, "action": "repaired",
+                "dataset_manifest_path": path_text(dataset_manifest_path, self.lake.root),
+                "quality_report_path": path_text(quality_path, self.lake.root)}
+
+    def approve_review(self, run_id: str, reason: str = "", *, actor: str = "",
+                       decision: str = "approve_existing") -> str:
+        """Publish a new audited version from an immutable review candidate.
+
+        ``decision`` selects which side of a conflict wins:
+        - ``approve_existing``: keep the published (base) values;
+        - ``approve_incoming``: replace conflicting bars with incoming values.
+        Reject is handled through ``lake.review`` and cannot be approved later.
+        """
+        if decision not in {"approve_existing", "approve_incoming"}:
+            raise ValueError("decision must be approve_existing or approve_incoming")
         manifest_path = self.lake.root / "manifests" / f"{run_id}.json"
-        candidate_path = self.lake.root / "reviews" / f"candidate={run_id}" / "bars.parquet"
+        candidate_dir = self.lake.root / "reviews" / f"candidate={run_id}"
+        candidate_path = candidate_dir / "bars.parquet"
         review_path = self.lake.root / "reviews" / f"{run_id}.json"
         if review_path.exists():
             prior = json.loads(review_path.read_text(encoding="utf-8"))
@@ -542,13 +852,25 @@ class HistoricalDataService:
         frame = pd.read_parquet(candidate_path)
         symbol = str(manifest["requested_symbol"])
         instrument = self.instrument(symbol)
-        version = _stable_hash({"approved_from": run_id, "reason": reason, "bars": _frame_hash(frame)})[:24]
+        incoming_path = candidate_dir / "incoming.parquet"
+        if decision == "approve_incoming" and incoming_path.exists():
+            incoming = pd.read_parquet(incoming_path)
+            if not incoming.empty:
+                combined = pd.concat([frame, incoming], ignore_index=True, sort=False)
+                combined = combined.sort_values(["timestamp", "ingested_at"]).drop_duplicates("timestamp", keep="last").reset_index(drop=True)
+                # Incoming rows carry their own metadata columns; normalize the
+                # audited version's quality fields for the whole frame.
+                combined["quality_status"] = "CURATED"
+                combined["quality_score"] = pd.to_numeric(combined.get("quality_score"), errors="coerce").fillna(100.0)
+                frame = combined
+        version = _stable_hash({"approved_from": run_id, "reason": reason, "decision": decision,
+                                "bars": _frame_hash(frame)})[:24]
         # Approval is an audit decision.  Publication policy remains CURATED so
         # Repository callers can read the newly approved complete version.
         frame["quality_status"] = "CURATED"
         frame["dataset_version"] = version
         frame["curated_version"] = version
-        candidate_report = self.lake.root / "quality_reports" / f"{manifest['dataset_version']}.json"
+        candidate_report = self.lake.root / "ingestion_reports" / f"{run_id}.json"
         if not candidate_report.exists():
             raise DataLineageError(f"review candidate has no quality report: {manifest['dataset_version']}")
         path = self.lake.publish_curated(frame, symbol=symbol, instrument_id=instrument.instrument_id,
@@ -556,25 +878,60 @@ class HistoricalDataService:
                                          version=version, run_id=run_id, activate=False)
         source_quality = json.loads(candidate_report.read_text(encoding="utf-8"))
         report = source_quality | {"approved_from": run_id, "dataset_version": version, "reason": reason,
-                                   "actor": actor, "published_path": str(path), "approved_at": utc_now().isoformat(),
+                                   "decision": decision, "actor": actor,
+                                   "published_path": path_text(path, self.lake.root),
+                                   "approved_at": utc_now().isoformat(),
                                    "quality_status": "CURATED", "approval_status": "APPROVED"}
         self.lake.write_json(report, Path("quality_reports") / f"{version}.json")
         approved_report_path = self.lake.root / "quality_reports" / f"{version}.json"
+        review_record_path = self.lake.review(run_id, "approved", reason, actor=actor, published_version=version)
         approval_manifest = manifest | {"run_id": f"approval-{version}", "processing_run_id": f"approval-{version}",
                                         "dataset_version": version, "curated_version": version,
                                         "quality_status": "CURATED", "quality_passed": True,
                                         "approval_status": "APPROVED", "approved_from": run_id,
+                                        "approval_decision": decision,
+                                        "approved_from_dataset_version": manifest.get("dataset_version"),
                                         "approval_reason": reason, "approved_at": utc_now().isoformat(),
-                                        "file_paths": [str(path), str(approved_report_path)],
-                                        "file_hashes": {str(path): sha256_file(path), str(approved_report_path): sha256_file(approved_report_path)},
+                                        "approved_curated_path": path_text(path, self.lake.root),
+                                        "approved_curated_sha256": sha256_file(path),
+                                        "approved_quality_report_path": path_text(approved_report_path, self.lake.root),
+                                        "approved_quality_report_sha256": sha256_file(approved_report_path),
+                                        "candidate_data_path": path_text(candidate_path, self.lake.root),
+                                        "candidate_data_sha256": sha256_file(candidate_path),
+                                        "candidate_manifest_path": path_text(manifest_path, self.lake.root),
+                                        "candidate_manifest_sha256": sha256_file(manifest_path),
+                                        "review_record_path": path_text(review_record_path, self.lake.root),
+                                        "review_record_sha256": sha256_file(review_record_path),
+                                        "file_paths": [path_text(path, self.lake.root), path_text(approved_report_path, self.lake.root)],
+                                        "file_hashes": {path_text(path, self.lake.root): sha256_file(path),
+                                                        path_text(approved_report_path, self.lake.root): sha256_file(approved_report_path)},
                                         "row_count": len(frame)}
         approval_path = self.lake.write_json(approval_manifest, Path("manifests") / f"approval-{version}.json")
         self.lake.catalog(f"approval-{version}", symbol, str(manifest["timeframe"]), str(manifest["data_source"]), approval_path,
                           instrument_id=instrument.instrument_id, status="CURATED", version=version)
-        self.lake.review(run_id, "approved", reason, actor=actor, published_version=version)
         # All immutable artifacts now exist and their hashes are recorded. Only
         # then may the strategy-visible current pointer advance.
-        self.lake.activate_curated(symbol, str(manifest["timeframe"]), version, run_id, path)
+        parent = self.lake.current_version(symbol, str(manifest["timeframe"]))
+        dataset_manifest = DatasetManifest(
+            dataset_version=version,
+            parent_dataset_version=str(parent["version"]) if parent else None,
+            publication_run_id=f"approval-{version}", symbol=symbol,
+            instrument_id=instrument.instrument_id, timeframe=str(manifest["timeframe"]),
+            full_actual_start=pd.to_datetime(frame["timestamp"], utc=True).min().isoformat(),
+            full_actual_end=pd.to_datetime(frame["timestamp"], utc=True).max().isoformat(),
+            row_count=len(frame), curated_path=path_text(path, self.lake.root),
+            curated_sha256=sha256_file(path),
+            quality_report_path=path_text(approved_report_path, self.lake.root),
+            quality_report_sha256=sha256_file(approved_report_path),
+            published_at=utc_now().isoformat(), cleaning_rule_version=RULE_VERSION,
+        )
+        dataset_manifest_path = self.lake.write_json(
+            dataset_manifest.to_dict(), Path("dataset_manifests") / f"{version}.json"
+        )
+        self.lake.activate_curated(
+            symbol, str(manifest["timeframe"]), version, f"approval-{version}", path,
+            dataset_manifest_path=dataset_manifest_path,
+        )
         return version
 
     def update_qqq_holdings(self, provider: QqqHoldingsCsvProvider, snapshot_date: str | None = None) -> Path:

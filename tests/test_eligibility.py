@@ -4,12 +4,10 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
-import pytest
 
 from turtle_detector.eligibility import (
     BlockedReason,
     BreakoutQuality,
-    EligibilityResult,
     EligibilityStatus,
     MarketRegime,
     RiskLevel,
@@ -18,7 +16,6 @@ from turtle_detector.eligibility import (
 )
 from turtle_detector.eligibility.checker import AccountSnapshot
 from turtle_detector.eligibility.thresholds import (
-    CRYPTO_THRESHOLDS,
     PRECIOUS_METAL_THRESHOLDS,
     US_EQUITY_THRESHOLDS,
     get_risk_group,

@@ -80,6 +80,9 @@ def main() -> None:
     rollback.add_argument("--timeframe", required=True)
     rollback.add_argument("--version", required=True)
     rollback.add_argument("--reason", required=True)
+    repair = sub.add_parser("repair-current")
+    repair.add_argument("--symbol", required=True)
+    repair.add_argument("--timeframe", required=True)
     review = sub.add_parser("review")
     review.add_argument("action", choices=["list", "approve", "reject"])
     review.add_argument("--run-id")
@@ -154,6 +157,10 @@ def main() -> None:
     if args.command == "rollback":
         service.lake.rollback(args.symbol, args.timeframe, args.version, args.reason)
         print("rolled back")
+        return
+    if args.command == "repair-current":
+        service.lake.repair_current(args.symbol, args.timeframe)
+        print(json.dumps(service.repair_current_lineage(args.symbol, args.timeframe), ensure_ascii=False, indent=2))
         return
     if args.command == "review":
         if args.action == "list":

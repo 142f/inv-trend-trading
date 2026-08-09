@@ -52,8 +52,8 @@ instruments:
     instrument_type: cfd
     quote_currency: USD
     timezone: UTC
-    session_timezone: America/New_York
-    bar_close_rule: ny_1700
+    session_timezone: UTC
+    bar_close_rule: provider_native_utc
     price_basis: bid
     session: 24x5
     primary_source: dukascopy
@@ -73,8 +73,8 @@ instruments:
     instrument_type: cfd
     quote_currency: USD
     timezone: UTC
-    session_timezone: America/New_York
-    bar_close_rule: ny_1700
+    session_timezone: UTC
+    bar_close_rule: provider_native_utc
     price_basis: bid
     session: 24x5
     primary_source: dukascopy

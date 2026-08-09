@@ -140,6 +140,37 @@ class Manifest:
     requested_start_explicit: str = ""
     requested_end_explicit: str = ""
     actual_end_explicit: str = ""
+    session_timezone: str = ""
+    bar_close_rule: str = ""
+    provider_available_start_explicit: str = ""
+    manifest_type: str = "ingestion_run"
+    parent_dataset_version: str | None = None
+    publication_run_id: str = ""
+    dataset_manifest_path: str = ""
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
+class DatasetManifest:
+    """Immutable description of one published, strategy-visible dataset."""
+
+    dataset_version: str
+    parent_dataset_version: str | None
+    publication_run_id: str
+    symbol: str
+    instrument_id: str
+    timeframe: str
+    full_actual_start: str
+    full_actual_end: str
+    row_count: int
+    curated_path: str
+    curated_sha256: str
+    quality_report_path: str
+    quality_report_sha256: str
+    published_at: str
+    cleaning_rule_version: str
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -187,12 +218,25 @@ class QualityReport:
     requested_end: str = ""
 
     def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        payload = asdict(self)
+        payload["expected_rows"] = self.theoretical_bars
+        return payload
 
 
 def utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
 
-def path_text(path: Path) -> str:
-    return path.resolve().as_posix()
+def path_text(path: Path, root: Path | None = None) -> str:
+    """Return a portable path, root-relative when ``root`` is given.
+
+    Manifests and current pointers must not depend on the working directory;
+    callers pass the data root so artifacts stay relocatable.
+    """
+    resolved = path.resolve()
+    if root is not None:
+        try:
+            return resolved.relative_to(Path(root).resolve()).as_posix()
+        except ValueError:
+            pass
+    return resolved.as_posix()

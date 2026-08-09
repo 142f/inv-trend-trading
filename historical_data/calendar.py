@@ -12,6 +12,12 @@ from datetime import date, timedelta
 
 import pandas as pd
 
+# This is a RULE_BASED approximation of the NYSE calendar, not an official
+# exchange calendar.  It covers weekends, the regular NYSE holiday set, and
+# known one-off closures.  It cannot know about unannounced halts, unscheduled
+# early closes or future holiday changes; those are classified UNKNOWN.
+RULE_BASED_NYSE_CALENDAR = True
+
 
 def _easter(year: int) -> date:
     """Anonymous Gregorian Easter (accurate 1900-2099)."""

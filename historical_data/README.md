@@ -53,25 +53,44 @@ checksum、raw_source、created_at、updated_at，保证 Dataset→Raw→Provide
 血缘可追溯；旧库在首次打开时自动迁移新增列。
 
 Curated 层只发布 `is_complete == True` 的完整 K 线（当天未收盘 D1 不进入正式
-回测数据）；Quality Report 同时记录 stored/complete/incomplete 行数与
-latest_stored_bar/latest_complete_bar，`backtest_suitable` 仅按完整 K 线视图
-判定。`market-data audit --symbols ...` 独立复算全部统计（不信任已有报告），
-`market-data verify` 审计 Catalog 行、Manifest、Curated 文件与 hash 链，
-并单独列出 legacy 污染的 current 指针。
+回测数据）；若所有 bar 均未收盘，数据集不得发布（QUARANTINED，绝不 fallback
+发布全 partial 版本）。Quality Report 同时记录 stored/complete/incomplete
+行数与 latest_stored_bar/latest_complete_bar，`backtest_suitable` 仅按完整
+K 线视图判定。`market-data audit --symbols ...` 独立复算全部统计（按
+requested/listing/日历重建期望区间，不信任已有报告），`market-data verify`
+审计 Catalog 行、Manifest、全部 artifact（raw/normalized/quality/curated）、
+hash 链与 pointer/catalog 一致性，并单独列出 legacy 污染的 current 指针。
+
+质量评估按请求区间（expected_start = max(requested_start, listing_start)）
+计算缺失：股票请求 20 年只返回 10 年 → 头部缺失如实计数并 fail closed；
+上市日之后缺失的真实交易日计入 provider_gap；请求早于上市日的时间不算缺失。
+`provider_available_start` 只在 Provider 显式声明时记录，绝不等于 actual_start。
 
 去重是冲突检测而非静默 `keep="last"`：完全相同（timestamp+OHLCV）→ 去重并
 记入 audit；相同 timestamp 但 OHLCV 不同 → `CONFLICTING_DUPLICATE` →
-REVIEW_REQUIRED（写入 reviews/ 候选，不推进 current）。Repository 读取正式
-Curated 时若仍检测到冲突抛 `DataConflictError`。
+REVIEW_REQUIRED。Review 候选保留双方数据（base.parquet / incoming.parquet /
+conflicts.json / candidate_manifest.json），审批可显式选择
+`approve_existing` 或 `approve_incoming`。Repository 读取正式 Curated 时若
+仍检测到冲突抛 `DataConflictError`。
 
-美股/ETF（xnas/xnys）的缺失按 NYSE 交易日历分类：weekend/holiday 不计缺失，
-真实交易日缺失记为 provider_gap，halt 标记为 UNKNOWN。加密资产（24x7）要求
+美股/ETF（xnas/xnys）的缺失按 RULE_BASED_NYSE_CALENDAR 规则日历分类：
+weekend/holiday 不计缺失，真实交易日缺失记为 provider_gap，未知 halt 标记
+为 UNKNOWN（规则日历是近似，非交易所官方日历）。加密资产（24x7）要求
 日线连续：缺一天即质量失败（QUARANTINED）。stock instrument 请求早于上市日
 的时间不算缺失。
 
 Provider 适配器统一实现 `fetch / fetch_range / normalize_symbol /
 validate_response`；HTTP 请求带超时、指数退避重试，429/5xx 遵循
 Retry-After 退避。
+
+Manifest、current pointer 与 Catalog 中的路径一律保存 **root-relative**
+路径（如 `curated/asset_class=crypto/...`），读取时以数据根目录解析；
+旧版绝对/工程相对路径仍可读取（向后兼容）。发布时 pointer 与 Catalog
+先写后验、不一致即回滚；`market-data repair-current --symbol ... --timeframe ...`
+可将 Catalog current 与文件系统指针重新对齐。XAU/XAG D1 采用 Dukascopy
+provider-native UTC 日线（`session_timezone=UTC`、`bar_close_rule=
+provider_native_utc`、`dayStartTime=UTC`），与 Registry 声明一致；纽约 17:00
+OTC 日线属于派生数据集，不作为原生 D1。
 
 ## 使用
 

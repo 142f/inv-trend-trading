@@ -9,7 +9,7 @@ import pandas as pd
 from .calendar import classify_missing
 from .models import CANONICAL_COLUMNS, InstrumentConfig, QualityReport
 
-RULE_VERSION = "1.1.0"
+RULE_VERSION = "1.1.2"
 FRAME_DELTAS = {"D1": "1D", "1d": "1D", "H4": "4h", "4h": "4h", "H1": "1h", "1h": "1h"}
 
 
@@ -146,10 +146,19 @@ def assess_quality(
 ) -> QualityReport:
     """Assess completeness against the requested range, not just actual bars.
 
-    The trailing edge is measured only up to the last settled boundary
-    (``requested_end - bar_delta``) so an absent not-yet-closed bar never
-    quarantines a healthy update.  A small head truncation relative to the
-    verified listing date is treated as a provider defect.
+    Expected window semantics (P0 fix):
+
+    - ``expected_start = max(requested_start, listing_start)``.  Time before the
+      verified listing date is never a gap; any real trading day between
+      ``expected_start`` and the actual data start IS a gap and must fail
+      quality.  There is deliberately no "few missing bars tolerated" head
+      truncation: the more truncated the head, the more missing days are
+      counted.
+    - The trailing edge is measured only up to the last settled boundary
+      (``requested_end - bar_delta``) so an absent not-yet-closed bar never
+      quarantines a healthy update.
+    - ``provider_available_start`` is only honoured when explicitly provided
+      and verified; it is never derived from ``actual_start``.
 
     Missing bars are classified by trading calendar: weekends and known
     NYSE holidays are never provider gaps.  Crypto (24x7) requires a fully
@@ -158,6 +167,8 @@ def assess_quality(
     """
     frame = result.clean
     delta = pd.Timedelta(FRAME_DELTAS[timeframe])
+    span_start: pd.Timestamp | None = None
+    span_end: pd.Timestamp | None = None
     if frame.empty:
         theoretical = missing = 0
         start = end = None
@@ -174,18 +185,26 @@ def assess_quality(
         complete = int(complete_mask.sum())
         latest_complete = frame.loc[complete_mask, "timestamp"].max() if complete else None
         latest_stored = end
-        span_start, span_end = start, end
+        listing_start = (pd.Timestamp(instrument.earliest_valid_date, tz="UTC")
+                         if instrument.earliest_valid_date else None)
+        expected_start = start
         if requested_start is not None:
             requested_start = pd.Timestamp(requested_start)
-            if requested_start < start:
-                earliest = (pd.Timestamp(instrument.earliest_valid_date, tz="UTC")
-                            if instrument.earliest_valid_date else None)
-                if earliest is not None and requested_start >= earliest and (start - requested_start) <= delta * 5:
-                    span_start = requested_start
+            # Head truncation is a real gap.  The expected window always starts
+            # at the later of the request and the verified listing date; a
+            # provider that returns less history fails closed.
+            expected_start = requested_start
+            if listing_start is not None and listing_start > requested_start:
+                expected_start = listing_start
         if requested_end is not None:
             settled = pd.Timestamp(requested_end) - delta
             if settled > end:
                 span_end = settled
+            else:
+                span_end = end
+        else:
+            span_end = end
+        span_start = expected_start
         absent_index, breakdown = classify_missing(
             pd.DatetimeIndex(frame["timestamp"].drop_duplicates()),
             market=instrument.market, session=instrument.session,
@@ -209,8 +228,14 @@ def assess_quality(
         notes.append("conflicting duplicate OHLCV rows quarantined for review")
     if instrument.asset_class == "equity":
         notes.append("adjustment uses provider adjusted-close factor; not a verified institutional corporate-action series")
+    unexplained_missing = breakdown["provider_gap"] + breakdown["unknown"]
     allow_missing = ratio <= 0.05
-    if instrument.session == "24x7":
+    if timeframe == "D1" and instrument.asset_class == "equity":
+        # Once the calendar has removed weekends, holidays and pre-listing
+        # dates, every remaining absent D1 session is unexplained.  Formal
+        # equity datasets fail closed even when the percentage is tiny.
+        allow_missing = unexplained_missing == 0
+    elif instrument.session == "24x7":
         # Crypto daily history must be continuous: one missing day is a defect.
         allow_missing = missing == 0
     suitable = bool(
@@ -227,12 +252,12 @@ def assess_quality(
         score += 20.0
     if not frame.empty and frame["is_complete"].any():
         score += 15.0
-    if ratio <= 0.05:
+    if allow_missing:
         score += 15.0
     if not frame.empty:
         score += 15.0  # API writes raw hash before publishing
     status = "CURATED" if suitable and score >= 50 else "QUARANTINED"
-    missing_intervals = _missing_interval_rows(frame, instrument, timeframe, breakdown)
+    missing_intervals = _missing_interval_rows(frame, instrument, timeframe, breakdown, span_start, span_end)
     return QualityReport(
         instrument.symbol, timeframe, start, end, theoretical, stored, missing, ratio,
         result.duplicate_count, result.ohlc_anomaly_count, result.extreme_jump_count,
@@ -245,19 +270,18 @@ def assess_quality(
         breakdown["weekend"], breakdown["holiday"],
         breakdown["weekend"], breakdown["holiday"], breakdown["provider_gap"], breakdown["unknown"],
         instrument.earliest_valid_date or "",
-        start or "", requested_start.isoformat() if requested_start is not None else "",
+        "", requested_start.isoformat() if requested_start is not None else "",
         requested_end.isoformat() if requested_end is not None else "",
     )
 
 
 def _missing_interval_rows(
     frame: pd.DataFrame, instrument: InstrumentConfig, timeframe: str,
-    breakdown: dict[str, int],
+    breakdown: dict[str, int], span_start: pd.Timestamp, span_end: pd.Timestamp,
 ) -> list[dict[str, object]]:
     if frame.empty or not breakdown.get("provider_gap"):
         return []
     observed = pd.DatetimeIndex(frame["timestamp"].drop_duplicates())
-    span_start, span_end = observed.min(), observed.max()
     absent, _ = classify_missing(
         observed, market=instrument.market, session=instrument.session,
         start=span_start, end=span_end, freq=FRAME_DELTAS[timeframe],

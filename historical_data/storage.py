@@ -10,7 +10,7 @@ from typing import Any
 
 import pandas as pd
 
-from .models import DataConflictError, DataLineageError
+from .models import DataConflictError, DataLineageError, path_text
 
 
 def require_parquet() -> None:
@@ -39,7 +39,8 @@ class DataLake:
         self.root = Path(root)
         for folder in (
             "raw", "normalized", "curated", "reference", "manifests",
-            "quality_reports", "quarantine", "logs/ingest", "reviews",
+            "dataset_manifests", "ingestion_reports", "quality_reports",
+            "quarantine", "logs/ingest", "reviews",
         ):
             (self.root / folder).mkdir(parents=True, exist_ok=True)
         duckdb_path, sqlite_path = self.root / "catalog.duckdb", self.root / "catalog.sqlite3"
@@ -189,11 +190,51 @@ class DataLake:
         return path
 
     def activate_curated(self, symbol: str, timeframe: str, version: str, run_id: str, path: Path,
-                         *, channel: str = "curated") -> None:
+                         *, channel: str = "curated", dataset_manifest_path: Path | None = None) -> None:
+        """Atomically advance the current pointer and catalog for one symbol.
+
+        The pointer is written first, then the catalog; a verification pass
+        restores the previous pointer when the two disagree so a partial
+        failure never leaves pointer and catalog out of sync.
+        """
+        previous = self.current_version(symbol, timeframe) if channel == "curated" else None
         pointer = self._pointer_path(symbol, timeframe, channel)
-        self._set_pointer(pointer, {"version": version, "run_id": run_id, "path": str(path), "channel": channel})
+        payload = {"version": version, "run_id": run_id,
+                   "path": path_text(path, self.root), "channel": channel}
+        if dataset_manifest_path is not None:
+            payload["dataset_manifest_path"] = path_text(dataset_manifest_path, self.root)
+        self._set_pointer(pointer, payload)
         if channel == "curated":
             self._set_current_catalog(symbol, timeframe, version, run_id)
+            try:
+                self._assert_pointer_catalog_consistent(symbol, timeframe, version)
+            except DataLineageError:
+                if previous is not None:
+                    self._set_pointer(pointer, previous)
+                self._set_current_catalog(symbol, timeframe, str(previous.get("version")), str(previous.get("run_id"))) if previous else None
+                raise
+
+    def _assert_pointer_catalog_consistent(self, symbol: str, timeframe: str, version: str) -> None:
+        pointer = self.current_version(symbol, timeframe)
+        with self._connect() as db:
+            row = db.execute("SELECT version FROM current_versions WHERE symbol=? AND timeframe=?",
+                             (symbol, timeframe)).fetchone()
+        if pointer is None or row is None or str(row[0]) != version or pointer.get("version") != version:
+            raise DataLineageError(
+                f"pointer/catalog drift for {symbol}/{timeframe}: pointer={pointer and pointer.get('version')}, "
+                f"catalog={row and row[0]}, expected={version}"
+            )
+
+    def repair_current(self, symbol: str, timeframe: str) -> dict[str, Any]:
+        """Resync the catalog current row from the filesystem pointer."""
+        pointer = self._pointer_path(symbol, timeframe)
+        if not pointer.exists():
+            with self._connect() as db:
+                db.execute("DELETE FROM current_versions WHERE symbol=? AND timeframe=?", (symbol, timeframe))
+            return {"symbol": symbol, "timeframe": timeframe, "action": "cleared"}
+        payload = json.loads(pointer.read_text(encoding="utf-8"))
+        self._set_current_catalog(symbol, timeframe, str(payload["version"]), str(payload["run_id"]))
+        return {"symbol": symbol, "timeframe": timeframe, "action": "repaired", "version": payload["version"]}
 
     def _pointer_path(self, symbol: str, timeframe: str, channel: str = "curated") -> Path:
         name = "current.json" if channel == "curated" else f"{channel}_current.json"
@@ -246,8 +287,10 @@ class DataLake:
             raise FileNotFoundError(f"curated version not found for {symbol}/{timeframe}: {version}")
         previous = self.current_version(symbol, timeframe)
         pointer = self._pointer_path(symbol, timeframe)
-        self._set_pointer(pointer, {"version": version, "run_id": "rollback", "path": str(matching[0]), "channel": "curated"})
+        self._set_pointer(pointer, {"version": version, "run_id": "rollback",
+                                    "path": path_text(matching[0], self.root), "channel": "curated"})
         self._set_current_catalog(symbol, timeframe, version, "rollback")
+        self._assert_pointer_catalog_consistent(symbol, timeframe, version)
         with self._connect() as db:
             db.execute("INSERT INTO rollbacks(rollback_id,symbol,timeframe,previous_version,target_version,actor,reason,created_at) VALUES (?,?,?,?,?,?,?,?)", (
                 hashlib.sha256(f"{symbol}{timeframe}{version}{datetime.now(timezone.utc).isoformat()}".encode()).hexdigest()[:24],
@@ -261,7 +304,7 @@ class DataLake:
             current = self.current_version(symbol, timeframe)
             if current is None:
                 raise FileNotFoundError(f"no curated bars for {symbol}/{timeframe}")
-            paths = [Path(current["path"])]
+            paths = [self._resolve_root_relative(str(current["path"]))]
         else:
             paths = list((self.root / "normalized").glob(f"asset_class=*/instrument=*/timeframe={timeframe}/year=*/*.parquet"))
         frames = []
@@ -278,6 +321,18 @@ class DataLake:
         order = ["timestamp", "ingested_at"] if "ingested_at" in frame else ["timestamp"]
         return frame.sort_values(order).drop_duplicates("timestamp", keep="last")
 
+    def _resolve_root_relative(self, raw: str) -> Path:
+        """Resolve a stored path against the data root; accepts legacy forms."""
+        candidate = Path(raw)
+        if candidate.is_absolute():
+            return candidate
+        root_relative = self.root / candidate
+        if root_relative.exists():
+            return root_relative
+        if candidate.exists():
+            return candidate
+        return root_relative
+
     def read_legacy_bars(self, symbol: str, timeframe: str) -> pd.DataFrame:
         require_parquet()
         pointer = self._pointer_path(symbol, timeframe, "legacy")
@@ -292,7 +347,7 @@ class DataLake:
         if not pointer.exists():
             raise FileNotFoundError(f"no legacy bars for {symbol}/{timeframe}")
         payload = json.loads(pointer.read_text(encoding="utf-8"))
-        frame = pd.read_parquet(Path(payload["path"]))
+        frame = pd.read_parquet(self._resolve_root_relative(str(payload["path"])))
         frame["timestamp"] = pd.to_datetime(frame["timestamp"], utc=True)
         return frame.sort_values("timestamp").drop_duplicates("timestamp", keep="last")
 

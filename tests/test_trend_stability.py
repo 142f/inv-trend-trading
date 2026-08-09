@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
@@ -11,17 +10,14 @@ import pandas as pd
 import pytest
 
 from turtle_detector.backtest.engine import DetectorBacktester
-from turtle_detector.data.normalizer import normalize_bars
 from turtle_detector.engine.scanner import TurtleScanner
 from turtle_detector.models import (
     AssetConfig,
-    DetectorState,
     Direction,
     Market,
     SignalType,
     StrategyConfig,
 )
-from turtle_detector.storage import InMemorySignalRepository
 
 
 # ── 测试工具 ──────────────────────────────────────────────────────────────
@@ -174,7 +170,6 @@ def test_donchian_excludes_current_bar() -> None:
 
     # 逐个 bar 验证：当前 bar 的 high 不能超过同期的 channel_high_20
     for idx in range(20, len(bars)):
-        high = bars.iloc[idx]["high"]
         channel = result.iloc[idx]["channel_high_20"]
         # 允许突破（high > channel），但 channel 本身必须 ≤ 前 20 根 bar 的 max
         prev_high = bars.iloc[idx - 20 : idx]["high"].max()
@@ -222,7 +217,6 @@ def test_signal_stability_under_small_noise() -> None:
     total_ref = sum(ref.values())
     total_pert = sum(perturbed.values())
     ratio_ref = total_pert / total_ref if total_ref else 1.0
-    ratio_pert = total_ref / total_pert if total_pert else 1.0
 
     # 信号总数偏差应在 ±30% 以内
     assert 0.7 <= ratio_ref <= 1.3, (
@@ -271,15 +265,12 @@ def test_system1_entry_sensitivity() -> None:
     bars = _trending_bars(400, bull=True)
 
     config_15 = _config(system1_entry=15)
-    config_20 = _config(system1_entry=20)
     config_25 = _config(system1_entry=25)
 
     s15 = _count_signals(TurtleScanner(config_15), bars)
-    s20 = _count_signals(TurtleScanner(config_20), bars)
     s25 = _count_signals(TurtleScanner(config_25), bars)
 
     total_15 = sum(s15.values())
-    total_20 = sum(s20.values())
     total_25 = sum(s25.values())
 
     # 参数变化应导致信号数单调变化（更长的突破窗口 → 更少的突破）
@@ -514,8 +505,6 @@ def _stability_conclusion(
 ) -> list[str]:
     """根据信号分布和回测指标生成稳定性结论。"""
     conclusions: list[str] = []
-    total = sum(signals.values())
-
     # 信号多样性
     unique_types = len(signals)
     if unique_types >= 4:

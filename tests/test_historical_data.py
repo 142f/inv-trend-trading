@@ -8,8 +8,13 @@ import pandas as pd
 import pytest
 
 from historical_data.api import HistoricalDataService
+from historical_data.audit import audit_dataset
+from historical_data.calendar import is_nyse_trading_day
 from historical_data.config import load_instruments
-from historical_data.models import DataLineageError, DataQualityError, InstrumentNotImplementedError, ProviderResult, SurvivorshipBiasError
+from historical_data.models import (
+    DataLineageError, DataQualityError, DatasetManifest, InstrumentNotImplementedError,
+    ProviderResult, SurvivorshipBiasError, path_text, utc_now,
+)
 from historical_data.providers import CsvBarsProvider
 from historical_data.processing import (
     apply_equity_adjustments,
@@ -49,21 +54,43 @@ def bars() -> pd.DataFrame:
     })
 
 
+def equity_bars(start: str, sessions: int) -> pd.DataFrame:
+    candidates = pd.date_range(start, periods=sessions * 2, freq="D", tz="UTC")
+    stamps = pd.DatetimeIndex([stamp for stamp in candidates if is_nyse_trading_day(stamp)])[:sessions]
+    values = pd.Series(range(100, 100 + sessions), dtype=float)
+    return pd.DataFrame({
+        "timestamp": stamps, "open": values, "high": values + 2, "low": values - 1,
+        "close": values + 1, "adjusted_close": values + 1, "volume": [1000] * sessions,
+        "is_complete": [True] * sessions,
+    })
+
+
 def test_ingest_manifest_parquet_hash_and_detector_compatible(tmp_path: Path):
     provider = FakeProvider(bars())
     service = HistoricalDataService(tmp_path, providers={"binance": provider})
     manifest = service.ingest(
-        "BTC", "D1", datetime(2000, 1, 1, tzinfo=UTC), datetime(2024, 1, 4, tzinfo=UTC)
+        "BTC", "D1", datetime(2024, 1, 1, tzinfo=UTC), datetime(2024, 1, 4, tzinfo=UTC)
     )
-    assert provider.calls[0].start.year == 2017
     assert manifest.actual_symbol == "BTCUSDT"
-    assert all(sha256_file(Path(path)) == digest for path, digest in manifest.file_hashes.items())
+    assert all(sha256_file(service.lake._resolve_root_relative(path)) == digest for path, digest in manifest.file_hashes.items())
     loaded = service.load_bars("BTC", "D1")
     assert loaded["timestamp"].is_monotonic_increasing
     assert loaded["timestamp"].is_unique
     assert len(loaded) == 2
     assert {"open", "high", "low", "close", "volume"}.issubset(loaded)
     assert loaded.attrs["data_sources"] == ["binance"]
+
+
+def test_requested_start_is_clamped_to_listing_for_provider_call(tmp_path: Path):
+    """The provider request is clamped to earliest_valid_date, never before it."""
+    provider = FakeProvider(bars())
+    service = HistoricalDataService(tmp_path, providers={"binance": provider})
+    service.ingest("BTC", "D1", datetime(2000, 1, 1, tzinfo=UTC), datetime(2024, 1, 4, tzinfo=UTC))
+    assert provider.calls[0].start.year == 2017
+    # Requesting before verified history with data only from 2024 is a head
+    # truncation: it must fail closed instead of being graded 100.
+    deficient = service.ingest("BTC", "D1", datetime(2000, 1, 1, tzinfo=UTC), datetime(2024, 1, 4, tzinfo=UTC))
+    assert deficient.quality_status == "QUARANTINED"
 
 
 def test_duplicate_invalid_ohlc_and_early_crypto_are_quarantined():
@@ -130,6 +157,167 @@ def test_incremental_update_is_idempotent(tmp_path: Path):
     service.update("BTC", "D1", end=datetime(2024, 1, 4, tzinfo=UTC))
     after = service.load_bars("BTC", "D1")
     pd.testing.assert_frame_equal(before, after)
+
+
+def test_short_overlap_run_keeps_dataset_manifest_and_full_coverage(tmp_path: Path):
+    stamps = pd.date_range("2024-01-01", periods=100, freq="D", tz="UTC")
+    full = pd.DataFrame({
+        "timestamp": stamps, "open": range(10, 110), "high": range(12, 112),
+        "low": range(9, 109), "close": range(11, 111), "volume": [100] * 100,
+        "is_complete": [True] * 100,
+    })
+    service = HistoricalDataService(tmp_path, providers={"binance": FakeProvider(full)})
+    first = service.ingest(
+        "BTC", "D1", datetime(2024, 1, 1, tzinfo=UTC), datetime(2024, 4, 10, tzinfo=UTC)
+    )
+    current_before = service.lake.current_version("BTC", "D1")
+    dataset_manifest_path = service.lake._resolve_root_relative(current_before["dataset_manifest_path"])
+    dataset_manifest_before = dataset_manifest_path.read_bytes()
+    run_count = len(list((tmp_path / "manifests").glob("*.json")))
+
+    service.providers["binance"] = FakeProvider(full.tail(11).reset_index(drop=True))
+    second = service.ingest(
+        "BTC", "D1", datetime(2024, 3, 30, tzinfo=UTC), datetime(2024, 4, 10, tzinfo=UTC)
+    )
+
+    assert second.dataset_version == first.dataset_version
+    assert service.lake.current_version("BTC", "D1") == current_before
+    assert dataset_manifest_path.read_bytes() == dataset_manifest_before
+    assert len(list((tmp_path / "manifests").glob("*.json"))) == run_count + 1
+    audit = audit_dataset(tmp_path, "BTC", "D1")
+    assert (audit["stored_rows"], audit["expected_rows"], audit["missing_rows"]) == (100, 100, 0)
+    assert audit["coverage_ratio"] == 1.0
+
+
+def test_equity_d1_provider_gap_is_zero_tolerance(tmp_path: Path):
+    full = equity_bars("2024-01-02", 100)
+    deficient = full.drop(index=50).reset_index(drop=True)
+    service = HistoricalDataService(tmp_path, providers={"yahoo_chart": FakeProvider(deficient)})
+    manifest = service.ingest(
+        "AAPL", "D1", full["timestamp"].min().to_pydatetime(),
+        (full["timestamp"].max() + pd.Timedelta(days=1)).to_pydatetime(),
+    )
+    report = json.loads(
+        (tmp_path / "ingestion_reports" / f"{manifest.run_id}.json").read_text(encoding="utf-8")
+    )
+    assert report["expected_rows"] == 100
+    assert report["actual_bars"] == 99
+    assert report["gap_provider"] == 1
+    assert report["gap_unknown"] == 0
+    assert report["coverage_ratio"] == 0.99
+    assert report["quality_score"] < 100
+    assert report["quality_status"] == "QUARANTINED"
+    assert report["backtest_suitable"] is False
+    assert service.status("AAPL", "D1")["status"] == "MISSING"
+
+
+def test_equity_d1_weekends_holidays_and_pre_listing_are_not_gaps(tmp_path: Path):
+    full = equity_bars("2024-01-02", 100)
+    service = HistoricalDataService(tmp_path / "calendar", providers={"yahoo_chart": FakeProvider(full)})
+    manifest = service.ingest(
+        "AAPL", "D1", full["timestamp"].min().to_pydatetime(),
+        (full["timestamp"].max() + pd.Timedelta(days=1)).to_pydatetime(),
+    )
+    report = json.loads(
+        (tmp_path / "calendar" / "ingestion_reports" / f"{manifest.run_id}.json").read_text(encoding="utf-8")
+    )
+    assert report["gap_weekend"] > 0
+    assert report["gap_holiday"] > 0
+    assert report["gap_provider"] == 0
+    assert report["quality_status"] == "CURATED"
+    assert report["backtest_suitable"] is True
+
+    listed = equity_bars("2012-05-18", 20)
+    listing_service = HistoricalDataService(
+        tmp_path / "listing", providers={"yahoo_chart": FakeProvider(listed)}
+    )
+    listing_manifest = listing_service.ingest(
+        "META", "D1", datetime(2006, 1, 1, tzinfo=UTC),
+        (listed["timestamp"].max() + pd.Timedelta(days=1)).to_pydatetime(),
+    )
+    listing_report = json.loads(
+        (tmp_path / "listing" / "ingestion_reports" / f"{listing_manifest.run_id}.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert listing_report["gap_provider"] == 0
+    assert listing_report["quality_status"] == "CURATED"
+
+
+def test_equity_d1_failed_increment_keeps_old_current(tmp_path: Path):
+    full = equity_bars("2024-01-02", 110)
+    service = HistoricalDataService(tmp_path, providers={"yahoo_chart": FakeProvider(full.iloc[:100])})
+    first = service.ingest(
+        "AAPL", "D1", full["timestamp"].iloc[0].to_pydatetime(),
+        (full["timestamp"].iloc[99] + pd.Timedelta(days=1)).to_pydatetime(),
+    )
+    current_before = service.lake.current_version("AAPL", "D1")
+    incoming = full.iloc[90:].drop(index=105).reset_index(drop=True)
+    service.providers["yahoo_chart"] = FakeProvider(incoming)
+    failed = service.ingest(
+        "AAPL", "D1", full["timestamp"].iloc[90].to_pydatetime(),
+        (full["timestamp"].iloc[109] + pd.Timedelta(days=1)).to_pydatetime(),
+    )
+    report = json.loads(
+        (tmp_path / "ingestion_reports" / f"{failed.run_id}.json").read_text(encoding="utf-8")
+    )
+    assert failed.quality_status == "QUARANTINED"
+    assert report["gap_provider"] == 1
+    assert report["backtest_suitable"] is False
+    assert service.lake.current_version("AAPL", "D1") == current_before
+    assert service.status("AAPL", "D1")["version"] == first.dataset_version
+
+
+def test_equity_gap_audit_independently_matches_quality_report(tmp_path: Path):
+    full = equity_bars("2024-01-02", 100)
+    deficient = full.drop(index=50).reset_index(drop=True)
+    service = HistoricalDataService(tmp_path, providers={"yahoo_chart": FakeProvider(deficient)})
+    run = service.ingest(
+        "AAPL", "D1", full["timestamp"].min().to_pydatetime(),
+        (full["timestamp"].max() + pd.Timedelta(days=1)).to_pydatetime(),
+    )
+    run_report = json.loads(
+        (tmp_path / "ingestion_reports" / f"{run.run_id}.json").read_text(encoding="utf-8")
+    )
+    normalized_path = next(
+        service.lake._resolve_root_relative(path)
+        for path in run.file_paths if path.startswith("normalized/")
+    )
+    frame = pd.read_parquet(normalized_path)
+    version = "audit-gap-candidate"
+    frame["dataset_version"] = version
+    frame["curated_version"] = version
+    curated = service.lake.publish_curated(
+        frame, symbol="AAPL", instrument_id=service.instruments["AAPL"].instrument_id,
+        asset_class="equity", timeframe="D1", version=version, run_id=run.run_id,
+        activate=False,
+    )
+    quality = service.lake.write_json(
+        run_report | {"dataset_version": version},
+        Path("quality_reports") / f"{version}.json",
+    )
+    dataset_manifest = DatasetManifest(
+        dataset_version=version, parent_dataset_version=None, publication_run_id=run.run_id,
+        symbol="AAPL", instrument_id=service.instruments["AAPL"].instrument_id,
+        timeframe="D1", full_actual_start=frame["timestamp"].min().isoformat(),
+        full_actual_end=frame["timestamp"].max().isoformat(), row_count=len(frame),
+        curated_path=path_text(curated, tmp_path), curated_sha256=sha256_file(curated),
+        quality_report_path=path_text(quality, tmp_path), quality_report_sha256=sha256_file(quality),
+        published_at=utc_now().isoformat(), cleaning_rule_version="1.1.2",
+    )
+    dataset_manifest_path = service.lake.write_json(
+        dataset_manifest.to_dict(), Path("dataset_manifests") / f"{version}.json"
+    )
+    service.lake.activate_curated(
+        "AAPL", "D1", version, run.run_id, curated,
+        dataset_manifest_path=dataset_manifest_path,
+    )
+
+    audit = audit_dataset(tmp_path, "AAPL", "D1")
+    assert run_report["gap_provider"] == audit["gap_provider"] == 1
+    assert run_report["gap_unknown"] == audit["gap_unknown"] == 0
+    assert audit["lineage"]["report_gap_provider"] == audit["lineage"]["recomputed_gap_provider"]
+    assert audit["backtest_suitable"] is False
 
 
 def test_outside_overlap_revision_requires_review_and_keeps_current_version(tmp_path: Path):
@@ -231,7 +419,14 @@ def test_review_approval_publishes_readable_curated_version(tmp_path: Path):
         service.approve_review(review.run_id, "different reason", actor="test")
     approval = json.loads((tmp_path / "manifests" / f"approval-{version}.json").read_text(encoding="utf-8"))
     assert set(approval["file_paths"]) == set(approval["file_hashes"])
-    assert all(sha256_file(Path(path)) == digest for path, digest in approval["file_hashes"].items())
+    assert all(sha256_file(service.lake._resolve_root_relative(path)) == digest for path, digest in approval["file_hashes"].items())
+    assert approval["approved_curated_path"]
+    assert approval["approved_curated_sha256"]
+    assert approval["approved_quality_report_path"]
+    assert approval["candidate_data_path"]
+    assert approval["candidate_manifest_path"]
+    assert approval["review_record_path"]
+    assert approval["review_record_sha256"]
 
 
 def test_coverage_fails_closed_when_quality_report_is_missing(tmp_path: Path):
