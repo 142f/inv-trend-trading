@@ -6,12 +6,12 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from turtle_detector.config import load_asset_configs, load_strategy_config
+from inv_trend_application import load_detector_asset_configs
+from turtle_detector.config import load_strategy_config
 from turtle_detector.backtest import DetectorBacktester
 from turtle_detector.data.normalizer import apply_split_adjustment, normalize_bars
 from turtle_detector.engine.scanner import TurtleScanner
-from turtle_detector.indicators.atr import wilder_atr
-from turtle_detector.indicators.donchian import donchian_channels
+from inv_trend_core.math_utils import donchian_channels, wilder_atr
 from turtle_detector.models import (
     AssetConfig,
     DetectorState,
@@ -67,9 +67,9 @@ def _bars(closes: list[float], *, tz: str | None = "UTC") -> pd.DataFrame:
 
 
 def test_default_assets_pin_actual_instruments_and_sources() -> None:
-    assets = load_asset_configs()
-    assert assets["BTC"].instrument == "BTCUSDT_BINANCE_SPOT"
-    assert assets["XAU"].instrument == "XAUUSD_DUKAS"
+    assets = load_detector_asset_configs()
+    assert assets["BTC"].instrument == "BTCUSDT.BINANCE.SPOT"
+    assert assets["XAU"].instrument == "XAUUSD.DUKAS.BID.CFD"
     assert assets["XAG"].data_source == "dukascopy"
     assert assets["NVDA"].adjustment == "back_adjusted"
     assert load_strategy_config().confirmation_mode == "close"
@@ -77,14 +77,14 @@ def test_default_assets_pin_actual_instruments_and_sources() -> None:
 
 def test_donchian_channel_excludes_current_bar() -> None:
     bars = _bars([10, 11, 12, 50])
-    result = donchian_channels(bars, {3})
+    result = donchian_channels(bars["high"], bars["low"], {3})
     assert result.iloc[-1]["channel_high_3"] == pytest.approx(12.5)
     assert result.iloc[-1]["channel_high_3"] != 50.5
 
 
 def test_wilder_atr_for_constant_ranges() -> None:
     bars = _bars([10, 10, 10, 10, 10])
-    atr = wilder_atr(bars, 3)
+    atr = wilder_atr(bars["high"], bars["low"], bars["close"], 3)
     assert atr.iloc[:2].isna().all()
     assert atr.iloc[2:].tolist() == pytest.approx([1.0, 1.0, 1.0])
 

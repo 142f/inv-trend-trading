@@ -7,7 +7,9 @@ from pathlib import Path
 import pandas as pd
 
 from research.d1_suite.scripts.d1_backtest_common import load_csv
-from turtle_multi_asset import AssetSpec, TurtleBacktester, TurtleRules
+from inv_trend_application import BacktestService
+from turtle_multi_asset import AssetSpec, TurtleRules
+from turtle_multi_asset.config import BacktestConfig
 from turtle_multi_asset.data.core_dataset import summarize_backtest_result
 
 
@@ -118,12 +120,10 @@ def run_symbol_window(
     window_data = full_data.loc[full_data.index >= start_cutoff].copy()
     specs = {symbol: build_single_symbol_spec(symbol, max_leverage)}
     rules = build_single_symbol_rules(max_leverage)
-    result = TurtleBacktester(
-        data={symbol: window_data},
-        specs=specs,
-        rules=rules,
-        initial_equity=initial_equity,
-    ).run()
+    result = BacktestService().run(
+        data={symbol: window_data}, specs=specs, rules=rules,
+        config=BacktestConfig(initial_equity=initial_equity),
+    ).result
     summary = summarize_backtest_result(result)
     benchmark = buy_and_hold_metrics(window_data, initial_equity)
     return {

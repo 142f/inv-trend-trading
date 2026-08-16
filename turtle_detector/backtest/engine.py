@@ -59,9 +59,11 @@ class DetectorBacktester:
         start = max(1, self.config.warmup_bars - 1)
 
         for idx in range(start, len(prepared)):
-            # Pass the original-schema prefix back through the public boundary.
-            prefix = bars.iloc[: idx + 1]
-            result = scanner.detect(prefix, asset, timeframe, state)
+            # Indicators are prepared once; each prefix remains causal because
+            # every rolling feature is backward-looking and Donchian is shifted.
+            # ``detect_prepared`` only reads the final row.  Supplying that
+            # row avoids allocating O(n²) prefix frames during chronology.
+            result = scanner.detect_row(prepared.iloc[idx], asset, timeframe, state)
             state = result.state
             signal = result.signal
             close = float(prepared.iloc[idx]["close"])

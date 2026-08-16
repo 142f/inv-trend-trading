@@ -7,10 +7,12 @@ from pathlib import Path
 
 import pandas as pd
 
-from turtle_multi_asset import AssetSpec, TurtleBacktester, TurtleRules, turtle_rules
+from inv_trend_application import BacktestService
+from turtle_multi_asset import AssetSpec, TurtleRules, turtle_rules
+from turtle_multi_asset.config import BacktestConfig
 from turtle_multi_asset.data.loader import load_backtest_ready_csv
 from turtle_multi_asset.data.core_dataset import summarize_backtest_result
-from turtle_multi_asset.integrations.mt5 import _infer_asset_fields
+from turtle_multi_asset.profiles.asset_profiles import infer_asset_fields
 
 
 DEFAULT_DATASETS = [
@@ -30,7 +32,7 @@ def parse_args() -> argparse.Namespace:
 def build_asset_specs(symbols: list[str]) -> dict[str, AssetSpec]:
     specs: dict[str, AssetSpec] = {}
     for symbol in symbols:
-        inferred = _infer_asset_fields(symbol)
+        inferred = infer_asset_fields(symbol)
         specs[symbol] = AssetSpec(
             symbol=symbol,
             asset_class=str(inferred["asset_class"]),
@@ -101,7 +103,9 @@ def main() -> None:
         specs = build_asset_specs(sorted(data))
         by_dataset[dataset_name] = {}
         for name, rules in variant_rules().items():
-            result = TurtleBacktester(data, specs, rules, initial_equity=args.equity).run()
+            result = BacktestService().run(
+                data, specs, rules, config=BacktestConfig(initial_equity=args.equity)
+            ).result
             summary = summarize_backtest_result(result)
             by_dataset[dataset_name][name] = summary
             all_rows.append(

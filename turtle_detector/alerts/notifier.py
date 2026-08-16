@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 from typing import Iterable, Protocol
 
@@ -32,6 +33,18 @@ class JsonLinesNotifier:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self.path.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(signal.to_dict(), ensure_ascii=False) + "\n")
+
+
+class StructuredLoggingNotifier:
+    """Emit one machine-readable log record per deduplicated signal."""
+
+    def __init__(self, logger: logging.Logger | None = None) -> None:
+        self.logger = logger or logging.getLogger("turtle_detector.breakout_alert")
+
+    def notify(self, signal: TurtleSignal) -> None:
+        self.logger.info(
+            json.dumps(signal.to_dict(), ensure_ascii=False, allow_nan=False)
+        )
 
 
 class CompositeNotifier:

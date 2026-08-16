@@ -7,6 +7,8 @@ from pathlib import Path
 
 import pandas as pd
 
+from inv_trend_application import BacktestService
+from turtle_multi_asset.config import BacktestConfig
 from research.d1_suite.scripts.d1_backtest_common import (
     CORE_SYMBOLS,
     EQUITY_SYMBOLS,
@@ -122,9 +124,12 @@ def main() -> None:
             include_equities=bool(run_config["include_equities"]),
         )
         rules = rules_3x(include_equities=bool(run_config["include_equities"]))
-        from turtle_multi_asset import TurtleBacktester
-
-        result = TurtleBacktester(data=data, specs=specs, rules=rules, initial_equity=args.initial_equity).run()
+        result = BacktestService().run(
+            data=data,
+            specs=specs,
+            rules=rules,
+            config=BacktestConfig(initial_equity=args.initial_equity),
+        ).result
 
         run_dir = out_dir / str(run_config["run"])
         write_backtest_outputs(result, run_dir)

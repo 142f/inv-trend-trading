@@ -1,5 +1,14 @@
 """Notification ports."""
 
-from .notifier import CompositeNotifier, ConsoleNotifier, JsonLinesNotifier, Notifier
+from .notifier import (
+    CompositeNotifier,
+    ConsoleNotifier,
+    JsonLinesNotifier,
+    Notifier,
+    StructuredLoggingNotifier,
+)
 
-__all__ = ["CompositeNotifier", "ConsoleNotifier", "JsonLinesNotifier", "Notifier"]
+__all__ = [
+    "CompositeNotifier", "ConsoleNotifier", "JsonLinesNotifier", "Notifier",
+    "StructuredLoggingNotifier",
+]

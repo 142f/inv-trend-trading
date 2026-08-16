@@ -7,34 +7,50 @@ from pathlib import Path
 
 import pandas as pd
 
-from .alerts.notifier import CompositeNotifier, ConsoleNotifier, JsonLinesNotifier
-from .config.loader import load_asset_configs, load_strategy_config
-from .engine.scanner import TurtleScanner
+from .config.loader import load_strategy_config
 from .storage.signal_repository import JsonSignalRepository
+from inv_trend_application import DetectorService
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--bars", required=True)
+    parser.add_argument("--bars", help="Legacy/test CSV input. Repository is used when omitted.")
     parser.add_argument("--symbol", required=True)
     parser.add_argument("--timeframe", required=True)
     parser.add_argument("--assets-config", default=None)
     parser.add_argument("--strategy-config", default=None)
     parser.add_argument("--state", default="outputs/turtle_detector/state.json")
     parser.add_argument("--alerts", default="outputs/turtle_detector/signals.jsonl")
+    parser.add_argument("--data-root", default="data")
+    parser.add_argument("--allow-research-data", action="store_true")
     args = parser.parse_args()
 
-    assets = load_asset_configs(args.assets_config)
+    from inv_trend_application import load_detector_asset_configs
+
+    assets = load_detector_asset_configs(args.assets_config)
     symbol = args.symbol.upper()
     if symbol not in assets:
         raise ValueError(f"symbol is not configured: {symbol}")
-    bars = pd.read_csv(Path(args.bars))
-    scanner = TurtleScanner(
-        load_strategy_config(args.strategy_config),
-        JsonSignalRepository(args.state),
-        CompositeNotifier([ConsoleNotifier(), JsonLinesNotifier(args.alerts)]),
+    if args.bars:
+        bars = pd.read_csv(Path(args.bars))
+    else:
+        from historical_data import load_bars
+        bars = load_bars(
+            symbol, args.timeframe.upper(), root=args.data_root,
+            allow_research=args.allow_research_data,
+        )
+    # Keep every existing CLI argument.  State changes are now committed by
+    # the application service; CLI presentation remains intentionally thin.
+    repository = JsonSignalRepository(args.state)
+    result = DetectorService(load_strategy_config(args.strategy_config), repository).scan(
+        bars, assets[symbol], args.timeframe.upper()
     )
-    scanner.scan_and_store(bars, assets[symbol], args.timeframe.upper())
+    if result.committed and result.decision.execution_transition:
+        from .alerts.notifier import CompositeNotifier, ConsoleNotifier, JsonLinesNotifier
+
+        CompositeNotifier([ConsoleNotifier(), JsonLinesNotifier(args.alerts)]).notify(
+            result.decision.signal
+        )
 
 
 if __name__ == "__main__":

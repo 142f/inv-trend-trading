@@ -1,4 +1,4 @@
-"""Small OKX V5 client wrapper for data checks and guarded order submission."""
+"""OKX V5 integration port for data checks and guarded order submission."""
 
 from __future__ import annotations
 
