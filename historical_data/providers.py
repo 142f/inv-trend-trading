@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from io import StringIO
+from io import BytesIO, StringIO
 import json
 import os
 from pathlib import Path
@@ -14,7 +14,7 @@ from urllib.request import Request, urlopen
 
 import pandas as pd
 
-from .models import DownloadRequest, ProviderResult
+from .models import DownloadRequest, InstrumentConfig, ProviderResult
 
 
 class BarsProvider(Protocol):
@@ -260,7 +260,10 @@ class AlphaVantageProvider(AdapterDefaults):
         frame = _filter_frame_to_request(frame, request)
         self.validate_response(frame, request)
         return ProviderResult(frame, request.instrument.source_symbol,
-                              self.name, request.instrument.license, {"endpoint": self.base_url, "research_only": True},
+                              self.name, request.instrument.license, {
+                                  "endpoint": self.base_url, "research_only": True,
+                                  "instrument_identity": _instrument_identity(request.instrument),
+                              },
                               raw_payload=raw_payload)
 
 
@@ -360,6 +363,20 @@ def _filter_frame_to_request(frame: pd.DataFrame, request: DownloadRequest) -> p
     return out.loc[(stamps >= pd.Timestamp(request.start)) & (stamps <= pd.Timestamp(request.end))].reset_index(drop=True)
 
 
+def _instrument_identity(instrument: InstrumentConfig) -> dict[str, str]:
+    """Economic-series contract required before a fallback can be accepted."""
+    return {
+        "instrument_type": instrument.instrument_type,
+        "venue": instrument.venue,
+        "currency": instrument.currency,
+        "price_basis": instrument.price_basis,
+        "adjustment_method": instrument.adjustment_method,
+        "session_timezone": instrument.session_timezone,
+        "bar_close_rule": instrument.bar_close_rule,
+        "ohlc_definition": "provider_native",
+    }
+
+
 def _dukascopy_frame(payload: object) -> pd.DataFrame:
     if isinstance(payload, dict):
         payload = payload.get("data", payload.get("candles", []))
@@ -374,26 +391,46 @@ def _dukascopy_frame(payload: object) -> pd.DataFrame:
     return frame
 
 
+OFFICIAL_QQQ_HOLDINGS_URL = (
+    "https://dng-api.invesco.com/cache/v1/accounts/en_US/shareclasses/QQQ/holdings/fund"
+    "?idType=ticker&interval=monthly&productType=ETF"
+)
+OFFICIAL_SPY_HOLDINGS_URL = (
+    "https://www.ssga.com/library-content/products/fund-data/etfs/us/"
+    "holdings-daily-us-en-spy.xlsx"
+)
+
+
 @dataclass
-class QqqHoldingsCsvProvider:
-    """Parses an official manager/vendor CSV without scraping rendered web pages."""
+class HoldingsCsvProvider:
+    """Parse an authorized ETF holdings CSV without web-page scraping."""
 
     source: str | Path
-    name: str = "official_qqq_holdings_csv"
+    fund: str | None = None
+    name: str = "official_etf_holdings_csv"
 
-    def fetch(self, snapshot_date: str | None = None) -> pd.DataFrame:
+    def fetch(self, snapshot_date: str | None = None, *, top: int = 50) -> pd.DataFrame:
+        if top < 1:
+            raise ValueError("top must be positive")
         location = str(self.source)
         if location.startswith("https://"):
             with urlopen(location, timeout=60) as response:
-                frame = pd.read_csv(StringIO(response.read().decode("utf-8-sig")))
+                payload = response.read()
+            frame, source_date = _read_holdings_payload(payload, location)
+        elif location.lower().endswith(".csv"):
+            # Keep the ordinary CSV path compatible with callers that provide
+            # pandas storage options or monkeypatch read_csv in tests.
+            frame, source_date = pd.read_csv(location), None
         else:
-            frame = pd.read_csv(Path(location))
+            payload = Path(location).read_bytes()
+            frame, source_date = _read_holdings_payload(payload, location)
         aliases = {
             "symbol": ("symbol", "ticker", "holding ticker"),
             "company_name": ("company_name", "name", "holding name", "security name"),
             "weight": ("weight", "weight (%)", "portfolio weight"),
             "sector": ("sector", "industry"),
             "snapshot_date": ("snapshot_date", "as of", "date"),
+            "fund": ("fund", "etf", "portfolio"),
         }
         lowered = {str(c).strip().lower(): c for c in frame.columns}
         out: dict[str, object] = {}
@@ -405,15 +442,86 @@ class QqqHoldingsCsvProvider:
         if "symbol" not in result or "weight" not in result:
             raise ValueError("holdings CSV must contain symbol/ticker and weight columns")
         if "snapshot_date" not in result:
+            snapshot_date = snapshot_date or source_date
             if snapshot_date is None:
                 raise ValueError("snapshot_date must come from the source or caller")
             result["snapshot_date"] = snapshot_date
         result["snapshot_date"] = pd.to_datetime(result["snapshot_date"]).dt.date.astype(str)
+        if result["snapshot_date"].nunique() != 1:
+            raise ValueError("holdings CSV must contain exactly one snapshot_date")
+        if "fund" not in result:
+            if not self.fund:
+                raise ValueError("fund must come from the source or caller")
+            result["fund"] = self.fund
+        result["fund"] = result["fund"].astype(str).str.upper().str.strip()
+        if result["fund"].nunique() != 1 or result["fund"].iloc[0] not in {"QQQ", "SPY"}:
+            raise ValueError("one holdings CSV must contain exactly one supported fund: QQQ or SPY")
+        result["symbol"] = result["symbol"].astype(str).str.upper().str.strip()
+        if result["symbol"].eq("").any() or result["symbol"].duplicated().any():
+            raise ValueError("holdings symbols must be non-empty and unique")
         result["weight"] = pd.to_numeric(
             result["weight"].astype(str).str.rstrip("%"), errors="raise"
         )
         if result["weight"].max() > 1:
             result["weight"] /= 100
+        if result["weight"].isna().any() or (result["weight"] <= 0).any():
+            raise ValueError("holdings weights must be positive")
         result["data_source"] = self.name
         result["source_location"] = location
-        return result.sort_values("weight", ascending=False).head(20).reset_index(drop=True)
+        result = result.sort_values("weight", ascending=False).head(top).reset_index(drop=True)
+        result["rank"] = range(1, len(result) + 1)
+        return result
+
+
+def _read_holdings_payload(payload: bytes, location: str) -> tuple[pd.DataFrame, str | None]:
+    stripped = payload.lstrip()
+    if stripped.startswith(b"{"):
+        raw = json.loads(payload)
+        rows = raw.get("holdings")
+        if not isinstance(rows, list):
+            raise ValueError("holdings JSON must contain a holdings list")
+        frame = pd.DataFrame(rows).rename(columns={
+            "ticker": "symbol", "issuerName": "company_name",
+            "percentageOfTotalNetAssets": "weight",
+        })
+        if "securityTypeCode" in frame:
+            frame = frame.loc[frame["securityTypeCode"].isin({"COM", "ADR", "DRNY"})]
+        # Some fund holdings are private securities whose displayed ticker can
+        # collide with an unrelated public Yahoo symbol (for example SpaceX / SPCX).
+        if "company_name" in frame:
+            frame = frame.loc[
+                ~frame["company_name"].astype(str).str.contains(
+                    "Space Exploration Technologies", case=False, na=False
+                )
+            ]
+        frame = frame.loc[frame["symbol"].notna() & frame["weight"].notna()]
+        return frame, raw.get("effectiveBusinessDate") or raw.get("effectiveDate")
+    if payload.startswith(b"PK\x03\x04") or location.lower().endswith(".xlsx"):
+        raw = pd.read_excel(BytesIO(payload), sheet_name="holdings", header=None)
+        date_text = str(raw.iloc[2, 1]) if len(raw) > 2 else ""
+        source_date = pd.to_datetime(
+            date_text.replace("As of", "").strip(), errors="coerce"
+        )
+        header_rows = raw.index[raw.iloc[:, 0].astype(str).str.strip().eq("Name")]
+        if len(header_rows) != 1:
+            raise ValueError("holdings XLSX does not contain a unique Name header")
+        header = int(header_rows[0])
+        frame = raw.iloc[header + 1:].copy()
+        frame.columns = raw.iloc[header].astype(str).str.strip()
+        frame = frame.rename(columns={
+            "Ticker": "symbol", "Name": "company_name", "Weight": "weight",
+            "Sector": "sector",
+        })
+        frame = frame.loc[frame["symbol"].notna() & frame["weight"].notna()]
+        return frame, None if pd.isna(source_date) else source_date.date().isoformat()
+    return pd.read_csv(StringIO(payload.decode("utf-8-sig"))), None
+
+
+class QqqHoldingsCsvProvider(HoldingsCsvProvider):
+    """Backward-compatible QQQ provider; new callers should use HoldingsCsvProvider."""
+
+    def __init__(self, source: str | Path, name: str = "official_qqq_holdings_csv") -> None:
+        super().__init__(source=source, fund="QQQ", name=name)
+
+    def fetch(self, snapshot_date: str | None = None, *, top: int = 20) -> pd.DataFrame:
+        return super().fetch(snapshot_date, top=top)

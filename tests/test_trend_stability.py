@@ -22,9 +22,6 @@ from turtle_detector.models import (
 
 # ── 测试工具 ──────────────────────────────────────────────────────────────
 
-STABILITY_REPORT = Path(__file__).parent / "trend_stability_report.json"
-
-
 def _asset(**overrides: object) -> AssetConfig:
     values = {
         "symbol": "STABLE",
@@ -107,8 +104,9 @@ def _count_signals(scanner: TurtleScanner, bars: pd.DataFrame) -> dict[str, int]
     """逐根 bar 扫描，统计各类信号数量。"""
     counts: dict[str, int] = {}
     state = None
+    prepared = scanner.prepare(bars, _asset(), "D1")
     for idx in range(scanner.config.warmup_bars, len(bars)):
-        result = scanner.detect(bars.iloc[: idx + 1], _asset(), "D1", state)
+        result = scanner.detect_row(prepared.iloc[idx], _asset(), "D1", state)
         state = result.state
         sig_type = result.signal.signal_type.value
         counts[sig_type] = counts.get(sig_type, 0) + 1
@@ -163,10 +161,10 @@ def test_causal_boundary_no_lookahead() -> None:
 
 def test_donchian_excludes_current_bar() -> None:
     """Donchian 通道不能包含当前 bar 的价格。"""
-    from turtle_detector.indicators.donchian import donchian_channels
+    from inv_trend_core.math_utils import donchian_channels
 
     bars = _random_walk(100)
-    result = donchian_channels(bars, {20})
+    result = donchian_channels(bars["high"], bars["low"], {20})
 
     # 逐个 bar 验证：当前 bar 的 high 不能超过同期的 channel_high_20
     for idx in range(20, len(bars)):
@@ -454,13 +452,13 @@ def test_trend_filter_direction_consistency() -> None:
 # ── 综合稳定性报告 ────────────────────────────────────────────────────────
 
 @pytest.fixture(scope="session", autouse=True)
-def _write_stability_report() -> None:
+def _write_stability_report(tmp_path_factory: pytest.TempPathFactory) -> None:
     """在所有稳定性测试完成后生成汇总报告。"""
     yield
-    _generate_stability_report()
+    _generate_stability_report(tmp_path_factory.getbasetemp() / "trend_stability_report.json")
 
 
-def _generate_stability_report() -> None:
+def _generate_stability_report(output_path: Path) -> None:
     """生成趋势稳定性验证报告。"""
     bars = _trending_bars(500, bull=True)
     config = _config()
@@ -491,12 +489,12 @@ def _generate_stability_report() -> None:
         "结论": _stability_conclusion(signals, bt_result.metrics),
     }
 
-    STABILITY_REPORT.parent.mkdir(parents=True, exist_ok=True)
-    STABILITY_REPORT.write_text(
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(
         json.dumps(report, indent=2, ensure_ascii=False, default=str),
         encoding="utf-8",
     )
-    print(f"\n✅ 趋势稳定性报告已生成：{STABILITY_REPORT}")
+    print(f"\n✅ 趋势稳定性报告已生成：{output_path}")
 
 
 def _stability_conclusion(

@@ -113,7 +113,7 @@ class TurtleBacktester:
         trade_rows: list[dict] = []
         trade_detail_rows: list[dict] = []
 
-        for date in dates:
+        for date, snapshots, tradable_symbols in self.market_data.timeline(dates):
             cash = self._execute_pending_intents(
                 date,
                 cash,
@@ -147,12 +147,11 @@ class TurtleBacktester:
                 )
             equity = self._mark_equity(date, cash, state)
             equity_points.append((date, equity))
-            snapshots = self.market_data.snapshots_through(date)
             new_orders = self.strategy.generate_orders(
                 snapshots,
                 state,
                 equity,
-                tradable_symbols=self.market_data.tradable_symbols(date),
+                tradable_symbols=tradable_symbols,
             )
             pending_symbols = {intent.order.symbol for intent in reservations.intents.values()}
             for order in new_orders:

@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-import numpy as np
 import pandas as pd
+
+from inv_trend_core.features import FeatureRequest, PreparedBars
 
 from ..models.domain import TurtleRules
 
@@ -12,38 +13,28 @@ def compute_turtle_indicators(bars: pd.DataFrame, rules: TurtleRules) -> pd.Data
     """Return bars with Wilder N and shifted breakout/exit channels."""
 
     _require_columns(bars, {"open", "high", "low", "close"})
-    out = bars.copy()
-    high = out["high"].to_numpy(dtype=float)
-    low = out["low"].to_numpy(dtype=float)
-    close = out["close"].to_numpy(dtype=float)
-    prev_close = np.empty_like(close)
-    prev_close[0] = np.nan
-    prev_close[1:] = close[:-1]
-    true_range = np.nanmax(
-        np.vstack(
-            [
-                high - low,
-                np.abs(high - prev_close),
-                np.abs(low - prev_close),
-            ]
-        ),
-        axis=0,
-    )
-    true_range = pd.Series(true_range, index=out.index)
-    out["tr"] = true_range
-    out["n"] = _wilder_average(true_range, rules.n_period)
-
     periods = {
         rules.fast_entry,
         rules.slow_entry,
         rules.fast_exit,
         rules.slow_exit,
     }
+    prepared = PreparedBars.build(
+        bars,
+        FeatureRequest.turtle(
+            atr_period=rules.n_period,
+            channel_periods=periods,
+            sma_lags=((rules.entry_ma_period, 0),) if rules.entry_ma_period >= 2 else (),
+        ),
+    )
+    out = prepared.frame.copy()
+    out["n"] = out["atr"]
     for period in periods:
-        out[f"high_{period}"] = out["high"].rolling(period).max().shift(1)
-        out[f"low_{period}"] = out["low"].rolling(period).min().shift(1)
+        # Compatibility aliases for existing strategy and result baselines.
+        out[f"high_{period}"] = out[f"channel_high_{period}"]
+        out[f"low_{period}"] = out[f"channel_low_{period}"]
     if rules.entry_ma_period >= 2:
-        out[f"sma_{rules.entry_ma_period}"] = out["close"].rolling(rules.entry_ma_period).mean()
+        out[f"sma_{rules.entry_ma_period}"] = out[f"sma_{rules.entry_ma_period}_lag_0"]
 
     out.attrs["_turtle_rules_key"] = _indicator_rules_key(rules)
     return out
@@ -84,22 +75,6 @@ def _indicator_rules_key(rules: TurtleRules) -> tuple[int, int, int, int, int, i
         rules.slow_exit,
         rules.entry_ma_period,
     )
-
-
-def _wilder_average(values: pd.Series, period: int) -> pd.Series:
-    arr = values.to_numpy(dtype=float)
-    out = np.full(len(arr), np.nan, dtype=float)
-    if len(arr) < period:
-        return pd.Series(out, index=values.index)
-
-    seed = arr[:period]
-    if not np.all(np.isfinite(seed)):
-        return pd.Series(out, index=values.index)
-    out[period - 1] = float(np.mean(seed))
-    for idx in range(period, len(arr)):
-        if np.isfinite(arr[idx]) and np.isfinite(out[idx - 1]):
-            out[idx] = (out[idx - 1] * (period - 1) + arr[idx]) / period
-    return pd.Series(out, index=values.index)
 
 
 def _require_columns(df: pd.DataFrame, columns: set[str]) -> None:

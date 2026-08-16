@@ -30,6 +30,7 @@ from ..strategy.profiles import turtle_rules
 from ..backtest.runner import TurtleBacktester
 from ..config import BacktestConfig
 from ..models.domain import AssetSpec
+from inv_trend_observability import write_backtest_report
 
 
 CORE_DATASET_NAME = "metal_tech_core"
@@ -343,8 +344,18 @@ def run_core_backtest_and_compare(
     rebuilt_summary = summarize_backtest_result(rebuilt_result)
     comparison = compare_summaries(baseline_summary, rebuilt_summary)
 
-    export_backtest_outputs(baseline_result, reports_root / "baseline")
-    export_backtest_outputs(rebuilt_result, reports_root / "rebuilt")
+    export_backtest_outputs(
+        baseline_result,
+        reports_root / "baseline",
+        strategy_version=backtest_config.strategy_version,
+        html=backtest_config.html_report,
+    )
+    export_backtest_outputs(
+        rebuilt_result,
+        reports_root / "rebuilt",
+        strategy_version=backtest_config.strategy_version,
+        html=backtest_config.html_report,
+    )
     export_csv(build_signal_table(rebuilt_result.orders), reports_root / "buy_sell_signals.csv")
     export_csv(build_contribution_table(rebuilt_result.trades), reports_root / "symbol_contribution.csv")
     export_csv(build_daily_equity_curve(rebuilt_result.equity_curve), reports_root / "daily_equity_curve.csv")
@@ -359,13 +370,20 @@ def run_core_backtest_and_compare(
     }
 
 
-def export_backtest_outputs(result: object, out_dir: Path) -> None:
+def export_backtest_outputs(
+    result: object, out_dir: Path, *, strategy_version: str = "corrected-v2",
+    html: bool = True,
+) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
     result.equity_curve.to_csv(out_dir / "equity_curve.csv")
     result.orders.to_csv(out_dir / "orders.csv", index=False)
     result.trades.to_csv(out_dir / "trades.csv", index=False)
     result.trade_details.to_csv(out_dir / "trade_details.csv", index=False)
     export_json(result.metrics, out_dir / "metrics.json")
+    if html:
+        write_backtest_report(
+            result, out_dir / "report.html", strategy_version=strategy_version
+        )
 
 
 def summarize_backtest_result(result: object) -> dict[str, object]:

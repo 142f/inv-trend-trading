@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+from dataclasses import replace
 
 from ..data.builder import DEFAULT_DATASET_DIRS, build_unified_processed_data
 from ..data.core_dataset import build_metal_tech_core_dataset
@@ -26,6 +27,11 @@ def main() -> None:
         default=None,
         help="Optional YAML backtest configuration (defaults to config/defaults.yaml).",
     )
+    core.add_argument(
+        "--strategy-version", choices=("corrected-v2",),
+        default=None,
+    )
+    core.add_argument("--no-html", action="store_true")
     alerts = subparsers.add_parser("us-trend-alerts", help="Scan SPY/QQQ top holdings for 20/55 day breakouts.")
     alerts.add_argument("--etfs", nargs="+", default=["SPY", "QQQ"])
     alerts.add_argument("--top-n", type=int, default=100)
@@ -47,11 +53,17 @@ def main() -> None:
         for key, value in summary.items():
             print(f"{key}: {value}")
     if args.command == "build-metal-tech-core":
+        config = load_config(args.config)
+        config = replace(
+            config,
+            strategy_version=args.strategy_version or config.strategy_version,
+            html_report=not args.no_html,
+        )
         summary = build_metal_tech_core_dataset(
             processed_dir=args.processed_dir,
             output_dir=args.output_dir,
             reports_dir=args.reports_dir,
-            backtest_config=load_config(args.config),
+            backtest_config=config,
         )
         print("Metal + tech core build summary")
         for key, value in summary.items():

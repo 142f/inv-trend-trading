@@ -5,7 +5,6 @@ from .indicators import (
     _indicator_columns,
     _indicator_rules_key,
     _require_columns,
-    _wilder_average,
     _with_indicators,
     compute_turtle_indicators,
 )
@@ -24,6 +23,5 @@ __all__ = [
     "_require_columns",
     "_risk_sized_qty",
     "_round_down",
-    "_wilder_average",
     "_with_indicators",
 ]

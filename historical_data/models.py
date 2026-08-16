@@ -36,6 +36,19 @@ class DataLineageError(RuntimeError):
     """Raised when a required immutable lineage artifact is missing or inconsistent."""
 
 
+class ProviderIdentityError(ValueError):
+    """Raised when fallback data does not describe the registered instrument."""
+
+
+@dataclass(frozen=True)
+class HoldingsSnapshot:
+    fund: str
+    snapshot_date: str
+    top: int
+    path: str
+    row_count: int
+
+
 @dataclass(frozen=True)
 class InstrumentConfig:
     symbol: str

@@ -1,34 +1,19 @@
 from __future__ import annotations
 
 import argparse
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import json
-import os
 
 from .api import HistoricalDataService
 from .audit import audit_universe
 from .legacy import migrate_legacy_csv
+from .provider_factory import create_default_providers
 from .providers import (
-    AlphaVantageProvider,
-    BinanceKlineProvider,
-    CsvBarsProvider,
-    DukascopyBarsProvider,
+    HoldingsCsvProvider,
+    OFFICIAL_QQQ_HOLDINGS_URL,
+    OFFICIAL_SPY_HOLDINGS_URL,
     QqqHoldingsCsvProvider,
-    YahooChartProvider,
 )
-
-
-def _providers(csv: str | None = None) -> dict[str, object]:
-    providers: dict[str, object] = {
-        "binance": BinanceKlineProvider(),
-        "dukascopy": DukascopyBarsProvider(),
-        "yahoo_chart": YahooChartProvider(),
-    }
-    if os.getenv("ALPHAVANTAGE_API_KEY"):
-        providers["alpha_vantage"] = AlphaVantageProvider()
-    if csv:
-        providers["licensed_csv"] = CsvBarsProvider(csv)
-    return providers
 
 
 def _symbol_timeframe_command(sub: argparse._SubParsersAction, name: str) -> None:
@@ -89,15 +74,29 @@ def main() -> None:
     review.add_argument("--reason", default="")
     migrate = sub.add_parser("migrate-legacy")
     migrate.add_argument("--input", default="processed_data")
-    holdings = sub.add_parser("qqq-holdings")
+    holdings = sub.add_parser("holdings")
+    holdings.add_argument("--fund", choices=["QQQ", "SPY"], required=True)
     holdings.add_argument("--source", required=True)
     holdings.add_argument("--snapshot-date")
+    holdings.add_argument("--top", type=int, default=50)
+    official_holdings = sub.add_parser("refresh-official-holdings")
+    official_holdings.add_argument("--top", type=int, default=50)
+    legacy_holdings = sub.add_parser("qqq-holdings")
+    legacy_holdings.add_argument("--source", required=True)
+    legacy_holdings.add_argument("--snapshot-date")
+    sync_universe = sub.add_parser("sync-universe")
+    sync_universe.add_argument("--universe", choices=["qqq-spy-top50"], required=True)
+    sync_universe.add_argument("--timeframe", choices=["D1"], default="D1")
+    sync_universe.add_argument("--start", help="ISO date; defaults to two years ago")
+    sync_universe.add_argument("--end")
     args = parser.parse_args()
 
     if args.command == "migrate-legacy":
         print(json.dumps(migrate_legacy_csv(args.input, args.root), ensure_ascii=False, indent=2))
         return
-    service = HistoricalDataService(args.root, providers=_providers(getattr(args, "csv", None)))
+    service = HistoricalDataService(
+        args.root, providers=create_default_providers(getattr(args, "csv", None))
+    )
     if args.command == "download":
         start = datetime.fromisoformat(args.start.replace("Z", "+00:00"))
         end = datetime.fromisoformat(args.end.replace("Z", "+00:00")) if args.end else datetime.now(timezone.utc)
@@ -176,6 +175,32 @@ def main() -> None:
         return
     if args.command == "qqq-holdings":
         print(service.update_qqq_holdings(QqqHoldingsCsvProvider(args.source), args.snapshot_date))
+        return
+    if args.command == "holdings":
+        snapshot = service.update_holdings(
+            HoldingsCsvProvider(args.source, fund=args.fund), args.snapshot_date, top=args.top
+        )
+        print(json.dumps(snapshot.__dict__, ensure_ascii=False, indent=2))
+        return
+    if args.command == "refresh-official-holdings":
+        snapshots = [
+            service.update_holdings(HoldingsCsvProvider(source, fund=fund), top=args.top).__dict__
+            for fund, source in (
+                ("QQQ", OFFICIAL_QQQ_HOLDINGS_URL),
+                ("SPY", OFFICIAL_SPY_HOLDINGS_URL),
+            )
+        ]
+        print(json.dumps(snapshots, ensure_ascii=False, indent=2))
+        return
+    if args.command == "sync-universe":
+        now = datetime.now(timezone.utc)
+        start = datetime.fromisoformat(args.start.replace("Z", "+00:00")) if args.start else (
+            now - timedelta(days=730)
+        ).replace(hour=0, minute=0, second=0, microsecond=0)
+        end = datetime.fromisoformat(args.end.replace("Z", "+00:00")) if args.end else now
+        print(json.dumps(service.sync_holdings_universe(
+            timeframe=args.timeframe, start=start, end=end
+        ), ensure_ascii=False, indent=2))
 
 
 if __name__ == "__main__":

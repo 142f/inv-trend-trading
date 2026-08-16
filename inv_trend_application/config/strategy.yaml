@@ -1,0 +1,14 @@
+profile: corrected-v2
+rules:
+  n_period: 20
+  fast_entry: 20
+  slow_entry: 55
+  fast_exit: 10
+  slow_exit: 20
+  stop_n: 2.0
+  pyramid_step_n: 0.5
+risk:
+  initial_equity: 100000.0
+  cash_model: derivative
+  liquidate_at_end: true
+contracts: {}

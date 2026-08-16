@@ -195,6 +195,11 @@ class JsonSignalRepository(InMemorySignalRepository):
 
 
 def signal_key(signal: TurtleSignal) -> str:
+    """Business identity: instrument/period/bar/signal/direction.
+
+    Price and dataset version are deliberately excluded: a corrected dataset
+    must not send the same business alert for the same bar a second time.
+    """
     return "|".join(
         [
             signal.instrument,
@@ -202,6 +207,5 @@ def signal_key(signal: TurtleSignal) -> str:
             signal.signal_type.value,
             signal.direction.value,
             signal.signal_time,
-            f"{signal.trigger_price:.10g}",
         ]
     )

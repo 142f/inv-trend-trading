@@ -8,11 +8,12 @@ from typing import Mapping
 import numpy as np
 import pandas as pd
 
+from inv_trend_core.features import FeatureCache, FeatureRequest
+from inv_trend_core.math_utils import rolling_percentile
+
 from ..alerts.notifier import Notifier
 from ..data.calendar import timeframe_rank, validate_market_calendar
 from ..data.normalizer import normalize_bars
-from ..indicators.atr import rolling_percentile, wilder_atr
-from ..indicators.donchian import donchian_channels
 from ..models import (
     AssetConfig,
     DetectionResult,
@@ -45,6 +46,7 @@ class TurtleScanner:
         self.config = config or StrategyConfig()
         self.repository = repository or InMemorySignalRepository()
         self.notifier = notifier
+        self._features = FeatureCache()
 
     def prepare(
         self,
@@ -60,8 +62,15 @@ class TurtleScanner:
             self.config.system1_exit,
             self.config.system2_exit,
         }
-        out = donchian_channels(out, periods)
-        out["atr"] = wilder_atr(out, self.config.atr_period)
+        request = FeatureRequest.turtle(
+            atr_period=self.config.atr_period,
+            channel_periods=periods,
+            sma_lags=((period, 1) for period in {
+                self.config.trend_ma_period,
+                self.config.long_trend_ma_period,
+            }),
+        )
+        out = self._features.prepare(out, request).frame.copy()
         out["atr_pct"] = out["atr"] / out["close"]
         out["volatility_percentile"] = rolling_percentile(
             out["atr_pct"],
@@ -71,11 +80,8 @@ class TurtleScanner:
             out["volume"].rolling(self.config.volume_lookback).mean().shift(1)
         )
         out["previous_close"] = out["close"].shift(1)
-        for period in {
-            self.config.trend_ma_period,
-            self.config.long_trend_ma_period,
-        }:
-            out[f"sma_{period}"] = out["close"].rolling(period).mean().shift(1)
+        for period in {self.config.trend_ma_period, self.config.long_trend_ma_period}:
+            out[f"sma_{period}"] = out[f"sma_{period}_lag_1"]
         return out
 
     def detect(
@@ -86,14 +92,39 @@ class TurtleScanner:
         state: DetectorState | None = None,
     ) -> DetectionResult:
         prepared = self.prepare(bars, asset, timeframe)
+        return self.detect_prepared(prepared, asset, timeframe, state)
+
+    def detect_prepared(
+        self,
+        prepared: pd.DataFrame,
+        asset: AssetConfig,
+        timeframe: str,
+        state: DetectorState | None = None,
+    ) -> DetectionResult:
+        """Advance the state machine using an already prepared causal frame.
+
+        This is the shared chronological boundary for candidate detection and
+        backtests.  It prevents both callers from recomputing rolling features
+        for every decision while preserving :meth:`detect` as the compatible
+        raw-bar public entry point.
+        """
         if prepared.empty:
             raise ValueError("cannot scan empty bars")
+        return self.detect_row(prepared.iloc[-1], asset, timeframe, state)
+
+    def detect_row(
+        self,
+        row: pd.Series,
+        asset: AssetConfig,
+        timeframe: str,
+        state: DetectorState | None = None,
+    ) -> DetectionResult:
+        """Advance one causal prepared row without allocating a frame slice."""
         state = state or DetectorState(asset.symbol, timeframe.upper())
         if state.symbol != asset.symbol or state.timeframe != timeframe.upper():
             raise ValueError("state identity does not match asset/timeframe")
 
-        row = prepared.iloc[-1]
-        signal_time = prepared.index[-1].isoformat()
+        signal_time = pd.Timestamp(row.name).isoformat()
         if state.last_processed_time == signal_time:
             return DetectionResult(
                 self._no_signal(row, asset, timeframe, state),

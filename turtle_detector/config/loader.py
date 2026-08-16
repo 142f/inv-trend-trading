@@ -20,7 +20,13 @@ def _read_mapping(path: str | Path) -> dict[str, Any]:
     return payload
 
 
-def load_asset_configs(path: str | Path | None = None) -> dict[str, AssetConfig]:
+def load_asset_configs(path: str | Path) -> dict[str, AssetConfig]:
+    """Parse an explicitly supplied legacy CLI asset file.
+
+    Default asset resolution lives in ``historical_data.config``.  Keeping this
+    parser private to an explicitly requested compatibility input prevents a
+    second default source of instrument identity.
+    """
     path = path or Path(__file__).with_name("assets.yaml")
     payload = _read_mapping(path)
     rows = payload.get("assets")

@@ -13,6 +13,8 @@ dependencies = [
   "pandas>=2.2,<4",
   "pyarrow>=15,<22",
   "PyYAML>=6,<7",
+  "rich>=13,<15",
+  "openpyxl>=3.1,<4",
   "duckdb>=1,<2",
 ]
 
@@ -34,6 +36,8 @@ test = [
 [project.scripts]
 turtle-data = "turtle_multi_asset.cli:main"
 turtle-detect = "turtle_detector.cli:main"
+turtle-alert = "turtle_detector.alert_cli:main"
+turtle-daily = "turtle_detector.daily_cli:main"
 market-data = "historical_data.cli:main"
 
 [tool.setuptools.packages.find]
@@ -44,12 +48,14 @@ include = [
   "inv_trend_core*",
   "inv_trend_application*",
   "inv_trend_observability*",
+  "inv_trend_integrations*",
 ]
 
 [tool.setuptools.package-data]
 "turtle_multi_asset.config" = ["defaults.yaml"]
 "turtle_detector.config" = ["*.yaml"]
 "historical_data.config" = ["*.yaml"]
+"inv_trend_application.config" = ["*.yaml"]
 
 [tool.ruff]
 target-version = "py310"

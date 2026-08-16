@@ -34,7 +34,7 @@ class BacktestDataStore:
         }
         self.symbols = tuple(self.by_symbol)
         self.calendar = _calendar(symbol_data.index for symbol_data in self.by_symbol.values())
-        self._last_positions_by_date, self._tradable_by_date = self._build_calendar_maps()
+        self._events_by_date = self._index_events()
 
     def row_at_date(
         self,
@@ -61,15 +61,34 @@ class BacktestDataStore:
         pos = int(symbol_data.index.searchsorted(date, side="left")) - 1
         return None if pos < 0 else symbol_data.records[pos]
 
-    def snapshots_through(self, date: pd.Timestamp) -> dict[str, Mapping[str, object]]:
-        positions = self._last_positions_by_date.get(date, {})
-        return {
-            symbol: self.by_symbol[symbol].records[pos]
-            for symbol, pos in positions.items()
-        }
+    def timeline(self, dates: list[pd.Timestamp] | None = None):
+        """Yield as-of snapshots and tradable symbols in calendar order.
 
-    def tradable_symbols(self, date: pd.Timestamp) -> set[str]:
-        return set(self._tradable_by_date.get(date, ()))
+        This is intentionally event-driven: the backtest no longer materializes
+        a dictionary/set pair for every date before it starts, nor does it run
+        ``searchsorted`` for every ``(date, symbol)`` pair.  The current
+        snapshot is updated only when a symbol has an actual bar.
+        """
+        snapshots: dict[str, Mapping[str, object]] = {}
+        wanted = None if dates is None else set(dates)
+        for date in self.calendar:
+            tradable: set[str] = set()
+            for symbol, pos in self._events_by_date[date]:
+                symbol_data = self.by_symbol[symbol]
+                snapshots[symbol] = symbol_data.records[pos]
+                if symbol_data.index[pos] == date and pos < len(symbol_data.index) - 1:
+                    tradable.add(symbol)
+            if wanted is None or date in wanted:
+                yield date, snapshots, tradable
+
+    def _index_events(self) -> dict[pd.Timestamp, list[tuple[str, int]]]:
+        events: dict[pd.Timestamp, list[tuple[str, int]]] = {
+            date: [] for date in self.calendar
+        }
+        for symbol, symbol_data in self.by_symbol.items():
+            for position, timestamp in enumerate(symbol_data.index):
+                events[timestamp].append((symbol, position))
+        return events
 
     def price(self, date: pd.Timestamp, symbol: str, column: str) -> float:
         row = self.row_at_date(symbol, date)
@@ -118,27 +137,6 @@ class BacktestDataStore:
         if start is None or end is None:
             return None
         return int(end - start)
-
-    def _build_calendar_maps(
-        self,
-    ) -> tuple[dict[pd.Timestamp, dict[str, int]], dict[pd.Timestamp, set[str]]]:
-        last_positions_by_date: dict[pd.Timestamp, dict[str, int]] = {}
-        tradable_by_date: dict[pd.Timestamp, set[str]] = {}
-        for date in self.calendar:
-            positions: dict[str, int] = {}
-            tradable: set[str] = set()
-            for symbol, symbol_data in self.by_symbol.items():
-                pos = int(symbol_data.index.searchsorted(date, side="right")) - 1
-                if pos < 0:
-                    continue
-                positions[symbol] = pos
-                exact_pos = symbol_data.positions.get(date)
-                if exact_pos is not None and exact_pos < len(symbol_data.index) - 1:
-                    tradable.add(symbol)
-            last_positions_by_date[date] = positions
-            tradable_by_date[date] = tradable
-        return last_positions_by_date, tradable_by_date
-
 
 def _prepare_bars(
     symbol: str,

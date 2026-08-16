@@ -73,8 +73,9 @@ class CandidateDetector:
         identity = (asset.symbol, timeframe.upper())
         cursor = cursor or ScanCursor(*identity)
         position = position or PositionState()
-        result = self.scanner.detect(
-            bars, asset, timeframe, _to_detector_state(cursor, position)
+        prepared = self.scanner.prepare(bars, asset, timeframe)
+        result = self.scanner.detect_prepared(
+            prepared, asset, timeframe, _to_detector_state(cursor, position)
         )
         next_cursor = replace(cursor, last_processed_time=result.state.last_processed_time)
         next_position = _to_position(result.state)
@@ -86,5 +87,5 @@ class CandidateDetector:
             next_cursor=next_cursor,
             next_position=next_position,
             transition_kind=SIGNAL_TYPE_MAP[result.signal.signal_type],
-            prepared_row=self.scanner.prepare(bars, asset, timeframe).iloc[-1],
+            prepared_row=prepared.iloc[-1],
         )

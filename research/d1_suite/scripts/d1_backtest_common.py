@@ -9,7 +9,9 @@ from typing import Any
 
 import pandas as pd
 
-from turtle_multi_asset import AssetSpec, TurtleBacktester, TurtleRules
+from inv_trend_application import BacktestService
+from turtle_multi_asset import AssetSpec, TurtleRules
+from turtle_multi_asset.config import BacktestConfig
 from turtle_multi_asset.models import SHORT
 
 
@@ -498,13 +500,13 @@ def run_backtest(
         cluster_leverage=cluster_leverage,
         rule_overrides=rule_overrides,
     )
-    result = TurtleBacktester(
+    result = BacktestService().run(
         data=data,
         specs=specs,
         rules=active_rules,
-        initial_equity=initial_equity,
+        config=BacktestConfig(initial_equity=initial_equity),
         evaluation_start=start,
-    ).run()
+    ).result
     return result, data, specs, active_rules
 
 
