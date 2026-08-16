@@ -16,7 +16,8 @@ import pandas as pd
 from .calendar import classify_missing
 from .config import load_instruments
 from .processing import FRAME_DELTAS
-from .storage import DataLake, sha256_file
+from .integrity import sha256_file
+from .storage import DataLake
 
 
 def audit_dataset(root: str | Path, symbol: str, timeframe: str = "D1") -> dict[str, object]:

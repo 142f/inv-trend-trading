@@ -18,10 +18,13 @@ from .models import (
     SurvivorshipBiasError,
     path_text, utc_now,
 )
+from .integrity import sha256_file, stable_hash, strategy_frame_hash
+from .lineage import load_current_lineage
 from .processing import FRAME_DELTAS, RULE_VERSION, NormalizationResult, assess_quality, normalize_bars, resample_ohlcv_session
 from .providers import BarsProvider, HoldingsCsvProvider, QqqHoldingsCsvProvider
 from .registry import InstrumentRegistry
-from .storage import DataLake, sha256_file
+from .review import ReviewApprovalCoordinator
+from .storage import DataLake
 
 _DEFAULT_ROOT = Path("data")
 _OVERLAPS = {"D1": 10, "H4": 20, "H1": 48}
@@ -38,6 +41,7 @@ class HistoricalDataService:
                 self.instruments.setdefault(symbol, instrument)
         self.registry = InstrumentRegistry(self.instruments)
         self.providers = dict(providers or {})
+        self.review_approvals = ReviewApprovalCoordinator(self.lake, self.instrument)
 
     def instrument(self, symbol: str) -> InstrumentConfig:
         return self.registry.resolve(symbol)
@@ -157,8 +161,8 @@ class HistoricalDataService:
             publishable = False
         else:
             publishable = True
-        config_hash = _stable_hash(asdict(instrument))
-        metadata_hash = _stable_hash(result.metadata)
+        config_hash = stable_hash(asdict(instrument))
+        metadata_hash = stable_hash(result.metadata)
         try:
             existing_curated = self.lake.read_bars(instrument.symbol, timeframe)
         except FileNotFoundError:
@@ -179,10 +183,10 @@ class HistoricalDataService:
             and request_id not in set(combined.loc[complete_mask, "request_id"].astype(str))
             and not legacy_partial_in_current
         )
-        dataset_version = (str(combined.loc[complete_mask, "dataset_version"].iloc[-1]) if unchanged_replay else _stable_hash({
+        dataset_version = (str(combined.loc[complete_mask, "dataset_version"].iloc[-1]) if unchanged_replay else stable_hash({
             "raw_snapshot_id": raw_snapshot_id, "rule_version": RULE_VERSION,
             "config_hash": config_hash, "metadata_hash": metadata_hash,
-            "timeframe": timeframe, "bars": _frame_hash(combined.loc[complete_mask] if complete_mask.any() else combined),
+            "timeframe": timeframe, "bars": strategy_frame_hash(combined.loc[complete_mask] if complete_mask.any() else combined),
         })[:24])
         combined["dataset_version"] = dataset_version
         combined["curated_version"] = dataset_version
@@ -250,6 +254,7 @@ class HistoricalDataService:
             self.lake.activate_curated(
                 instrument.symbol, timeframe, dataset_version, request_id, curated_path,
                 dataset_manifest_path=dataset_manifest_path,
+                expected_current_version=parent_dataset_version,
             )
         elif publishable and current_pointer is not None:
             curated_path = self.lake._resolve_root_relative(str(current_pointer["path"]))
@@ -456,53 +461,90 @@ class HistoricalDataService:
             ) from identity_error
         raise RuntimeError("all configured providers failed: " + " | ".join(errors))
 
-    def _merge_current(self, symbol: str, timeframe: str, incoming: pd.DataFrame) -> tuple[pd.DataFrame, list[dict[str, object]], pd.DataFrame]:
-        """Merge incoming bars with the published view; detect OHLCV conflicts.
-
-        Exact duplicates are dropped silently with an audit note.  Conflicting
-        duplicates (same timestamp, different OHLCV) are never silently
-        overwritten: the incoming rows are returned separately so a review
-        candidate can preserve both sides of the conflict.
-        """
+    def _merge_current(
+        self,
+        symbol: str,
+        timeframe: str,
+        incoming: pd.DataFrame,
+    ) -> tuple[pd.DataFrame, list[dict[str, object]], pd.DataFrame]:
+        """Merge bars while quarantining completed-bar OHLCV conflicts."""
         try:
             existing = self.lake.read_bars(symbol, timeframe)
         except FileNotFoundError:
             existing = pd.DataFrame(columns=incoming.columns)
         conflicts: list[dict[str, object]] = []
-        rejected: list[pd.DataFrame] = []
+        rejected: list[pd.Series] = []
         if not existing.empty and not incoming.empty:
             prior = existing.set_index("timestamp")
-            value_columns = [c for c in ("open", "high", "low", "close", "adjusted_close", "volume", "is_complete")
-                             if c in existing and c in incoming]
+            value_columns = [
+                column
+                for column in (
+                    "open", "high", "low", "close", "adjusted_close",
+                    "volume", "is_complete",
+                )
+                if column in existing and column in incoming
+            ]
             keep_incoming: list[bool] = []
             for _, row in incoming.iterrows():
-                old = prior.loc[row["timestamp"]] if row["timestamp"] in prior.index else None
+                old = (
+                    prior.loc[row["timestamp"]]
+                    if row["timestamp"] in prior.index
+                    else None
+                )
                 if isinstance(old, pd.DataFrame):
                     old = old.iloc[-1]
-                if old is None:
+                if old is None or not bool(old.get("is_complete", False)):
                     keep_incoming.append(True)
                     continue
-                if not bool(old.get("is_complete", False)):
-                    # The published bar was not closed yet; its values may still
-                    # evolve.  The incoming (newer) bar supersedes it.
-                    keep_incoming.append(True)
+                if all(
+                    _same_bar_value(old[column], row[column])
+                    for column in value_columns
+                ):
+                    keep_incoming.append(False)
                     continue
-                if all(_same_bar_value(old[c], row[c]) for c in value_columns):
-                    keep_incoming.append(False)  # exact duplicate of published bar
-                    continue
-                # Same timestamp, different OHLCV: never silently keep=last.
-                changed = [c for c in value_columns if not _same_bar_value(old[c], row[c])]
-                conflicts.append({"timestamp": row["timestamp"].isoformat(),
-                                  "existing_value": {c: (None if pd.isna(old[c]) else old[c]) for c in value_columns},
-                                  "incoming_value": {c: (None if pd.isna(row[c]) else row[c]) for c in value_columns},
-                                  "changed_fields": changed})
+                changed = [
+                    column
+                    for column in value_columns
+                    if not _same_bar_value(old[column], row[column])
+                ]
+                conflicts.append(
+                    {
+                        "timestamp": row["timestamp"].isoformat(),
+                        "existing_value": {
+                            column: None if pd.isna(old[column]) else old[column]
+                            for column in value_columns
+                        },
+                        "incoming_value": {
+                            column: None if pd.isna(row[column]) else row[column]
+                            for column in value_columns
+                        },
+                        "changed_fields": changed,
+                    }
+                )
                 rejected.append(row)
                 keep_incoming.append(False)
             incoming = incoming.loc[keep_incoming]
-        combined = pd.concat([existing, incoming], ignore_index=True, sort=False)
-        rejected_frame = pd.DataFrame(rejected, columns=incoming.columns) if rejected else pd.DataFrame()
-        return (combined.sort_values(["timestamp", "ingested_at"]).drop_duplicates("timestamp", keep="last").reset_index(drop=True),
-                conflicts, rejected_frame)
+
+        non_empty = [frame for frame in (existing, incoming) if not frame.empty]
+        if not non_empty:
+            combined = pd.DataFrame(columns=incoming.columns)
+        elif len(non_empty) == 1:
+            combined = non_empty[0].copy()
+        else:
+            combined = pd.concat(non_empty, ignore_index=True, sort=False)
+        order = ["timestamp"] + (["ingested_at"] if "ingested_at" in combined else [])
+        if not combined.empty:
+            combined = (
+                combined.sort_values(order)
+                .drop_duplicates("timestamp", keep="last")
+                .reset_index(drop=True)
+            )
+        rejected_frame = (
+            pd.DataFrame(rejected, columns=incoming.columns)
+            if rejected
+            else pd.DataFrame()
+        )
+        return combined, conflicts, rejected_frame
 
     def missing_intervals(
         self, symbol: str, timeframe: str, *, end: datetime | None = None
@@ -640,12 +682,26 @@ class HistoricalDataService:
             if not allow_legacy:
                 raise
             instrument = _legacy_instrument(symbol)
+        using_legacy = False
         try:
             frame = self.lake.read_bars(symbol.upper(), timeframe.upper())
         except FileNotFoundError:
             if not allow_legacy:
                 raise DataQualityError(f"no published {symbol.upper()}/{timeframe.upper()} bars meet the quality policy") from None
             frame = self.lake.read_legacy_bars(symbol.upper(), timeframe.upper())
+            using_legacy = True
+        lineage = None
+        if not using_legacy:
+            # Verify the unfiltered, strategy-visible dataset before applying a
+            # caller's range or completion policy.  Otherwise a malformed
+            # current pointer, Catalog row, or quality report could be masked
+            # by a filtered subset.
+            lineage = load_current_lineage(
+                self.lake,
+                symbol,
+                timeframe,
+                bars=frame,
+            )
         if completed_only:
             frame = frame.loc[frame["is_complete"].astype(bool)]
         allowed = {"CURATED"}
@@ -668,8 +724,8 @@ class HistoricalDataService:
                 frame[column] = frame[column] * factor
         frame = frame.sort_values("timestamp").drop_duplicates("timestamp", keep="last").reset_index(drop=True)
         quality_report = ""
-        if str(frame["quality_status"].iloc[-1]) != "LEGACY_ONLY":
-            quality_report = self._current_quality_report_path(symbol, timeframe)
+        if lineage is not None:
+            quality_report = str(lineage.quality_report_path)
         frame.attrs.update({"symbol": symbol.upper(), "instrument_id": instrument.instrument_id,
                             "timeframe": timeframe.upper(), "adjustment": instrument.adjustment_policy if adjusted else "none",
                             "data_sources": sorted(frame["data_source"].dropna().unique().tolist()),
@@ -845,33 +901,29 @@ class HistoricalDataService:
         return root_relative
 
     def coverage(self, symbol: str, timeframe: str) -> dict[str, object]:
-        """Return current coverage plus the persisted gap-classification report."""
+        """Return coverage only after verifying the complete current lineage."""
         result = self.status(symbol, timeframe)
         if result["status"] == "MISSING":
             return result
         bars = self.lake.read_bars(symbol.upper(), timeframe.upper())
-        dataset_version = str(bars["dataset_version"].iloc[-1])
-        report_path = Path(self._current_quality_report_path(symbol, timeframe))
-        if not report_path.exists():
-            raise DataLineageError(f"missing quality report for current dataset version: {dataset_version}")
-        report = json.loads(report_path.read_text(encoding="utf-8"))
-        recorded = report.get("dataset_version") or report.get("run_id")
-        if recorded != dataset_version:
-            raise DataLineageError(f"quality report version mismatch: expected {dataset_version}")
+        lineage = load_current_lineage(
+            self.lake,
+            symbol,
+            timeframe,
+            bars=bars,
+        )
         return result | {
-            "quality_report": str(report_path),
-            "missing_intervals": report.get("missing_intervals", []),
+            "quality_report": str(lineage.quality_report_path),
+            "missing_intervals": lineage.quality_report.get(
+                "missing_intervals", []
+            ),
         }
 
-    def _current_quality_report_path(self, symbol: str, timeframe: str) -> str:
-        current = self.lake.current_version(symbol.upper(), timeframe.upper())
-        if not current or not current.get("dataset_manifest_path"):
-            raise DataLineageError(f"current dataset manifest is missing for {symbol.upper()}/{timeframe.upper()}")
-        dataset_manifest_path = self.lake._resolve_root_relative(str(current["dataset_manifest_path"]))
-        if not dataset_manifest_path.exists():
-            raise DataLineageError(f"current dataset manifest is missing: {dataset_manifest_path}")
-        dataset_manifest = json.loads(dataset_manifest_path.read_text(encoding="utf-8"))
-        return str(self.lake._resolve_root_relative(str(dataset_manifest["quality_report_path"])))
+    def _current_quality_report_path(
+        self, symbol: str, timeframe: str
+    ) -> str:
+        lineage = load_current_lineage(self.lake, symbol, timeframe)
+        return str(lineage.quality_report_path)
 
     def repair_current_lineage(self, symbol: str, timeframe: str) -> dict[str, object]:
         """Materialize formal dataset lineage for a pre-separation current pointer."""
@@ -926,115 +978,21 @@ class HistoricalDataService:
                 "dataset_manifest_path": path_text(dataset_manifest_path, self.lake.root),
                 "quality_report_path": path_text(quality_path, self.lake.root)}
 
-    def approve_review(self, run_id: str, reason: str = "", *, actor: str = "",
-                       decision: str = "approve_existing") -> str:
-        """Publish a new audited version from an immutable review candidate.
-
-        ``decision`` selects which side of a conflict wins:
-        - ``approve_existing``: keep the published (base) values;
-        - ``approve_incoming``: replace conflicting bars with incoming values.
-        Reject is handled through ``lake.review`` and cannot be approved later.
-        """
-        if decision not in {"approve_existing", "approve_incoming"}:
-            raise ValueError("decision must be approve_existing or approve_incoming")
-        manifest_path = self.lake.root / "manifests" / f"{run_id}.json"
-        candidate_dir = self.lake.root / "reviews" / f"candidate={run_id}"
-        candidate_path = candidate_dir / "bars.parquet"
-        review_path = self.lake.root / "reviews" / f"{run_id}.json"
-        if review_path.exists():
-            prior = json.loads(review_path.read_text(encoding="utf-8"))
-            if prior.get("decision") == "approved":
-                if prior.get("reason", "") != reason:
-                    raise DataLineageError("review is already approved with a different reason")
-                return str(prior["published_version"])
-            raise DataLineageError(f"review is already {prior.get('decision')}; it cannot be approved")
-        if not manifest_path.exists() or not candidate_path.exists():
-            raise FileNotFoundError(f"review candidate not found: {run_id}")
-        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-        frame = pd.read_parquet(candidate_path)
-        symbol = str(manifest["requested_symbol"])
-        instrument = self.instrument(symbol)
-        incoming_path = candidate_dir / "incoming.parquet"
-        if decision == "approve_incoming" and incoming_path.exists():
-            incoming = pd.read_parquet(incoming_path)
-            if not incoming.empty:
-                combined = pd.concat([frame, incoming], ignore_index=True, sort=False)
-                combined = combined.sort_values(["timestamp", "ingested_at"]).drop_duplicates("timestamp", keep="last").reset_index(drop=True)
-                # Incoming rows carry their own metadata columns; normalize the
-                # audited version's quality fields for the whole frame.
-                combined["quality_status"] = "CURATED"
-                combined["quality_score"] = pd.to_numeric(combined.get("quality_score"), errors="coerce").fillna(100.0)
-                frame = combined
-        version = _stable_hash({"approved_from": run_id, "reason": reason, "decision": decision,
-                                "bars": _frame_hash(frame)})[:24]
-        # Approval is an audit decision.  Publication policy remains CURATED so
-        # Repository callers can read the newly approved complete version.
-        frame["quality_status"] = "CURATED"
-        frame["dataset_version"] = version
-        frame["curated_version"] = version
-        candidate_report = self.lake.root / "ingestion_reports" / f"{run_id}.json"
-        if not candidate_report.exists():
-            raise DataLineageError(f"review candidate has no quality report: {manifest['dataset_version']}")
-        path = self.lake.publish_curated(frame, symbol=symbol, instrument_id=instrument.instrument_id,
-                                         asset_class=instrument.asset_class, timeframe=str(manifest["timeframe"]),
-                                         version=version, run_id=run_id, activate=False)
-        source_quality = json.loads(candidate_report.read_text(encoding="utf-8"))
-        report = source_quality | {"approved_from": run_id, "dataset_version": version, "reason": reason,
-                                   "decision": decision, "actor": actor,
-                                   "published_path": path_text(path, self.lake.root),
-                                   "approved_at": utc_now().isoformat(),
-                                   "quality_status": "CURATED", "approval_status": "APPROVED"}
-        self.lake.write_json(report, Path("quality_reports") / f"{version}.json")
-        approved_report_path = self.lake.root / "quality_reports" / f"{version}.json"
-        review_record_path = self.lake.review(run_id, "approved", reason, actor=actor, published_version=version)
-        approval_manifest = manifest | {"run_id": f"approval-{version}", "processing_run_id": f"approval-{version}",
-                                        "dataset_version": version, "curated_version": version,
-                                        "quality_status": "CURATED", "quality_passed": True,
-                                        "approval_status": "APPROVED", "approved_from": run_id,
-                                        "approval_decision": decision,
-                                        "approved_from_dataset_version": manifest.get("dataset_version"),
-                                        "approval_reason": reason, "approved_at": utc_now().isoformat(),
-                                        "approved_curated_path": path_text(path, self.lake.root),
-                                        "approved_curated_sha256": sha256_file(path),
-                                        "approved_quality_report_path": path_text(approved_report_path, self.lake.root),
-                                        "approved_quality_report_sha256": sha256_file(approved_report_path),
-                                        "candidate_data_path": path_text(candidate_path, self.lake.root),
-                                        "candidate_data_sha256": sha256_file(candidate_path),
-                                        "candidate_manifest_path": path_text(manifest_path, self.lake.root),
-                                        "candidate_manifest_sha256": sha256_file(manifest_path),
-                                        "review_record_path": path_text(review_record_path, self.lake.root),
-                                        "review_record_sha256": sha256_file(review_record_path),
-                                        "file_paths": [path_text(path, self.lake.root), path_text(approved_report_path, self.lake.root)],
-                                        "file_hashes": {path_text(path, self.lake.root): sha256_file(path),
-                                                        path_text(approved_report_path, self.lake.root): sha256_file(approved_report_path)},
-                                        "row_count": len(frame)}
-        approval_path = self.lake.write_json(approval_manifest, Path("manifests") / f"approval-{version}.json")
-        self.lake.catalog(f"approval-{version}", symbol, str(manifest["timeframe"]), str(manifest["data_source"]), approval_path,
-                          instrument_id=instrument.instrument_id, status="CURATED", version=version)
-        # All immutable artifacts now exist and their hashes are recorded. Only
-        # then may the strategy-visible current pointer advance.
-        parent = self.lake.current_version(symbol, str(manifest["timeframe"]))
-        dataset_manifest = DatasetManifest(
-            dataset_version=version,
-            parent_dataset_version=str(parent["version"]) if parent else None,
-            publication_run_id=f"approval-{version}", symbol=symbol,
-            instrument_id=instrument.instrument_id, timeframe=str(manifest["timeframe"]),
-            full_actual_start=pd.to_datetime(frame["timestamp"], utc=True).min().isoformat(),
-            full_actual_end=pd.to_datetime(frame["timestamp"], utc=True).max().isoformat(),
-            row_count=len(frame), curated_path=path_text(path, self.lake.root),
-            curated_sha256=sha256_file(path),
-            quality_report_path=path_text(approved_report_path, self.lake.root),
-            quality_report_sha256=sha256_file(approved_report_path),
-            published_at=utc_now().isoformat(), cleaning_rule_version=RULE_VERSION,
+    def approve_review(
+        self,
+        run_id: str,
+        reason: str = "",
+        *,
+        actor: str = "",
+        decision: str = "approve_existing",
+    ) -> str:
+        """Publish a review candidate through the durable approval coordinator."""
+        return self.review_approvals.approve(
+            run_id,
+            reason,
+            actor=actor,
+            decision=decision,
         )
-        dataset_manifest_path = self.lake.write_json(
-            dataset_manifest.to_dict(), Path("dataset_manifests") / f"{version}.json"
-        )
-        self.lake.activate_curated(
-            symbol, str(manifest["timeframe"]), version, f"approval-{version}", path,
-            dataset_manifest_path=dataset_manifest_path,
-        )
-        return version
 
     def update_holdings(
         self, provider: HoldingsCsvProvider, snapshot_date: str | None = None, *, top: int = 50
@@ -1207,17 +1165,6 @@ def _fallback_eligible(exc: Exception) -> bool:
         exc,
         (ConnectionError, OSError, RuntimeError, TimeoutError, ValueError),
     )
-
-
-def _stable_hash(value: object) -> str:
-    return hashlib.sha256(json.dumps(value, sort_keys=True, default=str, separators=(",", ":")).encode()).hexdigest()
-
-
-def _frame_hash(frame: pd.DataFrame) -> str:
-    lineage = {"ingested_at", "request_id", "raw_snapshot_id", "source_run_id", "dataset_version", "curated_version",
-               "raw_file_hash", "quality_score", "quality_status", "quality_flags"}
-    cols = [col for col in frame.columns if col not in lineage]
-    return hashlib.sha256(pd.util.hash_pandas_object(frame[cols], index=False).values.tobytes()).hexdigest()
 
 
 def _legacy_instrument(symbol: str) -> InstrumentConfig:

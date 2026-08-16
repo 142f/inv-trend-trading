@@ -1,143 +1,214 @@
-# 历史行情数据模块
+# 历史行情数据基础设施
 
-## 边界与品种定义
+## 1. 设计边界
 
-- `BTC`/`ETH` 是 Binance `BTCUSDT`/`ETHUSDT` 现货，不与 USD、永续或其他交易所序列拼接；配置的最早边界均为 2017-08-17，下载器不会请求或生成更早数据。
-- `XAU`/`XAG` 是 `XAUUSD_DUKAS`/`XAGUSD_DUKAS` 的 OTC 现货/CFD 报价，按 UTC、24×5 保存；它们不是 COMEX 期货，也不与 GLD/SLV 混用。受许可导出文件由 `CsvBarsProvider` 接入。
-- 股票、ETF、期货和永续合约必须注册为独立 instrument。期货连续序列使用显式 `contract`、`roll_flag` 和 `continuous_method`。
-- D1、H4、H1 独立分区。没有真实来源的数据不会聚合、拆分或插值产生。
+本模块负责“外部行情 → 可审计不可变数据 → 质量门禁 → 审核发布 → 策略只读 Repository”。核心约束如下：
 
-## 数据源
+- `BTC` / `ETH`：Binance Spot `BTCUSDT` / `ETHUSDT`，不与永续、USD 或其他交易所序列拼接；配置最早边界为 `2017-08-17`。
+- `XAU` / `XAG`：`XAUUSD_DUKAS` / `XAGUSD_DUKAS` 的 OTC Spot/CFD 报价，不与 COMEX、GLD、SLV 混用。
+- 股票、ETF、期货、永续分别注册独立 instrument；连续期货必须显式记录 `contract`、`roll_flag`、`continuous_method`。
+- `D1`、`H4`、`H1` 独立分区；系统不插值、拆分或聚合伪造缺失历史。
+- 策略正式读取只接受 `CURATED` 且 `is_complete == True` 的 K 线。
 
-- 加密货币主源：Binance 公共 Spot REST klines；可在配置中增加独立备用/交叉验证源。
-- 贵金属：明确许可的 DukasCopy/vendor 批量导出；模块不抓取网页展示值。
-- 美股：面向 Nasdaq Data Link 等持牌 OHLCV/公司行动导出使用 CSV 适配器。API 密钥、授权 URL 和许可由部署环境配置。
-- QQQ：`QqqHoldingsCsvProvider` 只解析基金管理人或授权供应商的 CSV。来源必须给出快照日期；保存前 20、名称、权重、行业和来源。历史回测只能选取 `as_of` 当日或更早快照，没有快照会抛出 `SurvivorshipBiasError`，绝不以当前持仓代替。
-
-## 数据流和存储
+## 2. 模块与依赖方向
 
 ```text
-provider adapter -> immutable raw (payload + parsed frame, 双写)
-   -> normalize/validate -> quarantine + audit flags
-   -> partitioned normalized parquet (zstd, 原子提交)
-   -> quality report + manifest + DuckDB/SQLite catalog
+historical_data.cli
+        ↓
+HistoricalDataService                    # 用例编排
+        ├── Provider Adapter             # 网络/CSV 来源
+        ├── processing / calendar        # 标准化与质量规则
+        ├── ReviewApprovalCoordinator    # 审核发布事务
+        └── DataLake                     # 文件、Catalog、Pointer 基础设施
+                ├── integrity            # 统一哈希
+                ├── locking              # 跨进程文件锁
+                └── lineage              # current 全链路独立核验
 ```
 
-目录为：
+职责：
+
+| 文件 | 职责 |
+|---|---|
+| `api.py` | ingest/update/reprocess/load/coverage 等应用服务编排 |
+| `review.py` | 审批上下文、审批计划、不可变审批产物、幂等与最终激活 |
+| `lineage.py` | Pointer、Dataset Manifest、Curated、Quality Report、Catalog 的一致性校验 |
+| `storage.py` | Parquet/JSON I/O、Catalog、Pointer、激活日志、回滚和恢复 |
+| `integrity.py` | JSON、文件和 DataFrame 的确定性哈希 |
+| `locking.py` | 无第三方依赖的跨进程文件锁及所有权保护 |
+| `providers.py` | Binance、Dukascopy、CSV、持仓等 Adapter |
+| `processing.py` | Schema、去重冲突、质量评估和隔离规则 |
+
+核心策略代码不需要知道 Provider、Catalog 后端或文件路径；统一通过 `load_bars()` 读取已发布数据。
+
+## 3. 数据流
+
+```text
+Provider fetch
+  → immutable raw payload + parsed raw frame
+  → normalize / validate / duplicate-conflict detection
+  → normalized parquet + quarantine/review candidate
+  → quality report + ingestion manifest
+  → publish candidate artifacts without activation
+  → review approval transaction
+  → curated current
+  → load_bars() independent lineage verification
+```
+
+完全相同的重复 K 线按审计规则去重；同一时间戳但 OHLCV 不同会进入 `REVIEW_REQUIRED`，保留 `base.parquet`、`incoming.parquet`、`conflicts.json` 和 `candidate_manifest.json`，不静默 `keep="last"`。
+
+## 4. 数据目录
 
 ```text
 data/
-  raw/provider=.../instrument=.../request_date=YYYY-MM-DD/{run_id}.{parquet,json}
-  normalized/asset_class=.../instrument=.../timeframe=.../year=.../part-*.parquet
-  reference/qqq_holdings/snapshot_date=YYYY-MM-DD/top20.parquet
-  manifests/{run_id}.json
-  quality_reports/{dataset_version}.json
-  quarantine/run_id={run_id}/rows.parquet
-  reviews/candidate={run_id}/bars.parquet
-  catalog.sqlite3 | catalog.duckdb (+ catalog_backend.json 标记)
+├── raw/provider=.../instrument=.../request_date=YYYY-MM-DD/
+│   ├── <run_id>.<payload_suffix>
+│   └── <run_id>.parquet
+├── normalized/asset_class=.../instrument=.../timeframe=.../year=.../
+│   └── part-*.parquet
+├── curated/asset_class=.../instrument=.../timeframe=.../version=.../
+│   └── bars.parquet
+├── reference/holdings/fund=.../snapshot_date=.../
+├── quarantine/run_id=.../
+├── reviews/
+│   ├── candidate=<run_id>/
+│   └── <run_id>.json
+├── manifests/
+│   ├── <run_id>.json
+│   ├── dataset-<dataset_version>.json
+│   └── approval-<dataset_version>.json
+├── quality_reports/<dataset_version>.json
+├── current/<symbol>/<timeframe>.json
+├── operations/current/*.json
+├── locks/*.lock
+├── catalog_backend.json
+└── catalog.sqlite3 | catalog.duckdb
 ```
 
-原始响应（payload）与 provider 解析后的原始 frame 都按 `run_id` 只读落盘，
-绝不覆盖；`market-data reprocess --run-id ...` 可在不联网的情况下从 Raw 重跑
-预处理，内容寻址保证复现完全相同的 dataset_version。所有 Parquet 使用 zstd
-压缩并通过临时文件 + fsync + 原子改名提交，进程中断不会留下半成品。
+Manifest、Pointer、Catalog 中的路径统一保存为数据根相对路径；旧绝对路径仍可解析以维持兼容。
 
-`HistoricalDataService.update()` 先计算缺失区间（尾部 + 24×7 品种的内部缺口），
-只下载真正缺失的区间，重复执行幂等：无缺失时直接返回当前版本的 manifest，
-不产生任何网络请求。`update-gaps` 仅补齐内部缺口，`missing` 命令只读展示
-缺失区间。
+## 5. 不可变写入与 Catalog 后端
 
-Catalog（datasets 表）记录 run_id、symbol、instrument_id、timeframe、source、
-status、version、asset_class、start_time、end_time、row_count、schema_version、
-checksum、raw_source、created_at、updated_at，保证 Dataset→Raw→Provider
-血缘可追溯；旧库在首次打开时自动迁移新增列。
+- Parquet 使用 ZSTD；先写同目录临时文件，`fsync` 后 `os.replace` 原子提交。
+- 同一路径重试时按 DataFrame 语义哈希检查：内容相同幂等返回，内容不同直接报错，禁止覆盖不可变制品。
+- JSON/原始 payload 同样采用不可变写入；可变 Pointer 和激活日志采用原子替换。
+- `catalog_backend.json` 是后端选择的唯一权威标记，记录 `backend`、`catalog_path`、`schema_version`。
+- 同时存在 SQLite 与 DuckDB 且缺少标记时 fail closed，避免猜测错误 Catalog；已有旧单一 Catalog 会自动生成标记。
+- 选择 DuckDB 但环境未安装 `duckdb` 时立即抛出明确依赖错误。
 
-Curated 层只发布 `is_complete == True` 的完整 K 线（当天未收盘 D1 不进入正式
-回测数据）；若所有 bar 均未收盘，数据集不得发布（QUARANTINED，绝不 fallback
-发布全 partial 版本）。Quality Report 同时记录 stored/complete/incomplete
-行数与 latest_stored_bar/latest_complete_bar，`backtest_suitable` 仅按完整
-K 线视图判定。`market-data audit --symbols ...` 独立复算全部统计（按
-requested/listing/日历重建期望区间，不信任已有报告），`market-data verify`
-审计 Catalog 行、Manifest、全部 artifact（raw/normalized/quality/curated）、
-hash 链与 pointer/catalog 一致性，并单独列出 legacy 污染的 current 指针。
+## 6. 审核发布事务
 
-质量评估按请求区间（expected_start = max(requested_start, listing_start)）
-计算缺失：股票请求 20 年只返回 10 年 → 头部缺失如实计数并 fail closed；
-上市日之后缺失的真实交易日计入 provider_gap；请求早于上市日的时间不算缺失。
-`provider_available_start` 只在 Provider 显式声明时记录，绝不等于 actual_start。
+`ReviewApprovalCoordinator` 的审批顺序：
 
-去重是冲突检测而非静默 `keep="last"`：完全相同（timestamp+OHLCV）→ 去重并
-记入 audit；相同 timestamp 但 OHLCV 不同 → `CONFLICTING_DUPLICATE` →
-REVIEW_REQUIRED。Review 候选保留双方数据（base.parquet / incoming.parquet /
-conflicts.json / candidate_manifest.json），审批可显式选择
-`approve_existing` 或 `approve_incoming`。Repository 读取正式 Curated 时若
-仍检测到冲突抛 `DataConflictError`。
-
-美股/ETF（xnas/xnys）的缺失按 RULE_BASED_NYSE_CALENDAR 规则日历分类：
-weekend/holiday 不计缺失，真实交易日缺失记为 provider_gap，未知 halt 标记
-为 UNKNOWN（规则日历是近似，非交易所官方日历）。加密资产（24x7）要求
-日线连续：缺一天即质量失败（QUARANTINED）。stock instrument 请求早于上市日
-的时间不算缺失。
-
-Provider 适配器统一实现 `fetch / fetch_range / normalize_symbol /
-validate_response`；HTTP 请求带超时、指数退避重试，429/5xx 遵循
-Retry-After 退避。
-
-Manifest、current pointer 与 Catalog 中的路径一律保存 **root-relative**
-路径（如 `curated/asset_class=crypto/...`），读取时以数据根目录解析；
-旧版绝对/工程相对路径仍可读取（向后兼容）。发布时 pointer 与 Catalog
-先写后验、不一致即回滚；`market-data repair-current --symbol ... --timeframe ...`
-可将 Catalog current 与文件系统指针重新对齐。XAU/XAG D1 采用 Dukascopy
-provider-native UTC 日线（`session_timezone=UTC`、`bar_close_rule=
-provider_native_utc`、`dayStartTime=UTC`），与 Registry 声明一致；纽约 17:00
-OTC 日线属于派生数据集，不作为原生 D1。
-
-## 使用
-
-```powershell
-pip install -e .
-market-data download --symbol BTC --timeframe D1 `
-  --start 2017-08-17T00:00:00Z --root data
+```text
+1. 获取 reviews/<run_id> 专用锁
+2. 校验候选 Manifest、候选文件、父版本及全部输入哈希
+3. 读取或创建不可变 approval_plan.json
+4. 生成 approved bars
+5. 生成并校验 approved quality report
+6. 生成 dataset manifest
+7. 预计算审核记录并生成完整 approval manifest
+8. 写 Catalog dataset 记录和不可变 review record
+9. 重新校验所有审批制品及哈希
+10. 以 expected-current CAS 最后激活 Pointer + Catalog current
 ```
 
-受许可金属 CSV：
+Approval Manifest 覆盖：批准后的 bars、质量报告、Dataset Manifest、候选 bars、候选 Manifest、ingestion Manifest/Report、审批计划和审核记录哈希。
 
-```powershell
-market-data download --symbol BTC --timeframe D1 `
-  --start 2017-08-17T00:00:00Z --root data
+幂等规则：
+
+- 已批准且 `reason/actor/decision` 完全相同：返回既有 `published_version`，不会生成第二个版本。
+- 已批准但请求参数不同：拒绝，且不修改 current。
+- 已拒绝：不得直接批准；必须通过未来显式 reopen 流程。
+- 中断发生在最终激活前：不可变制品可复用，重复调用从已有审批计划继续。
+
+## 7. Pointer、Catalog 与故障恢复
+
+`current` 激活不是简单的两次写入。系统在品种/周期级锁内：
+
+1. 校验 expected current（包含“首次发布时预期为空”的 CAS）；
+2. 写入 `operations/current/` 激活日志，保存 previous/target 状态；
+3. 更新 Pointer；
+4. 更新 Catalog current；
+5. 再次校验两者一致；
+6. 成功后删除激活日志。
+
+任一步骤失败会恢复 previous Pointer/Catalog；进程崩溃后，`DataLake` 启动时扫描日志并回滚未完成激活。`repair-current` 用于显式重新对齐：
+
+```bash
+market-data --root data repair-current --symbol BTC --timeframe D1
 ```
 
-增量与缺口管理：
+文件锁保存 PID、创建时间和随机 token：活进程持有的长锁不会因超龄被抢；旧锁对象释放时也不能删除后继者的新锁。
 
-```powershell
-market-data update --symbol BTC --timeframe D1 --root data
-market-data missing --symbol BTC --timeframe D1 --root data
-market-data update-gaps --symbol BTC --timeframe D1 --root data
-market-data reprocess --symbol BTC --timeframe D1 --run-id <run_id> --root data
+## 8. Coverage 与策略读取：fail closed
+
+`coverage()` 和 `load_bars()` 不再只相信当前 Parquet。`load_current_lineage()` 会独立核验：
+
+- current Pointer 存在且含 version；
+- Pointer 与 Dataset Manifest 指向同一 Curated 文件；
+- Dataset Manifest 的 symbol/timeframe/version 正确；
+- Curated SHA-256 正确；
+- Quality Report 存在、哈希正确、版本/品种/周期一致；
+- `actual_bars` 与正式数据行数一致；
+- Bars 中 `dataset_version` 与 current 一致；
+- Pointer 与 Catalog current 一致。
+
+报告缺失、哈希不匹配、行数不一致或版本错配都会抛 `DataLineageError`，不会把“无法验证”误报为“无缺口”。
+
+## 9. 增量、质量与数据源
+
+- `update()` 计算尾部和适用品种的内部缺口，只请求缺失区间；无缺失时不联网。
+- `update-gaps` 只补内部缺口；`missing` 只读展示。
+- 请求边界使用 `max(requested_start, listing_start)`；上市前不算缺失，上市后真实交易日缺失按规则分类。
+- 24×7 加密资产日线必须连续；美股/ETF 使用规则型 NYSE 日历，holiday/weekend 不计缺失，未知 halt 标记 `UNKNOWN`。
+- 当前规则日历不是交易所官方 halt/holiday 数据源；正式高等级审计仍需持牌/官方日历。
+- Dukascopy 已支持分页和逐页原始响应留存路径，但本交付环境未连接真实服务验证其实际响应契约。
+
+## 10. CLI 示例
+
+```bash
+# 下载、增量、缺口、重放
+market-data --root data download --symbol BTC --timeframe D1 \
+  --start 2017-08-17T00:00:00Z
+market-data --root data update --symbol BTC --timeframe D1
+market-data --root data missing --symbol BTC --timeframe D1
+market-data --root data update-gaps --symbol BTC --timeframe D1
+market-data --root data reprocess --symbol BTC --timeframe D1 --run-id <run_id>
+
+# 审计和版本
+market-data --root data status --symbol BTC --timeframe D1
+market-data --root data coverage --symbol BTC --timeframe D1
+market-data --root data versions --symbol BTC --timeframe D1
+market-data --root data verify --kind catalog
+market-data --root data audit --symbols BTC ETH --timeframe D1
+
+# 审核
+market-data --root data review list
+market-data --root data review approve --run-id <run_id> \
+  --decision approve_existing --reason "reviewed" --actor "alice"
+market-data --root data review reject --run-id <run_id> \
+  --reason "unresolved conflict" --actor "alice"
 ```
 
-QQQ 快照：
-
-```powershell
-market-data qqq-holdings --source C:\licensed\qqq_holdings.csv `
-  --snapshot-date 2026-07-24
-```
-
-海龟检测器统一输入：
+统一策略输入：
 
 ```python
 from historical_data import load_bars
 
 bars = load_bars("BTC", "D1", adjusted=True, root="data")
-# timestamp 升序唯一、仅完整 K 线；attrs 含来源、复权口径、质量报告路径
 ```
 
-`HistoricalDataService.update()` 从本地末尾向前重查 5 根 K 线，失败重试并按配置切换备用源；内容寻址分区与读取时去重使重复更新幂等。股票 `adjusted=True` 会按 `adjusted_close / close` 同步调整 OHLC，避免拆股形成虚假突破。质量评估按请求区间计算理论 K 线数：只有实际数据首尾的"部分下载"会被如实判定为缺失并隔离，未收盘的尾部边界不计缺失。
+返回数据按 timestamp 升序且唯一，只含完整 K 线；`attrs` 包含来源、版本、质量报告等谱系信息。
 
-## 质量和实施阶段
+## 11. 当前验收边界
 
-- P0（已实现）：统一 Schema、Provider 适配器（重试/限流/响应校验）、Binance/CSV 下载、真实历史下限、清洗隔离、Parquet(zstd)+原子写入、Manifest、质量报告、DuckDB/SQLite 索引、缺失区间增量更新、统一读取、Raw 重放预处理、QQQ 快照日期保护、复权和期货换月工具。
-- P1：部署持牌 Nasdaq/贵金属账户适配器，补齐交易所节假日日历、公司行动和历史 QQQ 快照，并配置真实备用源交叉验证。
-- P2：任务调度、数据延迟监控、供应商 SLA、对象存储镜像和全量历史回填审计。
+| 范围 | 状态 |
+|---|---|
+| 审批幂等、完整 Manifest、Coverage fail-closed、Catalog 冲突检测 | ✅ COMPLETE |
+| Pointer/Catalog 锁、日志、回滚、启动恢复、CAS | ✅ COMPLETE（逻辑与故障注入测试） |
+| 真实 PyArrow ZSTD 元数据与编码失败原子性 | ⚠️ 当前环境未执行 |
+| 真实 DuckDB 事务、Windows `fsync/os.replace` | ⚠️ 需目标环境验证 |
+| 真实 Binance/Dukascopy/MT5 响应与实际数据根 | ⚠️ 未随代码包提供，无法独立复核 |
+| 官方交易日历/halt、完整 QQQ 历史谱系、research 全量 Repository 迁移 | ⚠️ 后续范围 |
 
-许可证和覆盖范围取决于部署者实际订阅。配置中的 2000-01-01 是 XAU/XAG 的目标请求下限，不是对供应商实际覆盖的声明；Manifest 始终记录实际首尾时间。
+因此当前结论是：**P0-core 代码闭环完成；P0 Final 仍需真实依赖、目标操作系统、Provider 与数据资产验收。**

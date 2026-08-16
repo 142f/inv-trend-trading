@@ -1,139 +1,134 @@
-# inv-trend-trading Workspace
+# inv-trend-trading-core
 
-This repository is organized around three working areas:
-
-```text
-outputs/         Human-facing run outputs and final reports.
-processed_data/  Generated data pipeline artifacts for audit and backtests.
-research/        Experiment scripts, notebooks, and research-specific outputs.
-```
-
-## Reading Order
-
-1. Start with `outputs/` when you want the latest actionable result.
-2. Open `processed_data/metadata/` when you need to understand what data was used.
-3. Use `processed_data/logs/` to inspect data quality and validation decisions.
-4. Use `processed_data/backtest_ready/` as the stable input layer for backtests.
-5. Use `research/` only when you need to reproduce or extend experiments.
-
-## Directory Roles
-
-| Directory | Role | Keep manually edited files here? |
-|---|---|---|
-| `outputs/` | Final reports, alerts, and exported analysis results | No |
-| `processed_data/raw_index/` | Catalog of discovered raw data sources | No |
-| `processed_data/cleaned/` | Per-symbol cleaned OHLCV files | No |
-| `processed_data/merged/` | Multi-asset merged datasets | No |
-| `processed_data/backtest_ready/` | Backtest input datasets | No |
-| `processed_data/logs/` | Validation and alignment logs | No |
-| `processed_data/metadata/` | Manifests, selected symbols, field dictionaries | No |
-| `research/` | Research scripts and experiment suites | Yes, for scripts only |
-| `turtle_multi_asset/` | Reusable package code | Yes |
-| `tests/` | Regression and behavior tests | Yes |
-
-## Naming Convention
-
-Generated data files follow this pattern:
+多资产趋势交易研究与每日预警代码库。已迁移的路径围绕以下统一链路组织；
+仍在迁移中的 CLI 例外以独立验收报告为准：
 
 ```text
-<dataset>_<source>_<symbols>_<start>_<end>_<timeframe>_<stage>.csv
+CLI / Scheduled Job
+        ↓
+Application Service（用例编排）
+        ↓
+Core / Strategy（确定性特征、信号、回测、风险规则）
+        ↓
+Historical Data Repository（版本化读取、质量门禁、血缘校验）
+        ↓
+Provider / File / Catalog / Output Adapter
 ```
 
-Examples:
+本版重点重构了历史行情的审核发布、不可变制品、`current` 激活、Catalog 后端选择和血缘校验。历史交付说明见 [`趋势交易核心-重构说明v1.md`](趋势交易核心-重构说明v1.md)；以当前工作树为准的独立验收见 [`docs/REFACTOR_ACCEPTANCE_AUDIT.md`](docs/REFACTOR_ACCEPTANCE_AUDIT.md)。
 
-```text
-data_2010_xau_btc_mt5_btcusdc_xauusdc_2018_2026_h4_backtest_ready.csv
-metal_tech_core_d1_backtest_ready.csv
+## 1. 模块边界
+
+| 模块 | 职责 |
+|---|---|
+| `historical_data/` | Provider 接入、标准化、质量评估、不可变数据湖、审核发布、Catalog、统一 Repository 读取 |
+| `inv_trend_core/` | 无外部 I/O 的共享特征、数学、事件、信号和序列化能力 |
+| `inv_trend_application/` | 每日扫描、检测、回测等 Use Case 编排 |
+| `turtle_detector/` | 单资产海龟候选检测、过滤、风险、回测与提醒 |
+| `turtle_multi_asset/` | 多资产海龟回测、数据构建与美股趋势预警 |
+| `inv_trend_integrations/` | MT5、OKX 等可选外部适配器；采用惰性导入，未安装可选 SDK 不影响核心包 |
+| `inv_trend_observability/` | 审计、Manifest 和 HTML 输出 |
+| `tests/` | 单元、集成、架构边界、事务故障注入与 Golden Master 回归 |
+| `scripts/` | 日常运行和基准测试脚本 |
+
+## 2. 安装
+
+```bash
+python -m pip install -e ".[test]"
 ```
 
-## Cleanup Policy
+可选适配器：
 
-Do not keep duplicate copies of the same generated file unless they represent
-different pipeline stages. Prefer one source copy plus metadata references.
-
-Safe to remove when duplicated:
-
-- Old generated datasets with identical hashes.
-- Per-symbol copies inside a derived dataset when the same file already exists in its source dataset and metadata can point to the source.
-- Empty generated directories.
-
-Keep even if the contents currently match:
-
-- `merged/` and `backtest_ready/` files, because they are separate pipeline stages.
-- Shared assets used by different datasets, because each dataset records a different universe definition.
-
-## Turtle D1 Alerts
-
-Import authorized QQQ and SPY holdings snapshots, then synchronize their merged top-50 universe:
-
-```powershell
-market-data holdings --fund QQQ --source C:\licensed\qqq.csv --snapshot-date 2026-08-07 --top 50
-market-data holdings --fund SPY --source C:\licensed\spy.csv --snapshot-date 2026-08-07 --top 50
-market-data sync-universe --universe qqq-spy-top50 --timeframe D1
+```bash
+python -m pip install -e ".[okx]"
+python -m pip install -e ".[mt5]"   # MetaTrader5 仅在 Windows 安装
 ```
 
-Run the read-only alert scan:
+Python 要求：`>=3.10`。正式数据存储依赖 `PyArrow`；DuckDB Catalog 依赖 `duckdb`，也可使用 SQLite。
 
-```powershell
-turtle-alert --data-root data --universe qqq-spy-top50
+## 3. 历史行情数据
+
+全局参数 `--root` 必须写在子命令前：
+
+```bash
+market-data --root data download \
+  --symbol BTC --timeframe D1 \
+  --start 2017-08-17T00:00:00Z
+
+market-data --root data update --symbol BTC --timeframe D1
+market-data --root data missing --symbol BTC --timeframe D1
+market-data --root data coverage --symbol BTC --timeframe D1
+market-data --root data verify --kind catalog
 ```
 
-Continuously refresh through the existing Repository pipeline and scan every five minutes
-(only completed D1 bars can emit formal alerts):
+审核冲突候选：
 
-```powershell
-turtle-alert --data-root data --universe qqq-spy-top50 --watch --refresh-before-scan --interval-seconds 300
+```bash
+market-data --root data review list
+market-data --root data review approve \
+  --run-id <run_id> \
+  --decision approve_incoming \
+  --reason "已核验供应商原始响应" \
+  --actor "reviewer"
+
+market-data --root data review reject \
+  --run-id <run_id> --reason "价格冲突无法解释" --actor "reviewer"
 ```
 
-The command prints a colored status table and appends daily text and JSONL reports under
-`outputs/turtle_alerts/`. Formal deduplicated signals remain in `alerts.jsonl`.
+审批采用“先生成并校验全部不可变制品，再登记 Catalog/审核记录，最后 CAS 激活 current”的流程；失败可重试，指针与 Catalog 不一致时可恢复：
 
-## Daily Market Scan
+```bash
+market-data --root data repair-current --symbol BTC --timeframe D1
+```
 
-完整的中文参数、命令、退出码和故障排查说明见
-[`DAILY_MARKET_SCAN_CLI.md`](DAILY_MARKET_SCAN_CLI.md)。
+完整的数据边界、目录、Manifest、审核事务和故障恢复说明见 [`historical_data/README.md`](historical_data/README.md)。
 
-Run the daily data refresh and technical-signal scan from the repository root:
+## 4. 策略与每日任务
+
+每日市场扫描：
 
 ```powershell
 .\scripts\run_daily_market_scan.ps1
 ```
 
-The launcher finds the repository root itself, uses `.venv\Scripts\python.exe` when it
-exists, and otherwise uses `python` available on `PATH`. Any command-line options are
-passed through to the scanner, for example:
+等价入口：
 
-```powershell
-.\scripts\run_daily_market_scan.ps1 --symbol BTC --no-color
+```bash
+turtle-daily --help
+turtle-detect --help
+turtle-alert --help
+turtle-data --help
 ```
 
-The equivalent installed entry point is `turtle-daily`. Signals are calculated from
-complete-only bars. Formal `CURATED` events are transactionally deduplicated in
-`outputs\daily_market_scan\signals.sqlite3` and then appended to
-`logs\signals\YYYY-MM-DD.jsonl`; `RESEARCH_ONLY` and `LEGACY_ONLY` results remain visible
-in the daily snapshot but never produce formal alerts. A strict calendar-aware freshness
-gate requires yesterday's UTC bar for crypto, the latest completed weekday for 24x5
-markets, and the latest completed NYSE session for US equities.
+参数、退出码和 Windows 定时任务说明见 [`DAILY_MARKET_SCAN_CLI.md`](DAILY_MARKET_SCAN_CLI.md)。
 
-Useful options include `--symbol BTC`, `--database <path>`, `--bootstrap-days 400`, and
-`--research-mode`. The command returns a non-zero exit code when any instrument is failed,
-blocked, or stale, while still completing the remaining instruments and recording the run.
+## 5. 测试与基准
 
-### Schedule at 09:00 Beijing time (Windows)
-
-In an elevated PowerShell window, from the repository root, register the task below.
-Windows Task Scheduler evaluates `09:00` in the computer's local time zone; ensure the
-machine time zone is set to China Standard Time for a Beijing-time schedule.
-
-```powershell
-$repo = (Resolve-Path .).Path
-$script = Join-Path $repo 'scripts\run_daily_market_scan.ps1'
-$action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument ('-NoProfile -ExecutionPolicy Bypass -File "{0}"' -f $script)
-$trigger = New-ScheduledTaskTrigger -Daily -At 09:00
-$settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -MultipleInstances IgnoreNew
-Register-ScheduledTask -TaskName 'TurtleDailyMarketScan' -Action $action -Trigger $trigger -Settings $settings -Description 'Refresh D1 market data and scan Turtle, SMA, and MACD signals.' -Force
+```bash
+pytest -q
+python scripts/benchmark_refactor.py
 ```
 
-`-MultipleInstances IgnoreNew` is intentional: if a prior scan is still running, the
-scheduled start is skipped rather than opening a second concurrent scan. To remove the
-task later, run `Unregister-ScheduledTask -TaskName 'TurtleDailyMarketScan' -Confirm:$false`.
+当前独立验收环境（Python 3.12.6，真实 PyArrow/DuckDB 依赖）结果：
+
+```text
+Passed: 253
+Failed: 0
+Skipped: 0
+```
+
+在 Windows 上请使用短工作区临时路径，避免 Parquet 临时文件超过路径长度限制：
+
+```bash
+pytest -q --basetemp .tmp/a
+```
+
+历史性能快照保存在 [`性能基准v1.json`](性能基准v1.json)；当前复验结果和适用边界见验收报告。
+
+## 6. 运行数据与版本控制
+
+运行生成的 `data/`、`processed_data/` 和 `outputs/` 默认不入库；源码、测试、Markdown 文档、示例和研究脚本应正常跟踪。敏感配置只放本地 `.env`，模板使用 `.env.example`。
+
+## 7. 当前边界
+
+本版已通过本地 **P0-core** 验收，但完整应用层迁移尚未完成：`turtle-alert` 与部分 `turtle-data` 子命令仍有平行路径，策略配置和 Turtle 规则内核也尚未完全收敛。正式部署封版仍需在目标环境完成真实 Provider 响应、实际数据根、生产规模 Catalog、独立进程恢复和 Windows 文件系统语义验证。交易所官方 holiday/halt、完整历史 QQQ 持仓谱系及全部 research Repository 迁移仍属于后续范围。

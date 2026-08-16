@@ -1,71 +1,55 @@
-# 自身忽略（本地 gitignore 配置，不纳入版本控制）
-.gitignore
-
-# Python 缓存
+# Python bytecode and test/tool caches
 __pycache__/
 *.py[cod]
 .pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
 
-# 本地虚拟环境及IDE（所有 . 开头文件夹）
-.*/
-
-# 本地敏感配置
+# Virtual environments and packaging output
+.venv/
+venv/
+env/
+build/
+dist/
+*.egg-info/
+.ipynb_checkpoints/
+# IDE and operating-system files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+tests/
+# Local secrets and machine-specific overrides
 .env
+.env.*
+!.env.example
 *.local.*
 *.secret.*
 *.override.*
 config.local.*
 
-# 文档（仅保留根目录和特定子目录的 README 等）
-*.md
-!README.md
-!CODE_AUDIT.md
-!outputs/README.md
-!outputs/us_trend_alerts/README.md
+# Runtime market-data lake and generated outputs
+/data/*
+!/data/README.md
+processed_data/*
 !processed_data/README.md
-!research/README.md
-
-# 测试目录（完全忽略）
-tests/
-test-temp/
-deliverables/
-# 示例目录（仅保留指定文件）
-examples/
-!examples/__init__.py
-!examples/download_mt5_data.py
-
-# 输出目录（忽略所有文件，保留目录结构和 README）
-outputs/
-!outputs/
 outputs/*
 !outputs/README.md
 !outputs/us_trend_alerts/
 outputs/us_trend_alerts/*
 !outputs/us_trend_alerts/README.md
+logs/
 
-# 研究目录（忽略所有文件，保留目录结构和特定脚本）
-research/
-!research/
-research/*
-!research/README.md
-!research/__init__.py
-!research/d1_suite/
-research/d1_suite/*
-!research/d1_suite/__init__.py
-!research/d1_suite/scripts/
-!research/d1_suite/scripts/*.py
-!research/strategy_variants/
-research/strategy_variants/*
-!research/strategy_variants/__init__.py
-!research/strategy_variants/scripts/
-!research/strategy_variants/scripts/*.py
+# Research source and analysis documents are versioned; generated backtest
+# result trees are not release inputs.
+/research/**/outputs/
 
-# 处理数据目录（忽略所有文件，保留 README）
-processed_data/
-!processed_data/
-processed_data/*
-!processed_data/README.md
+# Temporary delivery and local test directories
+.tmp/
+test-temp/
+deliverables/
 
-# Local immutable market-data lake
-/data/*
-!/data/README.md
+# Keep source, tests, documentation, examples, and research scripts tracked.

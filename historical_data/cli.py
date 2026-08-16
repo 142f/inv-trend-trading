@@ -72,6 +72,12 @@ def main() -> None:
     review.add_argument("action", choices=["list", "approve", "reject"])
     review.add_argument("--run-id")
     review.add_argument("--reason", default="")
+    review.add_argument("--actor", default="")
+    review.add_argument(
+        "--decision",
+        choices=["approve_existing", "approve_incoming"],
+        default="approve_existing",
+    )
     migrate = sub.add_parser("migrate-legacy")
     migrate.add_argument("--input", default="processed_data")
     holdings = sub.add_parser("holdings")
@@ -169,9 +175,20 @@ def main() -> None:
             parser.error("review approve/reject requires --run-id")
         decision = "approved" if args.action == "approve" else "rejected"
         if decision == "approved":
-            print(service.approve_review(args.run_id, args.reason))
+            print(
+                service.approve_review(
+                    args.run_id,
+                    args.reason,
+                    actor=args.actor,
+                    decision=args.decision,
+                )
+            )
         else:
-            print(service.lake.review(args.run_id, decision, args.reason))
+            print(
+                service.lake.review(
+                    args.run_id, decision, args.reason, actor=args.actor
+                )
+            )
         return
     if args.command == "qqq-holdings":
         print(service.update_qqq_holdings(QqqHoldingsCsvProvider(args.source), args.snapshot_date))
