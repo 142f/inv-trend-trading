@@ -1,10 +1,16 @@
 # 重构验收、清理与回测一致性审计
 
 审计日期：2026-08-16  
-审计对象：当前工作树、`趋势交易核心-重构说明v1.md`，以及 Git 基线
+审计对象（2026-08-16）：当时的工作树、`趋势交易核心-重构说明v1.md`，以及 Git 基线
 `121f9016f8490baf42f5c2212aa46d97b9247290`。
 
-## 裁决
+> **2026-08-17 当前工作树真值修正**：本文件中的通过数、fixture SHA、Golden
+> 结论和“已修复 `.gitignore`”均是 2026-08-16 审计记录，不是本轮恢复后的结果。
+> 原始 Golden fixture/expected 成对制品未能从当前工作树、交付 ZIP、可达或悬挂
+> Git 提交中完整找回。测试源码恢复与新固定 BTC D1 fixture 的重新认证正在进行；
+> 在完整 pytest、Golden、静态检查和 CLI 门禁结束前，不预填新的通过数或一致性结论。
+
+## 2026-08-16 审计裁决（历史记录）
 
 本次审计确认：策略热路径在固定输入和同一组参数下与 Git 直接父提交
 一致；未发现首个**业务语义**差异。审计同时发现并修复了四个数据发布
@@ -12,15 +18,15 @@ P0 缺口（正式 ingest CAS、策略读取的 Pointer/Catalog 校验、质量�
 identity 校验、`load_bars` 对未过滤数据的谱系校验），以及一次误导性的
 Git 忽略规则和一处未使用导入。
 
-因此，当前代码可标记为 **P0-core 本地验收通过**，但不能标记为“MD 所述
+因此，在 2026-08-16 审计时的代码可标记为 **P0-core 本地验收通过**，但不能标记为“MD 所述
 全部架构重构完成”或“无需提交即可发布的新正式 Baseline”：
 
 - 正式 CLI 仍有绕过 application 层和共享规则的路径；
 - 单一策略配置和单一 Turtle 规则内核尚未落地；
-- 本轮新增的正式源码、测试、fixture 与文档仍需被 `git add` 并提交；
+- 审计时新增的正式源码、测试、fixture 与文档仍需被 `git add` 并提交；
 - 真实 Provider、真实数据根、生产规模 Catalog、独立进程崩溃恢复仍未验收。
 
-## 审计方法与可追溯输入
+## 2026-08-16 审计方法与可追溯输入（历史记录）
 
 | 项目 | 取值 |
 |---|---|
@@ -46,7 +52,7 @@ fixture，故它只作辅助交付快照；Git 父提交是本报告的严格可
 | Catalog 后端标记和双库冲突 | `DataLake._select_catalog_backend()` 的 marker/冲突分支，历史数据测试覆盖 | ✅ COMPLETE |
 | Pointer + Catalog 锁、journal、回滚、恢复、CAS | `locking.py`、`DataLake.activate_curated()`；本次使普通 `ingest()` 传入 `expected_current_version`，覆盖首次 `None` CAS | ✅ COMPLETE（本次补齐正式调用链） |
 | 可选 MT5/OKX 不阻塞核心导入 | `inv_trend_integrations.__getattr__()`；实际导入包后 `okx`、`mt5` 都不在 `sys.modules` | ✅ COMPLETE |
-| 420-bar Golden Master | `tests/fixtures/golden_d1.*` 与 `tests/test_golden_master.py` 固定输入、特征、daily、Detector、Multi 的 hash/指标 | ✅ COMPLETE；注意该 fixture 是重构后加入的固定输入，不是重构前预存制品 |
+| 420-bar Golden Master（历史） | `tests/fixtures/golden_d1.*` 与 `tests/test_golden_master.py` 固定输入、特征、daily、Detector、Multi 的 hash/指标 | 历史审计记录为 ✅ COMPLETE；原始 fixture/expected 已不可完整复现，待新固定 BTC D1 fixture 重新认证 |
 | Core 无 I/O/上层依赖、无静态环 | `tests/test_architecture_boundaries.py`；AST 扫描 129 个主模块、269 条内部边、0 个循环 | ✅ COMPLETE（模块级） |
 | `turtle-detect` / `turtle-daily` 通过应用层 | `turtle_detector/cli.py → DetectorService`；`daily_cli.py → DailyMarketScanService` | ✅ COMPLETE |
 | `turtle-alert` 通过应用层 | `alert_cli.py` 仍直接调用 `alerts.breakout.scan_configured_d1` | ⚠️ PARTIAL |
@@ -68,7 +74,7 @@ fixture，故它只作辅助交付快照；Git 父提交是本报告的严格可
 | 质量报告只校验 hash/version，未校验 symbol/timeframe | `lineage.py` 校验质量报告 identity | `test_coverage_fails_closed_on_quality_report_identity_mismatch` |
 | `load_bars()` 在过滤后才间接检查、未传 bars，行数和 dataset_version 验证未发生 | 过滤前将完整 current bars 交给 `load_current_lineage()` | 既有 row-count 测试扩展为 `load_bars` 与 `coverage` 双断言 |
 | `storage.sha256_file` 隐式再导出 | 调用方改为从 `historical_data.integrity` 导入，消除未使用导入和隐藏 API | 83 项历史数据分组与全量 pytest 通过 |
-| `.gitignore` 忽略正式 `tests/` 与 `research/` | 取消目录级忽略；保留 `/research/**/outputs/`、`logs/`、`.tmp/` 等可再生产物忽略 | `git check-ignore` 确认 test/fixture/research source 不再被忽略 |
+| `.gitignore` 忽略正式 `tests/` 与 `research/` | 历史修复记录：取消目录级忽略；本轮恢复前再次发现 `tests/` 被目录规则忽略 | 修复后必须重新运行 `git check-ignore`，不以本行作为当前结论 |
 
 ## 实际运行路径与剩余“假重构”风险
 
@@ -156,7 +162,7 @@ Parquet、Catalog 或 Provider 的端到端吞吐提升。
 - 用户已有 `research/**/outputs/`：不属于本次创建，已保持忽略，避免把运行结果误纳入版本控制或擅自删除用户研究结果；
 - 大型 `historical_data/storage.py` / `HistoricalDataService`：有正式调用，属于后续拆分项而非 dead code。
 
-## 检查结果
+## 2026-08-16 检查结果（历史记录，非当前验证）
 
 | 检查 | 实际结果 |
 |---|---|
@@ -175,8 +181,8 @@ Windows 上必须为 pytest 选用短工作区临时路径；较长临时路径�
 
 ### P0 / 发布门槛
 
-- 新增的正式模块、tests、fixtures、docs 当前仍是未跟踪文件。`.gitignore`
-  已修复，但在 `git add` 和提交前不能称为可交付 Baseline。
+- 审计时新增的正式模块、tests、fixtures、docs 仍是未跟踪文件。当前恢复的
+  tests/fixture、`.gitignore` 和验收门禁结果必须在重新认证后再判断是否可交付。
 - P0 Final 仍缺真实 Provider/数据根、生产规模 Catalog、独立进程崩溃恢复和
   Windows 文件系统语义的验收。
 
@@ -194,4 +200,3 @@ Windows 上必须为 pytest 选用短工作区临时路径；较长临时路径�
 - 拆分仍偏大的 `storage.py` 和 `HistoricalDataService`；
 - 在 CI 固定短 pytest 临时目录、真实 PyArrow/DuckDB、Windows 并发/恢复和
   端到端性能阈值。
-

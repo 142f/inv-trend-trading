@@ -15,7 +15,12 @@ Historical Data Repository（版本化读取、质量门禁、血缘校验）
 Provider / File / Catalog / Output Adapter
 ```
 
-本版重点重构了历史行情的审核发布、不可变制品、`current` 激活、Catalog 后端选择和血缘校验。历史交付说明见 [`趋势交易核心-重构说明v1.md`](趋势交易核心-重构说明v1.md)；以当前工作树为准的独立验收见 [`docs/REFACTOR_ACCEPTANCE_AUDIT.md`](docs/REFACTOR_ACCEPTANCE_AUDIT.md)。
+本版重点重构了历史行情的审核发布、不可变制品、`current` 激活、Catalog 后端选择和血缘校验。历史交付说明见 [`趋势交易核心-重构说明v1.md`](趋势交易核心-重构说明v1.md)；当前验证状态与历史审计说明见 [`docs/REFACTOR_ACCEPTANCE_AUDIT.md`](docs/REFACTOR_ACCEPTANCE_AUDIT.md)。
+
+> **验证状态（2026-08-17，恢复与重新认证进行中）**：下文的历史测试计数和
+> Golden 结论不能解释为当前工作树的验证结果。原始 Golden fixture/expected
+> 成对制品未能从工作树、交付 ZIP 或 Git 历史中完整找回；将使用新固定的 BTC
+> D1 输入重新认证，并在完整门禁执行后更新验收结论。常规测试不会重写 expected。
 
 ## 1. 模块边界
 
@@ -28,7 +33,7 @@ Provider / File / Catalog / Output Adapter
 | `turtle_multi_asset/` | 多资产海龟回测、数据构建与美股趋势预警 |
 | `inv_trend_integrations/` | MT5、OKX 等可选外部适配器；采用惰性导入，未安装可选 SDK 不影响核心包 |
 | `inv_trend_observability/` | 审计、Manifest 和 HTML 输出 |
-| `tests/` | 单元、集成、架构边界、事务故障注入与 Golden Master 回归 |
+| `tests/` | 恢复与重新认证中的单元、集成、架构边界、事务故障注入与 Golden Master 回归 |
 | `scripts/` | 日常运行和基准测试脚本 |
 
 ## 2. 安装
@@ -109,10 +114,10 @@ pytest -q
 python scripts/benchmark_refactor.py
 ```
 
-当前独立验收环境（Python 3.12.6，真实 PyArrow/DuckDB 依赖）结果：
+以下为 2026-08-16 的历史独立验收记录，不是本轮恢复后的当前结果：
 
 ```text
-Passed: 253
+Historical passed: 253
 Failed: 0
 Skipped: 0
 ```

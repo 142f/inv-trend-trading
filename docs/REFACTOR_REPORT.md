@@ -1,9 +1,14 @@
 # Refactor report
 
-> This is the implementation-era report. For an independent audit of the
-> current worktree, including remaining CLI bypasses, acceptance fixes, and
-> current verification results, see
+> This is the implementation-era report. For the dated independent audit of
+> the worktree, including remaining CLI bypasses and acceptance fixes, see
 > [`REFACTOR_ACCEPTANCE_AUDIT.md`](REFACTOR_ACCEPTANCE_AUDIT.md).
+>
+> **Current verification status (2026-08-17):** the historical Golden fixture
+> and expected-result pair referenced below are not currently reproducible as
+> the original pair. Test-source recovery and a new fixed BTC D1 Golden Master
+> are being re-certified; no historical pass count or Golden result in this
+> report is a claim about that pending verification.
 
 ## Result
 
@@ -82,7 +87,7 @@ The backtester now advances an event-driven as-of timeline rather than
 prebuilding date-by-symbol search maps. The benchmark is reproducible with
 `python scripts/benchmark_refactor.py`.
 
-## Regression and quality gates
+## Historical regression and quality gates (2026-08-13; not current verification)
 
 - `pytest -q --basetemp .tmp/pytest-final-refactor-20260813`: **238 passed** in
   61.13 s.

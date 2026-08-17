@@ -21,7 +21,6 @@ dist/
 .idea/
 .DS_Store
 Thumbs.db
-tests/
 # Local secrets and machine-specific overrides
 .env
 .env.*
