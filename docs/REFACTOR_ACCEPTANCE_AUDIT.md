@@ -1,5 +1,11 @@
 # 重构验收、清理与回测一致性审计
 
+> **Current namespace (2026-08-18):** this audit records the pre-namespace
+> source paths. Current production code is in `src/inv_trend/`; use
+> [`ARCHITECTURE.md`](ARCHITECTURE.md) and
+> [`PROJECT_STRUCTURE.md`](PROJECT_STRUCTURE.md) for current paths. The
+> historical findings remain useful, but their old import names are not public.
+
 审计日期：2026-08-16  
 审计对象（2026-08-16）：当时的工作树、`趋势交易核心-重构说明v1.md`，以及 Git 基线
 `121f9016f8490baf42f5c2212aa46d97b9247290`。

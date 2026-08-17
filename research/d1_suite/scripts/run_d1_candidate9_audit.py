@@ -19,7 +19,7 @@ from research.d1_suite.scripts.d1_backtest_common import (
     symbol_trade_stats,
     write_backtest_outputs,
 )
-from turtle_multi_asset import TurtleRules
+from inv_trend.adapters.multi_asset import TurtleRules
 
 
 BASE_SYMBOLS = [

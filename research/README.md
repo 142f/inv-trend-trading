@@ -16,4 +16,6 @@ research/
 ## Usage
 
 Use scripts here to reproduce analysis or generate new outputs. Reusable logic
-should be moved into `turtle_multi_asset/` once it stabilizes.
+should be moved into `inv_trend.core` or `inv_trend.application` once it
+stabilizes. `inv_trend.adapters.multi_asset` is a transitional compatibility
+area, not the default destination for new reusable logic.

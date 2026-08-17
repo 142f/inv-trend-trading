@@ -1,14 +1,23 @@
 # Refactor report
 
+> **Namespace update (2026-08-18):** the implementation described below now
+> lives under `src/inv_trend/`: `historical_data → data`,
+> `inv_trend_core → core`, `inv_trend_application → application`,
+> `inv_trend_observability → observability`, `inv_trend_integrations → integrations`,
+> `turtle_detector → adapters/detector`, and
+> `turtle_multi_asset → adapters/multi_asset`. The five console command names
+> are unchanged; the former top-level Python import paths are intentionally
+> unavailable. `StrategyRunManifest` belongs to `application` after this move.
+
 > This is the implementation-era report. For the dated independent audit of
 > the worktree, including remaining CLI bypasses and acceptance fixes, see
 > [`REFACTOR_ACCEPTANCE_AUDIT.md`](REFACTOR_ACCEPTANCE_AUDIT.md).
 >
-> **Current verification status (2026-08-17):** the historical Golden fixture
-> and expected-result pair referenced below are not currently reproducible as
-> the original pair. Test-source recovery and a new fixed BTC D1 Golden Master
-> are being re-certified; no historical pass count or Golden result in this
-> report is a claim about that pending verification.
+> **Current verification status (2026-08-18):** test sources were recovered
+> from the protected ZIP, a static BTC D1 fixture was re-certified against Git
+> `121f901`, and the full current suite passed. The original Golden pair was
+> not recoverable, so the new fixture is explicitly labelled *re-certified*
+> rather than represented as a frozen pre-refactor asset.
 
 ## Result
 
@@ -86,6 +95,37 @@ Detector replay prepares once and passes a single causal row to state updates.
 The backtester now advances an event-driven as-of timeline rather than
 prebuilding date-by-symbol search maps. The benchmark is reproducible with
 `python scripts/benchmark_refactor.py`.
+
+## Namespace migration validation (2026-08-18)
+
+- Full test suite: `pytest -q -p no:cacheprovider --basetemp tf` → **239 passed**
+  in 86.12 s. A short workspace temporary path is required on this Windows
+  host because long Parquet temporary names exceed the traditional path limit.
+- Golden Master: fixture `tests/fixtures/golden_d1.csv`, 420 BTC D1 bars,
+  data version `028585a633484f05948afa5f`, LF encoding, SHA-256
+  `bd19374be941eb5d356ebde2ac078ed6cd87120f33e04c7b078d2b54b8cab536`.
+  Git `121f9016f8490baf42f5c2212aa46d97b9247290` matched common shared
+  features, Detector events/trades/equity/metrics and multi-asset
+  orders/trades/equity/metrics at `1e-10` relative tolerance. `generated_at`
+  and random `intent_id` are excluded from identity; current-only daily SMA/
+  MACD results are retained in the fixture but not attributed to the baseline.
+- Packaging and static gates: editable install and a wheel containing all five
+  YAML resources succeeded; five CLI `--help` commands succeeded; `ruff check .`,
+  controlled `compileall`, and `git diff --check` succeeded.
+- Recovery provenance is recorded in `tests/RECOVERY_MANIFEST.json`: 25 test
+  source files came from ZIP SHA-256
+  `554738bb5c8d81a21f7fdb466f6a9cb2ad90cb49fed4f980f7f294b2203f4f7a`.
+- The restored fail-closed catalog test exposed a real gap: a catalog backend
+  marker previously allowed a second catalog file to coexist. `DataLake` now
+  rejects that conflict before opening either catalog.
+
+Latest local benchmark (Python 3.12.6, 720 bars, one warm-up + seven medians):
+
+| Path | Before | After | Time speedup | Peak-memory ratio |
+| --- | ---: | ---: | ---: | ---: |
+| Feature preparation | 0.06635 s | 0.03231 s | 2.05× | 0.89× |
+| Detector replay | 1.30860 s | 0.82842 s | 1.58× | 2.12× lower |
+| Multi-asset timeline | 0.20253 s | 0.11179 s | 1.81× | 1.58× lower |
 
 ## Historical regression and quality gates (2026-08-13; not current verification)
 

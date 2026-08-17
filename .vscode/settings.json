@@ -1,4 +1,15 @@
 {
+    "files.exclude": {
+        "**/.venv": true,
+        "**/__pycache__": true,
+        "**/*.egg-info": true,
+        "**/.pytest_cache": true,
+        "**/.ruff_cache": true,
+        "**/.tmp": true,
+        "**/test-temp": true,
+        "**/pytest-cache-files-*": true,
+        "**/tf": true
+    },
     "chat.tools.terminal.autoApprove": {
         "/^\\.\\\\\\.venv\\\\Scripts\\\\python\\.exe -m pip install -r requirements\\.txt -i https://pypi\\.tuna\\.tsinghua\\.edu\\.cn/simple$/": {
             "approve": true,

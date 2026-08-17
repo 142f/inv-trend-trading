@@ -1,5 +1,11 @@
 # 趋势量化架构审计与迁移状态
 
+> **Current namespace (2026-08-18):** this is a dated audit of the former
+> package names. The current source tree is `src/inv_trend/`; see
+> [`ARCHITECTURE.md`](ARCHITECTURE.md) for the authoritative layout and
+> dependency boundaries. No compatibility modules retain the old Python
+> imports.
+
 ## 目标依赖方向
 
 ```text

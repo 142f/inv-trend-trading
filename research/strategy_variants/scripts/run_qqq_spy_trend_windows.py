@@ -7,10 +7,10 @@ from pathlib import Path
 import pandas as pd
 
 from research.d1_suite.scripts.d1_backtest_common import load_csv
-from inv_trend_application import BacktestService
-from turtle_multi_asset import AssetSpec, TurtleRules
-from turtle_multi_asset.config import BacktestConfig
-from turtle_multi_asset.data.core_dataset import summarize_backtest_result
+from inv_trend.application import BacktestService
+from inv_trend.adapters.multi_asset import AssetSpec, TurtleRules
+from inv_trend.adapters.multi_asset.config import BacktestConfig
+from inv_trend.adapters.multi_asset.data.core_dataset import summarize_backtest_result
 
 
 SYMBOLS = ["QQQ", "SPY"]

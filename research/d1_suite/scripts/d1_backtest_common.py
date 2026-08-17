@@ -9,10 +9,10 @@ from typing import Any
 
 import pandas as pd
 
-from inv_trend_application import BacktestService
-from turtle_multi_asset import AssetSpec, TurtleRules
-from turtle_multi_asset.config import BacktestConfig
-from turtle_multi_asset.models import SHORT
+from inv_trend.application import BacktestService
+from inv_trend.adapters.multi_asset import AssetSpec, TurtleRules
+from inv_trend.adapters.multi_asset.config import BacktestConfig
+from inv_trend.adapters.multi_asset.models import SHORT
 
 
 CORE_SYMBOLS = [

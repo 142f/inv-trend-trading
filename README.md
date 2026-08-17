@@ -15,24 +15,31 @@ Historical Data Repository（版本化读取、质量门禁、血缘校验）
 Provider / File / Catalog / Output Adapter
 ```
 
-本版重点重构了历史行情的审核发布、不可变制品、`current` 激活、Catalog 后端选择和血缘校验。历史交付说明见 [`趋势交易核心-重构说明v1.md`](趋势交易核心-重构说明v1.md)；当前验证状态与历史审计说明见 [`docs/REFACTOR_ACCEPTANCE_AUDIT.md`](docs/REFACTOR_ACCEPTANCE_AUDIT.md)。
+本版重点重构了历史行情的审核发布、不可变制品、`current` 激活、Catalog 后端选择和血缘校验。源码统一放在 [`src/inv_trend/`](src/inv_trend/) 命名空间；历史交付说明见 [`趋势交易核心-重构说明v1.md`](docs/refactoring/趋势交易核心-重构说明v1.md)，当前验证状态与历史审计说明见 [`docs/REFACTOR_ACCEPTANCE_AUDIT.md`](docs/REFACTOR_ACCEPTANCE_AUDIT.md)。
 
 > **验证状态（2026-08-17，恢复与重新认证进行中）**：下文的历史测试计数和
 > Golden 结论不能解释为当前工作树的验证结果。原始 Golden fixture/expected
 > 成对制品未能从工作树、交付 ZIP 或 Git 历史中完整找回；将使用新固定的 BTC
 > D1 输入重新认证，并在完整门禁执行后更新验收结论。常规测试不会重写 expected。
 
+> **本轮验证（2026-08-18）**：恢复的完整测试套件 `239 passed`；新的 BTC D1
+> Golden Master 已用 Git `121f901` 重新认证，业务语义比较无差异。原始声明的
+> Golden 输入无法找回，因此新 fixture 明确标记为 *re-certified*，并非伪称原始基线。
+> 详见 [`tests/RECOVERY_MANIFEST.json`](tests/RECOVERY_MANIFEST.json) 与
+> [`docs/REFACTOR_REPORT.md`](docs/REFACTOR_REPORT.md)。
+
 ## 1. 模块边界
 
 | 模块 | 职责 |
 |---|---|
-| `historical_data/` | Provider 接入、标准化、质量评估、不可变数据湖、审核发布、Catalog、统一 Repository 读取 |
-| `inv_trend_core/` | 无外部 I/O 的共享特征、数学、事件、信号和序列化能力 |
-| `inv_trend_application/` | 每日扫描、检测、回测等 Use Case 编排 |
-| `turtle_detector/` | 单资产海龟候选检测、过滤、风险、回测与提醒 |
-| `turtle_multi_asset/` | 多资产海龟回测、数据构建与美股趋势预警 |
-| `inv_trend_integrations/` | MT5、OKX 等可选外部适配器；采用惰性导入，未安装可选 SDK 不影响核心包 |
-| `inv_trend_observability/` | 审计、Manifest 和 HTML 输出 |
+| `src/inv_trend/data/` | Provider 接入、标准化、质量评估、不可变数据湖、审核发布、Catalog、统一 Repository 读取 |
+| `src/inv_trend/core/` | 无外部 I/O 的共享特征、数学、事件、信号和序列化能力 |
+| `src/inv_trend/application/` | 每日扫描、检测、回测等 Use Case 编排与运行清单 |
+| `src/inv_trend/adapters/detector/` | 单资产海龟检测的过渡策略适配器；复用 Core 与 Application |
+| `src/inv_trend/adapters/multi_asset/` | 多资产海龟回测、数据构建与美股趋势预警的过渡策略适配器 |
+| `src/inv_trend/integrations/` | MT5、OKX 等可选外部适配器；采用惰性导入，未安装可选 SDK 不影响核心包 |
+| `src/inv_trend/observability/` | 审计与 HTML/JSON 输出 |
+| `src/inv_trend/cli/` | 五个公开命令的薄入口；命令名称和参数保持不变 |
 | `tests/` | 恢复与重新认证中的单元、集成、架构边界、事务故障注入与 Golden Master 回归 |
 | `scripts/` | 日常运行和基准测试脚本 |
 
@@ -86,7 +93,7 @@ market-data --root data review reject \
 market-data --root data repair-current --symbol BTC --timeframe D1
 ```
 
-完整的数据边界、目录、Manifest、审核事务和故障恢复说明见 [`historical_data/README.md`](historical_data/README.md)。
+完整的数据边界、目录、Manifest、审核事务和故障恢复说明见 [`src/inv_trend/data/README.md`](src/inv_trend/data/README.md)。完整目录职责见 [`docs/PROJECT_STRUCTURE.md`](docs/PROJECT_STRUCTURE.md)。
 
 ## 4. 策略与每日任务
 
@@ -105,7 +112,7 @@ turtle-alert --help
 turtle-data --help
 ```
 
-参数、退出码和 Windows 定时任务说明见 [`DAILY_MARKET_SCAN_CLI.md`](DAILY_MARKET_SCAN_CLI.md)。
+参数、退出码和 Windows 定时任务说明见 [`DAILY_MARKET_SCAN_CLI.md`](docs/operations/DAILY_MARKET_SCAN_CLI.md)。
 
 ## 5. 测试与基准
 
@@ -128,7 +135,7 @@ Skipped: 0
 pytest -q --basetemp .tmp/a
 ```
 
-历史性能快照保存在 [`性能基准v1.json`](性能基准v1.json)；当前复验结果和适用边界见验收报告。
+历史性能快照保存在 [`性能基准v1.json`](docs/benchmarks/性能基准v1.json)；当前复验结果和适用边界见验收报告。
 
 ## 6. 运行数据与版本控制
 

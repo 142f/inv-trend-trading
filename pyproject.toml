@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "inv-trend-trading"
-version = "0.1.0"
+version = "0.2.0"
 description = "Multi-asset Turtle trend-following research system"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -34,28 +34,27 @@ test = [
 ]
 
 [project.scripts]
-turtle-data = "turtle_multi_asset.cli:main"
-turtle-detect = "turtle_detector.cli:main"
-turtle-alert = "turtle_detector.alert_cli:main"
-turtle-daily = "turtle_detector.daily_cli:main"
-market-data = "historical_data.cli:main"
+turtle-data = "inv_trend.cli.data:main"
+turtle-detect = "inv_trend.cli.detect:main"
+turtle-alert = "inv_trend.cli.alert:main"
+turtle-daily = "inv_trend.cli.daily:main"
+market-data = "inv_trend.cli.market_data:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+include-package-data = false
 
 [tool.setuptools.packages.find]
-include = [
-  "turtle_multi_asset*",
-  "turtle_detector*",
-  "historical_data*",
-  "inv_trend_core*",
-  "inv_trend_application*",
-  "inv_trend_observability*",
-  "inv_trend_integrations*",
-]
+where = ["src"]
+include = ["inv_trend", "inv_trend.*"]
+namespaces = false
 
 [tool.setuptools.package-data]
-"turtle_multi_asset.config" = ["defaults.yaml"]
-"turtle_detector.config" = ["*.yaml"]
-"historical_data.config" = ["*.yaml"]
-"inv_trend_application.config" = ["*.yaml"]
+"inv_trend.data.config" = ["assets.yaml"]
+"inv_trend.application.config" = ["strategy.yaml"]
+"inv_trend.adapters.detector.config" = ["strategy.yaml"]
+"inv_trend.adapters.detector.eligibility" = ["config/eligibility.yaml"]
+"inv_trend.adapters.multi_asset.config" = ["defaults.yaml"]
 
 [tool.ruff]
 target-version = "py310"
