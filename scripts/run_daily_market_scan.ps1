@@ -25,7 +25,7 @@ else {
 $exitCode = 1
 Push-Location -LiteralPath $repoRoot
 try {
-    & $pythonExecutable -m turtle_detector.daily_cli @DailyArguments
+    & $pythonExecutable -m inv_trend.cli.daily @DailyArguments
     $exitCode = $LASTEXITCODE
     if ($null -eq $exitCode) {
         $exitCode = 0

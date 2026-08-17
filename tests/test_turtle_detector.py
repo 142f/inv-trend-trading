@@ -6,13 +6,13 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from inv_trend_application import load_detector_asset_configs
-from turtle_detector.config import load_strategy_config
-from turtle_detector.backtest import DetectorBacktester
-from turtle_detector.data.normalizer import apply_split_adjustment, normalize_bars
-from turtle_detector.engine.scanner import TurtleScanner
-from inv_trend_core.math_utils import donchian_channels, wilder_atr
-from turtle_detector.models import (
+from inv_trend.application import load_detector_asset_configs
+from inv_trend.adapters.detector.config import load_strategy_config
+from inv_trend.adapters.detector.backtest import DetectorBacktester
+from inv_trend.adapters.detector.data.normalizer import apply_split_adjustment, normalize_bars
+from inv_trend.adapters.detector.engine.scanner import TurtleScanner
+from inv_trend.core.math_utils import donchian_channels, wilder_atr
+from inv_trend.adapters.detector.models import (
     AssetConfig,
     DetectorState,
     Direction,
@@ -21,7 +21,7 @@ from turtle_detector.models import (
     SignalType,
     StrategyConfig,
 )
-from turtle_detector.storage import InMemorySignalRepository
+from inv_trend.adapters.detector.storage import InMemorySignalRepository
 
 
 def _asset(*timeframes: str) -> AssetConfig:

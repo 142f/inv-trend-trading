@@ -7,25 +7,25 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from historical_data.api import HistoricalDataService
-from historical_data.audit import audit_dataset
-from historical_data.calendar import is_nyse_trading_day
-from historical_data.config import load_instruments
-from historical_data.models import (
+from inv_trend.data.api import HistoricalDataService
+from inv_trend.data.audit import audit_dataset
+from inv_trend.data.calendar import is_nyse_trading_day
+from inv_trend.data.config import load_instruments
+from inv_trend.data.models import (
     DataLineageError, DataQualityError, DatasetManifest, InstrumentNotImplementedError,
     ProviderResult, SurvivorshipBiasError, path_text, utc_now,
 )
-from historical_data.providers import CsvBarsProvider
-from historical_data.processing import (
+from inv_trend.data.providers import CsvBarsProvider
+from inv_trend.data.processing import (
     apply_equity_adjustments,
     build_back_adjusted_continuous,
     normalize_bars,
     resample_ohlcv_session,
 )
-from historical_data.providers import QqqHoldingsCsvProvider
-from historical_data.legacy import migrate_legacy_csv
-from historical_data.storage import sha256_file
-from historical_data.storage import DataLake
+from inv_trend.data.providers import QqqHoldingsCsvProvider
+from inv_trend.data.legacy import migrate_legacy_csv
+from inv_trend.data.integrity import sha256_file
+from inv_trend.data.storage import DataLake
 
 pytest.importorskip("pyarrow")
 UTC = timezone.utc

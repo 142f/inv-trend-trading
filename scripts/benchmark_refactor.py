@@ -16,11 +16,11 @@ import tracemalloc
 import numpy as np
 import pandas as pd
 
-from inv_trend_core.features import FeatureRequest, PreparedBars
-from turtle_detector.engine.scanner import TurtleScanner
-from turtle_detector.models import AssetConfig, DetectorState, Market, StrategyConfig
-from turtle_multi_asset.backtest.data_store import BacktestDataStore
-from turtle_multi_asset.models.domain import TurtleRules
+from inv_trend.core.features import FeatureRequest, PreparedBars
+from inv_trend.adapters.detector.engine.scanner import TurtleScanner
+from inv_trend.adapters.detector.models import AssetConfig, DetectorState, Market, StrategyConfig
+from inv_trend.adapters.multi_asset.backtest.data_store import BacktestDataStore
+from inv_trend.adapters.multi_asset.models.domain import TurtleRules
 
 
 RUNS = 7

@@ -7,12 +7,12 @@ from pathlib import Path
 
 import pandas as pd
 
-from inv_trend_application import BacktestService
-from turtle_multi_asset import AssetSpec, TurtleRules, turtle_rules
-from turtle_multi_asset.config import BacktestConfig
-from turtle_multi_asset.data.loader import load_backtest_ready_csv
-from turtle_multi_asset.data.core_dataset import summarize_backtest_result
-from turtle_multi_asset.profiles.asset_profiles import infer_asset_fields
+from inv_trend.application import BacktestService
+from inv_trend.adapters.multi_asset import AssetSpec, TurtleRules, turtle_rules
+from inv_trend.adapters.multi_asset.config import BacktestConfig
+from inv_trend.adapters.multi_asset.data.loader import load_backtest_ready_csv
+from inv_trend.adapters.multi_asset.data.core_dataset import summarize_backtest_result
+from inv_trend.adapters.multi_asset.profiles.asset_profiles import infer_asset_fields
 
 
 DEFAULT_DATASETS = [

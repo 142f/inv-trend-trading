@@ -7,9 +7,9 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from turtle_multi_asset.backtest import TurtleBacktester
-from turtle_multi_asset.config import BacktestConfig, load_config
-from turtle_multi_asset.models import AssetSpec, TurtleRules
+from inv_trend.adapters.multi_asset.backtest import TurtleBacktester
+from inv_trend.adapters.multi_asset.config import BacktestConfig, load_config
+from inv_trend.adapters.multi_asset.models import AssetSpec, TurtleRules
 
 
 def _bars() -> pd.DataFrame:

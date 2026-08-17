@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from turtle_multi_asset.us_trend_alerts import (
+from inv_trend.adapters.multi_asset.us_trend_alerts import (
     SIGNAL_BREAK_20_HIGH,
     SIGNAL_BREAK_20_LOW,
     SIGNAL_BREAK_55_HIGH,

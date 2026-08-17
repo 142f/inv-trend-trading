@@ -5,7 +5,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from turtle_detector.eligibility import (
+from inv_trend.adapters.detector.eligibility import (
     BlockedReason,
     BreakoutQuality,
     EligibilityStatus,
@@ -14,14 +14,14 @@ from turtle_detector.eligibility import (
     TradeEligibilityChecker,
     load_eligibility_config,
 )
-from turtle_detector.eligibility.checker import AccountSnapshot
-from turtle_detector.eligibility.thresholds import (
+from inv_trend.adapters.detector.eligibility.checker import AccountSnapshot
+from inv_trend.adapters.detector.eligibility.thresholds import (
     PRECIOUS_METAL_THRESHOLDS,
     US_EQUITY_THRESHOLDS,
     get_risk_group,
     get_thresholds_for_market,
 )
-from turtle_detector.models import (
+from inv_trend.adapters.detector.models import (
     AssetConfig,
     Direction,
     Market,
@@ -651,7 +651,10 @@ def test_load_eligibility_config_from_yaml() -> None:
 
     config_path = (
         Path(__file__).parent.parent
-        / "turtle_detector"
+        / "src"
+        / "inv_trend"
+        / "adapters"
+        / "detector"
         / "eligibility"
         / "config"
         / "eligibility.yaml"

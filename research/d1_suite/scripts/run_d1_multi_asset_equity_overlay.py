@@ -7,8 +7,8 @@ from pathlib import Path
 
 import pandas as pd
 
-from inv_trend_application import BacktestService
-from turtle_multi_asset.config import BacktestConfig
+from inv_trend.application import BacktestService
+from inv_trend.adapters.multi_asset.config import BacktestConfig
 from research.d1_suite.scripts.d1_backtest_common import (
     CORE_SYMBOLS,
     EQUITY_SYMBOLS,

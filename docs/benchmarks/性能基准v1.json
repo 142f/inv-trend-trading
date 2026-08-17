@@ -1,0 +1,43 @@
+{
+  "detector_replay": {
+    "after": {
+      "peak_bytes_median": 618519,
+      "seconds_median": 0.37398992500015993
+    },
+    "before": {
+      "peak_bytes_median": 829428,
+      "seconds_median": 0.500062946000071
+    },
+    "peak_memory_ratio": 1.3409903333608184,
+    "time_speedup": 1.3371027200795773
+  },
+  "environment": {
+    "bars": 720,
+    "python": "3.13.5",
+    "runs": 7
+  },
+  "feature_preparation": {
+    "after": {
+      "peak_bytes_median": 287419,
+      "seconds_median": 0.019895051000048625
+    },
+    "before": {
+      "peak_bytes_median": 229718,
+      "seconds_median": 0.04119019499989918
+    },
+    "peak_memory_ratio": 0.7992443088313577,
+    "time_speedup": 2.070373933688258
+  },
+  "multi_asset_timeline": {
+    "after": {
+      "peak_bytes_median": 577715,
+      "seconds_median": 0.048538155999949595
+    },
+    "before": {
+      "peak_bytes_median": 913427,
+      "seconds_median": 0.09673913400001766
+    },
+    "peak_memory_ratio": 1.5811031390910744,
+    "time_speedup": 1.9930533413778249
+  }
+}

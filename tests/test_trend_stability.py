@@ -9,9 +9,9 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from turtle_detector.backtest.engine import DetectorBacktester
-from turtle_detector.engine.scanner import TurtleScanner
-from turtle_detector.models import (
+from inv_trend.adapters.detector.backtest.engine import DetectorBacktester
+from inv_trend.adapters.detector.engine.scanner import TurtleScanner
+from inv_trend.adapters.detector.models import (
     AssetConfig,
     Direction,
     Market,
@@ -161,7 +161,7 @@ def test_causal_boundary_no_lookahead() -> None:
 
 def test_donchian_excludes_current_bar() -> None:
     """Donchian 通道不能包含当前 bar 的价格。"""
-    from inv_trend_core.math_utils import donchian_channels
+    from inv_trend.core.math_utils import donchian_channels
 
     bars = _random_walk(100)
     result = donchian_channels(bars["high"], bars["low"], {20})

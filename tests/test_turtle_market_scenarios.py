@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from turtle_multi_asset import (
+from inv_trend.adapters.multi_asset import (
     AssetSpec,
     MultiAssetTurtleStrategy,
     PortfolioState,

@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import pandas as pd
 
-from turtle_multi_asset.data.core_dataset import build_daily_equity_curve, compare_summaries
-from turtle_multi_asset.data.pipeline import resample_ohlcv
+from inv_trend.adapters.multi_asset.data.core_dataset import build_daily_equity_curve, compare_summaries
+from inv_trend.adapters.multi_asset.data.pipeline import resample_ohlcv
 
 
 def test_resample_h4_to_d1_aggregates_ohlcv_without_forward_fill() -> None:

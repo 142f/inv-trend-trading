@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from turtle_multi_asset import (
+from inv_trend.adapters.multi_asset import (
     AssetSpec,
     MultiAssetTurtleStrategy,
     PortfolioState,
@@ -13,7 +13,7 @@ from turtle_multi_asset import (
     TurtleRules,
     compute_turtle_indicators,
 )
-from turtle_multi_asset.strategy import _risk_sized_qty
+from inv_trend.adapters.multi_asset.strategy import _risk_sized_qty
 
 
 def _trend_bars(periods: int = 90, start: float = 100.0, end: float = 160.0) -> pd.DataFrame:
