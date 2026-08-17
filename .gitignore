@@ -1,0 +1,56 @@
+# Python bytecode and test/tool caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
+/pytest-cache-files-*/
+/tf/
+.mypy_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+
+# Virtual environments and packaging output
+.venv/
+venv/
+env/
+build/
+dist/
+*.egg-info/
+.ipynb_checkpoints/
+# IDE and operating-system files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+# Local secrets and machine-specific overrides
+.env
+.env.*
+!.env.example
+*.local.*
+*.secret.*
+*.override.*
+config.local.*
+
+# Runtime market-data lake and generated outputs
+/data/*
+!/data/README.md
+processed_data/*
+!processed_data/README.md
+outputs/*
+!outputs/README.md
+!outputs/us_trend_alerts/
+outputs/us_trend_alerts/*
+!outputs/us_trend_alerts/README.md
+logs/
+
+# Research source and analysis documents are versioned; generated backtest
+# result trees are not release inputs.
+/research/**/outputs/
+
+# Temporary delivery and local test directories
+.tmp/
+test-temp/
+deliverables/
+
+# Keep source, tests, documentation, examples, and research scripts tracked.
