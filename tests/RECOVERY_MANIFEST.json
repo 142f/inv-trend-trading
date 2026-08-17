@@ -1,0 +1,197 @@
+{
+    "schema_version":  1,
+    "recovered_at":  "2026-08-18",
+    "source_archive":  {
+                           "path":  "inv-trend-trading-core-20260814.zip",
+                           "sha256":  "554738bb5c8d81a21f7fdb466f6a9cb2ad90cb49fed4f980f7f294b2203f4f7a",
+                           "restored_test_files":  25
+                       },
+    "historical_comparison":  {
+                                  "git_commit":  "347bf3fbcbb020e41c63f28dc1e3582a075dbada",
+                                  "note":  "ZIP and Git test sets differ; this manifest records Git presence, not a claim of byte identity."
+                              },
+    "golden":  {
+                   "original_declared_fixture_sha256":  "8f41bfc6ee1060fec10e0f7117044839c14c5e65066a8767b778c7ad865e8cfe",
+                   "original_fixture_recovered":  false,
+                   "re_certified_fixture":  "tests/fixtures/golden_d1.csv",
+                   "re_certified_fixture_sha256":  "bd19374be941eb5d356ebde2ac078ed6cd87120f33e04c7b078d2b54b8cab536",
+                   "baseline_commit":  "121f9016f8490baf42f5c2212aa46d97b9247290"
+               },
+    "files":  [
+                  {
+                      "path":  "tests/test_application_services.py",
+                      "zip_sha256":  "0e23a5713e4b4f242faa2a1504e10461f6fdf681af6ed5d1d073d429908beb98",
+                      "current_sha256":  "9776ced7b0cabe70584d48e4f3e10a61772f83b9203d70744a3807144303ce0a",
+                      "change_kind":  "namespace-import-or-path-adaptation",
+                      "present_in_git_347bf3f":  false
+                  },
+                  {
+                      "path":  "tests/test_architecture_boundaries.py",
+                      "zip_sha256":  "224f03bc504e42e8777341eeeebb7a84aa23f803259bfeb39065efc231fafcc7",
+                      "current_sha256":  "d1468a41e3d83b361c87da1afbd989afa104faa28577af9fb2e25029a1ab397d",
+                      "change_kind":  "namespace-import-or-path-adaptation",
+                      "present_in_git_347bf3f":  false
+                  },
+                  {
+                      "path":  "tests/test_audit_hardening.py",
+                      "zip_sha256":  "82deba036988aab779079483b9aa1cdd174dd49c6b210f31e5178ed3660473bd",
+                      "current_sha256":  "c7967d21b27ed0fc67f7bbb091ff242faa7d94078fb0b32adc8ca24547cbfa7f",
+                      "change_kind":  "namespace-import-or-path-adaptation",
+                      "present_in_git_347bf3f":  false
+                  },
+                  {
+                      "path":  "tests/test_backtest_config.py",
+                      "zip_sha256":  "f24cc76cfd934ea5212ef0ac636a3720f8d831cb9ab712976daf9aa8aedc513d",
+                      "current_sha256":  "da2dcc121f3e73cfb11117a8fc72b7347ddecf762221b5b04b9362fce471791a",
+                      "change_kind":  "namespace-import-or-path-adaptation",
+                      "present_in_git_347bf3f":  true
+                  },
+                  {
+                      "path":  "tests/test_core_dataset.py",
+                      "zip_sha256":  "ae856cab17d5efc2e63f122d6383702e851d2c24daf2e28755894456cf190a17",
+                      "current_sha256":  "a2515c1e7963bd90b51d8ecc62f80b6738b2beeceda5bfd2215594d6a4aa97bd",
+                      "change_kind":  "namespace-import-or-path-adaptation",
+                      "present_in_git_347bf3f":  true
+                  },
+                  {
+                      "path":  "tests/test_daily_freshness_and_store.py",
+                      "zip_sha256":  "f329c70f618bd0125c1b995a1a652f85b308f327378513ef392ea165c9f057a3",
+                      "current_sha256":  "f85e984dd498d628d521f50a13d44cffabdf9dc7dd65d5267df08087eca8d457",
+                      "change_kind":  "namespace-import-or-path-adaptation",
+                      "present_in_git_347bf3f":  false
+                  },
+                  {
+                      "path":  "tests/test_daily_market_scan.py",
+                      "zip_sha256":  "95d3963c9bc15c3361ab1d421a073d436f15800bec19b21216bdbd154e827467",
+                      "current_sha256":  "ba1c69c9530d292d12c3af3b6959ce8d41df4c2c5f48e431d0c7257e1c74bccd",
+                      "change_kind":  "namespace-import-or-path-adaptation",
+                      "present_in_git_347bf3f":  false
+                  },
+                  {
+                      "path":  "tests/test_daily_signals.py",
+                      "zip_sha256":  "9d0c2266f2fa6dab4b499494647712db94c84a2e2d9d1c3854135e283f551756",
+                      "current_sha256":  "a3c3c513c42454de870bb3e4a9ef5d415a29f6dab8c4ae31344c307d6039c6d9",
+                      "change_kind":  "namespace-import-or-path-adaptation",
+                      "present_in_git_347bf3f":  false
+                  },
+                  {
+                      "path":  "tests/test_eligibility.py",
+                      "zip_sha256":  "429bac43338c096f8e1c2a5fc9dda71473b41c82a666d985cb48e2a71a33b2ba",
+                      "current_sha256":  "dc9adc2508f816723aa71bc27d51f5ff92704c423f7f653adf360a8f3232eed2",
+                      "change_kind":  "namespace-import-or-path-adaptation",
+                      "present_in_git_347bf3f":  true
+                  },
+                  {
+                      "path":  "tests/test_feature_preparation.py",
+                      "zip_sha256":  "dbe211ec8d73c32c8404e2c445ccdd2a86e6664d34bffed225b4ac016694b005",
+                      "current_sha256":  "34d2b93675bc50bf3b694be3c1baf790eaf8cabd7acbb1437fa2248e502fe79a",
+                      "change_kind":  "namespace-import-or-path-adaptation",
+                      "present_in_git_347bf3f":  false
+                  },
+                  {
+                      "path":  "tests/test_golden_master.py",
+                      "zip_sha256":  "e639c8ed593bfa0f47c247067275d38bd6d3e23a72b49cdd32b3986e34d3de73",
+                      "current_sha256":  "977e6735dcf4895bfd6ae3f4340af6657aa06cd3a03c72abc81639da417a8bbe",
+                      "change_kind":  "re-certified-golden-contract",
+                      "present_in_git_347bf3f":  false
+                  },
+                  {
+                      "path":  "tests/test_historical_data.py",
+                      "zip_sha256":  "c7df367c0219f0fe621ae2cf82640c2671be2b2a9dad1a8064dd84ad94ec8f74",
+                      "current_sha256":  "c7088222198765b5b5bb648bcd967c2367760e5e8e84863266f65b2570284c99",
+                      "change_kind":  "namespace-import-or-path-adaptation",
+                      "present_in_git_347bf3f":  true
+                  },
+                  {
+                      "path":  "tests/test_historical_data_incremental.py",
+                      "zip_sha256":  "848ced571e6cb4b11c3a6572e82b5d753d4376de0dceaa1a7deb2ff799081712",
+                      "current_sha256":  "e1516900b7ba5fb587ec3eacfa815926023774fb02bbc53fa7b6734c8ca7abbc",
+                      "change_kind":  "namespace-import-or-path-adaptation",
+                      "present_in_git_347bf3f":  false
+                  },
+                  {
+                      "path":  "tests/test_historical_data_p0.py",
+                      "zip_sha256":  "943043c92b7b928fabb849d921dc10f4f3f1092f865b3de3c68a78f376e4023c",
+                      "current_sha256":  "bb2d08454490c81d83115fa795b66a08c99facc6c9d1d0668e60b90142988247",
+                      "change_kind":  "namespace-import-or-path-adaptation",
+                      "present_in_git_347bf3f":  false
+                  },
+                  {
+                      "path":  "tests/test_historical_data_universe.py",
+                      "zip_sha256":  "30ffc5f66c28a3e0f4ea0483a4e2510581897c50d481dbc5af0bceb400f9cb75",
+                      "current_sha256":  "9ed018e8d6f85bc9bdd45b067335a83b6bb4cb97053a9ddc34a70a0f7ae534e8",
+                      "change_kind":  "namespace-import-or-path-adaptation",
+                      "present_in_git_347bf3f":  false
+                  },
+                  {
+                      "path":  "tests/test_holdings_universe.py",
+                      "zip_sha256":  "76db46149ba54f0f7a06314509e0926243e0d3e3d6800b891e21a8eb29f2f4ef",
+                      "current_sha256":  "c7960ca13c1822dbbe4df10853cdc52fa0fb377c50ec2d4d609c034e831bbb85",
+                      "change_kind":  "namespace-import-or-path-adaptation",
+                      "present_in_git_347bf3f":  false
+                  },
+                  {
+                      "path":  "tests/test_mt5_data_adapter.py",
+                      "zip_sha256":  "83efaf7cef4affb92af2b2027216237622004a701fea657086f79886f8386761",
+                      "current_sha256":  "ea7f4b2dcee24e25f996efb85b4f1f66ab177cab35d632e63f61f9638b4a0c76",
+                      "change_kind":  "namespace-import-or-path-adaptation",
+                      "present_in_git_347bf3f":  true
+                  },
+                  {
+                      "path":  "tests/test_provider_factory.py",
+                      "zip_sha256":  "378ce07dd4abb0bfc7e8cb370778cd828d8e2ad7971d6163960b387c2c8d9d4a",
+                      "current_sha256":  "72227922091b2dc733dfca2d44750acdd88034789e203a518d9d6fa13e43ec1d",
+                      "change_kind":  "namespace-import-or-path-adaptation",
+                      "present_in_git_347bf3f":  false
+                  },
+                  {
+                      "path":  "tests/test_provider_fallback_safety.py",
+                      "zip_sha256":  "3e908241118b078e8f95aa58efb6e65bf98c6a1162930780076ae9153a6304fb",
+                      "current_sha256":  "b849b859989be4f5bfb71605a78851906147378d31cfb851f5df82360381e1de",
+                      "change_kind":  "namespace-import-or-path-adaptation",
+                      "present_in_git_347bf3f":  false
+                  },
+                  {
+                      "path":  "tests/test_trend_stability.py",
+                      "zip_sha256":  "d1b6f04fe7c0f847dfeded76ce040c4f56218c4dbd64bf4743e9c1aac38d1983",
+                      "current_sha256":  "29db4391c72ac9dae265462946e3b622aa64baeea46d3ab687e81af372579f0f",
+                      "change_kind":  "namespace-import-or-path-adaptation",
+                      "present_in_git_347bf3f":  true
+                  },
+                  {
+                      "path":  "tests/test_turtle_breakout_alerts.py",
+                      "zip_sha256":  "23308ba433dc8f152855b8b06fb602e2519db091242d12abbebbf75b35eee37d",
+                      "current_sha256":  "95c95c3a033282ee3e12338c2ca9701590e7858ee95dad69ca4bcb04101a9a37",
+                      "change_kind":  "namespace-import-or-path-adaptation",
+                      "present_in_git_347bf3f":  false
+                  },
+                  {
+                      "path":  "tests/test_turtle_detector.py",
+                      "zip_sha256":  "f2ab65b2cff32453b1245c04cfcff7720312f2d6b70933da335e9cdca7ed53fe",
+                      "current_sha256":  "c20e11df4668ebaf9338364415aebe13b454627f24a4706874c03c7db06018b2",
+                      "change_kind":  "namespace-import-or-path-adaptation",
+                      "present_in_git_347bf3f":  true
+                  },
+                  {
+                      "path":  "tests/test_turtle_market_scenarios.py",
+                      "zip_sha256":  "bf99cce707b4f40bd6c9232422f615e1e065832c024e45182c549e8f833a6186",
+                      "current_sha256":  "8657d3610ccbef907ee518763beb8fca0d85e7202545ad4a27a53746b4e9eee6",
+                      "change_kind":  "namespace-import-or-path-adaptation",
+                      "present_in_git_347bf3f":  true
+                  },
+                  {
+                      "path":  "tests/test_turtle_multi_asset.py",
+                      "zip_sha256":  "27136e63782b34d2b2e311b867dad85335ee48716f36001ea5773a31eb518154",
+                      "current_sha256":  "4fc24800a1938b8131b438e764f1c125c5b414f5a5c28b1ca88ac93f503448f0",
+                      "change_kind":  "namespace-import-or-path-adaptation",
+                      "present_in_git_347bf3f":  true
+                  },
+                  {
+                      "path":  "tests/test_us_trend_alerts.py",
+                      "zip_sha256":  "d2dec63d4aa249243d06b2fac5803c339e6bbf6f1146bcb67c0ca719715688cf",
+                      "current_sha256":  "2f5178f54ff0115701fc333c5e85ce2c0769e52c16d18d77c0356bd52cf7c061",
+                      "change_kind":  "namespace-import-or-path-adaptation",
+                      "present_in_git_347bf3f":  true
+                  }
+              ]
+}
