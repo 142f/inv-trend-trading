@@ -4,7 +4,7 @@ This module owns the use case and returns a result object.  Report rendering is
 deliberately left to ``inv_trend.observability`` at the CLI boundary.
 """
 
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta, timezone
 import json
 import os
@@ -22,8 +22,13 @@ from inv_trend.adapters.detector.indicators.daily_signals import (
     analyze_prepared_daily_signals,
     prepare_daily_signal_frame,
 )
+from inv_trend.adapters.detector.indicators.daily_strategy_checks import (
+    analyze_prepared_strategy_checks,
+    prepare_daily_strategy_checks,
+)
 from inv_trend.adapters.detector.models import AssetConfig
 from inv_trend.adapters.detector.storage.daily_signal_repository import SQLiteDailySignalRepository
+from .strategy_config import DailyChecksConfig, load_resolved_run_config
 
 
 BEIJING = ZoneInfo("Asia/Shanghai")
@@ -63,6 +68,8 @@ class DailyMarketScanService:
         provider_timeout: int = 10,
         provider_retries: int = 1,
         refresh_data: bool = True,
+        daily_checks_config: DailyChecksConfig | None = None,
+        strategy_config_path: str | Path | None = None,
         now: Callable[[], datetime] | None = None,
     ) -> None:
         self.data_root = Path(data_root)
@@ -81,6 +88,10 @@ class DailyMarketScanService:
         self.freshness_policy = freshness_policy or FreshnessPolicy()
         self.provider_retries = provider_retries
         self.refresh_data = refresh_data
+        resolved_path = strategy_config_path or Path(__file__).with_name("config") / "strategy.yaml"
+        self.daily_checks_config = daily_checks_config or load_resolved_run_config(
+            resolved_path
+        ).daily_checks
         self._now = now or (lambda: datetime.now(timezone.utc))
 
     def run(
@@ -125,7 +136,7 @@ class DailyMarketScanService:
         self.signal_repository.finish_run(run_id, finished_at.isoformat(), summary)
         report_date = started_at.astimezone(BEIJING).date().isoformat()
         snapshot = {
-            "schema_version": "2", "run_id": run_id, "report_date": report_date,
+            "schema_version": "3", "run_id": run_id, "report_date": report_date,
             "started_at": started_at.isoformat(), "finished_at": finished_at.isoformat(),
             "timezone": "Asia/Shanghai", "timeframe": "D1",
             "configuration": {
@@ -133,6 +144,7 @@ class DailyMarketScanService:
                 "strategy_version": strategy_version, "backfill_signals": backfill_signals,
                 "chart_bars": chart_bars, "formal_quality_statuses": ["CURATED"],
                 "symbols": [asset.symbol for asset in selected],
+                "daily_checks": asdict(self.daily_checks_config),
             },
             "symbols": rows, "summary": summary,
         }
@@ -191,7 +203,24 @@ class DailyMarketScanService:
             freshness = self.freshness_policy.evaluate(instrument, data["latest_complete_bar"], now=started_at)
             row["freshness"] = freshness.to_dict()
             prepared = prepare_daily_signal_frame(bars)
+            if len(prepared):
+                session_anchor = self.signal_repository.get_or_create_session_anchor(
+                    instrument.instrument_id,
+                    "D1",
+                    prepared.index[0].isoformat(),
+                )
+            else:
+                session_anchor = started_at.isoformat()
+            strategy_prepared = prepare_daily_strategy_checks(
+                prepared,
+                self.daily_checks_config,
+                session_anchor=session_anchor,
+            )
             analysis = analyze_prepared_daily_signals(prepared)
+            analysis["strategy_checks"] = analyze_prepared_strategy_checks(strategy_prepared)
+            analysis["signals"] = [
+                *analysis["signals"], *analysis["strategy_checks"]["signals"]
+            ]
             row["scan"] = analysis
             row["chart"] = _chart_payload(prepared.tail(chart_bars))
             formal_eligible = data["quality_statuses"] == ["CURATED"] and freshness.is_fresh
@@ -211,12 +240,34 @@ class DailyMarketScanService:
                         positions = (len(prepared) - 1,)
                 for position in positions:
                     replay = analyze_prepared_daily_signals(prepared, position)
+                    replay["strategy_checks"] = analyze_prepared_strategy_checks(
+                        strategy_prepared, position=position
+                    )
+                    replay["signals"] = [
+                        *replay["signals"], *replay["strategy_checks"]["signals"]
+                    ]
                     detected.extend(self._signal_events(instrument.instrument_id, asset, replay, data["dataset_version"], started_at.isoformat(), refresh_error is not None, strategy_version))
                     replayed += 1
             row["signals_detected"] = len(detected)
             if formal_eligible:
                 latest_time = prepared.index[-1].isoformat()
-                new, duplicates = self.signal_repository.commit_events_and_cursor(detected, run_id=run_id, instrument_id=instrument.instrument_id, timeframe="D1", strategy_version=strategy_version, last_signal_time=latest_time, enqueue_notifications=not backfill_signals)
+                notification_signal_ids = {
+                    event.signal_id
+                    for event in detected
+                    if event.signal_type.startswith("STRATEGY_GRADE_A_")
+                }
+                new, duplicates = self.signal_repository.commit_events_and_cursor(
+                    detected,
+                    run_id=run_id,
+                    instrument_id=instrument.instrument_id,
+                    timeframe="D1",
+                    strategy_version=strategy_version,
+                    last_signal_time=latest_time,
+                    enqueue_notifications=not backfill_signals,
+                    notification_signal_ids=(
+                        notification_signal_ids if not backfill_signals else ()
+                    ),
+                )
                 row["signals_new"], row["signals_duplicate"] = len(new), duplicates
             else:
                 new = []
@@ -252,9 +303,16 @@ class DailyMarketScanService:
             return []
         events: list[SignalEvent] = []
         for raw in analysis.get("signals", []):
-            identity = _signal_identity(str(raw["indicator"]), str(raw["event"]))
-            indicator = analysis["indicators"][raw["indicator"]]
-            events.append(SignalEvent.create(strategy_version=strategy_version, instrument_id=instrument_id, symbol=asset.symbol, timeframe="D1", signal_type=identity[0], direction=str(raw["direction"]).upper(), signal_time=str(raw["signal_time"]), detected_at=detected_at, trigger_price=float(close), reference_value=_reference_value(str(raw["indicator"]), indicator), dataset_version=dataset_version, indicator_name=str(raw["indicator"]), indicator_parameters=identity[1], metadata={"market": asset.market.value, "refresh_failed": refresh_failed}))
+            indicator_name = str(raw["indicator"])
+            event_name = str(raw["event"])
+            direction = str(raw["direction"])
+            identity = _signal_identity(indicator_name, event_name, direction)
+            indicator = analysis.get("indicators", {}).get(indicator_name, {})
+            parameters = dict(raw.get("parameters") or identity[1])
+            reference_value = raw.get("reference_value")
+            if reference_value is None:
+                reference_value = _reference_value(indicator_name, indicator)
+            events.append(SignalEvent.create(strategy_version=strategy_version, instrument_id=instrument_id, symbol=asset.symbol, timeframe=str(raw.get("timeframe", "D1")), signal_type=identity[0], direction=direction.upper(), signal_time=str(raw["signal_time"]), detected_at=detected_at, trigger_price=float(close), reference_value=reference_value, dataset_version=dataset_version, indicator_name=indicator_name, indicator_parameters=parameters, metadata={"market": asset.market.value, "refresh_failed": refresh_failed}))
         return events
 
     def _deliver_pending(self, run_id: str) -> dict[str, int]:
@@ -280,7 +338,9 @@ class DailyMarketScanService:
         return result
 
 
-def _signal_identity(indicator: str, event: str) -> tuple[str, dict[str, Any]]:
+def _signal_identity(
+    indicator: str, event: str, direction: str | None = None
+) -> tuple[str, dict[str, Any]]:
     if indicator == "turtle_20":
         return "TURTLE_20_BREAKOUT", {"period": 20, "confirmation": "close"}
     if indicator == "turtle_55":
@@ -289,6 +349,21 @@ def _signal_identity(indicator: str, event: str) -> tuple[str, dict[str, Any]]:
         return ("MA_GOLDEN_CROSS_10_20" if event == "golden_cross" else "MA_DEATH_CROSS_10_20"), {"fast": 10, "slow": 20, "average": "SMA"}
     if indicator == "macd_12_26_9":
         return ("MACD_GOLDEN_CROSS" if event == "golden_cross" else "MACD_DEATH_CROSS"), {"fast": 12, "slow": 26, "signal": 9, "adjust": False}
+    if indicator == "sma_alignment":
+        return (
+            "SMA_STACK_BULLISH" if direction == "long" else "SMA_STACK_BEARISH",
+            {"average": "SMA"},
+        )
+    if indicator == "ema_trend":
+        return (
+            "EMA_144_169_BULLISH" if direction == "long" else "EMA_144_169_BEARISH",
+            {"average": "EMA", "fast": 144, "slow": 169},
+        )
+    if indicator == "strategy_rating":
+        return (
+            "STRATEGY_GRADE_A_LONG" if direction == "long" else "STRATEGY_GRADE_A_SHORT",
+            {"grade": "A"},
+        )
     raise ValueError(f"unsupported daily signal indicator: {indicator}")
 
 

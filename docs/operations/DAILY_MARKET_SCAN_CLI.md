@@ -12,7 +12,7 @@
 .\scripts\run_daily_market_scan.ps1 --symbol BTC --symbol ETH --no-color
 ```
 
-默认更新配置中的全部 D1 品种，然后进行质量、新鲜度、海龟、SMA10/20、MACD 检查，写入 JSON、SQLite、JSONL 和 HTML。
+默认更新配置中的全部 D1 品种，然后进行质量、新鲜度、海龟、兼容的 SMA10/20 与 D1 MACD 检查，以及 SMA 排列、EMA144/169、D1/D2/D5/D7 MACD、ADX/DMI、ATR、相对成交量的平行策略检查，写入 JSON、SQLite、JSONL 和 HTML。底层策略事件都会入 SQLite；仅进入 A 级共振的事件进入 JSONL 通知。
 
 ## 参数
 

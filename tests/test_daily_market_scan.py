@@ -85,16 +85,19 @@ def test_bootstrap_is_idempotent_in_sqlite_and_log(tmp_path: Path) -> None:
     scanner, provider = _service(tmp_path)
     first = scanner.run(bootstrap_days=80)
     assert first.exit_code == 0
-    assert first.snapshot["summary"]["signals_new"] == 4
-    assert SQLiteDailySignalRepository(first.database_path).signal_count() == 4
+    assert first.snapshot["schema_version"] == "3"
+    assert first.snapshot["configuration"]["daily_checks"]["sma_periods"] == (5, 10, 20, 55, 120)
+    assert "strategy_checks" in first.snapshot["symbols"][0]["scan"]
+    assert first.snapshot["summary"]["signals_new"] >= 4
+    assert SQLiteDailySignalRepository(first.database_path).signal_count() == first.snapshot["summary"]["signals_new"]
     log = tmp_path / "logs" / "2024-04-19.jsonl"
-    assert len(log.read_text(encoding="utf-8").splitlines()) == 4
+    assert not log.exists()
 
     second = scanner.run(bootstrap_days=80)
     assert second.snapshot["summary"]["signals_new"] == 0
-    assert second.snapshot["summary"]["signals_duplicate"] == 4
-    assert SQLiteDailySignalRepository(second.database_path).signal_count() == 4
-    assert len(log.read_text(encoding="utf-8").splitlines()) == 4
+    assert second.snapshot["summary"]["signals_duplicate"] == first.snapshot["summary"]["signals_new"]
+    assert SQLiteDailySignalRepository(second.database_path).signal_count() == first.snapshot["summary"]["signals_new"]
+    assert not log.exists()
     # The second run intentionally re-fetches the bounded revision overlap;
     # content addressing keeps the dataset and signals unchanged.
     assert len(provider.requests) == 2
@@ -172,7 +175,7 @@ def test_research_data_is_computed_but_never_formally_persisted(tmp_path: Path) 
     row = result.snapshot["symbols"][0]
     assert row["scan"]["status"]["state"] == "ready"
     assert row["alert_policy"]["formal_eligible"] is False
-    assert len(row["research_signals"]) == 4
+    assert len(row["research_signals"]) >= 4
     assert SQLiteDailySignalRepository(result.database_path).signal_count() == 0
 
 

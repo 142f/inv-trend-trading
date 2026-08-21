@@ -12,3 +12,29 @@ risk:
   cash_model: derivative
   liquidate_at_end: true
 contracts: {}
+daily_checks:
+  sma:
+    periods: [5, 10, 20, 55, 120]
+  ema:
+    periods: [144, 169]
+  macd:
+    fast: 12
+    slow: 26
+    signal: 9
+    session_periods: [1, 2, 5, 7]
+  dmi:
+    period: 14
+    adx_threshold: 25.0
+  atr:
+    period: 14
+    percentile_lookback: 120
+    normal_percentile_low: 0.10
+    normal_percentile_high: 0.90
+  volume:
+    lookback: 20
+    confirmation_ratio: 1.5
+  rating:
+    a_min_score: 6.0
+    b_min_score: 4.0
+    a_min_families: 3
+    b_min_families: 2

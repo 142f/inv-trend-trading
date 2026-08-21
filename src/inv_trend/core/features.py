@@ -14,7 +14,15 @@ from typing import Iterable
 import numpy as np
 import pandas as pd
 
-from .math_utils import donchian_channels, macd, simple_moving_average, true_range, wilder_average
+from .math_utils import (
+    directional_movement_index,
+    donchian_channels,
+    exponential_moving_average,
+    macd,
+    simple_moving_average,
+    true_range,
+    wilder_average,
+)
 
 
 @dataclass(frozen=True)
@@ -29,7 +37,10 @@ class FeatureRequest:
     atr_period: int | None = None
     donchian_periods: tuple[int, ...] = ()
     sma_lags: tuple[tuple[int, int], ...] = ()
+    ema_periods: tuple[int, ...] = ()
     macd_periods: tuple[int, int, int] | None = None
+    dmi_period: int | None = None
+    volume_sma_lags: tuple[tuple[int, int], ...] = ()
     include_true_range: bool = False
 
     def __post_init__(self) -> None:
@@ -39,10 +50,16 @@ class FeatureRequest:
             raise ValueError("Donchian periods must be >= 2")
         if any(period < 2 or lag < 0 for period, lag in self.sma_lags):
             raise ValueError("SMA periods must be >= 2 and lags must be non-negative")
+        if any(period < 2 for period in self.ema_periods):
+            raise ValueError("EMA periods must be >= 2")
         if self.macd_periods is not None:
             fast, slow, signal = self.macd_periods
             if not 1 < fast < slow or signal < 2:
                 raise ValueError("invalid MACD periods")
+        if self.dmi_period is not None and self.dmi_period < 2:
+            raise ValueError("dmi_period must be >= 2")
+        if any(period < 2 or lag < 0 for period, lag in self.volume_sma_lags):
+            raise ValueError("volume SMA periods must be >= 2 and lags must be non-negative")
 
     @classmethod
     def turtle(
@@ -85,11 +102,27 @@ class PreparedBars:
                 out[column] = channels[column]
         for period, lag in request.sma_lags:
             out[f"sma_{period}_lag_{lag}"] = simple_moving_average(close, period, lag=lag)
+        for period in request.ema_periods:
+            out[f"ema_{period}"] = exponential_moving_average(close, period)
         if request.macd_periods is not None:
             fast, slow, signal = request.macd_periods
             values = macd(close, fast, slow, signal)
             for column in values:
                 out[column] = values[column]
+        if request.dmi_period is not None:
+            values = directional_movement_index(high, low, close, request.dmi_period)
+            for column in values:
+                out[column] = values[column]
+        if request.volume_sma_lags:
+            if "volume" not in out:
+                for period, lag in request.volume_sma_lags:
+                    out[f"volume_sma_{period}_lag_{lag}"] = np.nan
+            else:
+                volume = pd.to_numeric(out["volume"], errors="coerce")
+                for period, lag in request.volume_sma_lags:
+                    out[f"volume_sma_{period}_lag_{lag}"] = simple_moving_average(
+                        volume, period, lag=lag
+                    )
         out.attrs["_feature_request"] = request
         out.attrs["_ohlcv_fingerprint"] = fingerprint
         return cls(frame=out, request=request, input_fingerprint=fingerprint)

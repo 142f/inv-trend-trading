@@ -37,12 +37,60 @@ def _symbol_section(row: Mapping[str, Any]) -> str:
     chart = row.get("chart", [])
     scan = row.get("scan", {})
     indicators = scan.get("indicators", {}) if isinstance(scan, Mapping) else {}
+    strategy_checks = scan.get("strategy_checks", {}) if isinstance(scan, Mapping) else {}
     freshness = row.get("freshness", {})
     badge = escape(str(row.get("run_status", "failed")))
     table = _indicator_table(indicators)
+    strategy_table = _strategy_table(strategy_checks)
     return f"""<section class="symbol"><div class="title"><h2>{escape(str(row.get('symbol', '?')))}</h2><span class="badge {badge}">{badge}</span></div>
 <p class="meta">latest {escape(str(row.get('data', {}).get('latest_complete_bar', '-')))} · version {escape(str(row.get('data', {}).get('dataset_version', '-')))} · freshness {escape(str(freshness.get('status', '-')))} · replay {escape(str(row.get('cursor', {}).get('bars_replayed', 0)))}</p>
-{_price_svg(chart)}{_macd_svg(chart)}{table}</section>"""
+{_price_svg(chart)}{_macd_svg(chart)}{table}{strategy_table}</section>"""
+
+
+def _strategy_table(checks: Mapping[str, Any]) -> str:
+    """Render report-only strategy dimensions independently of legacy signals."""
+    if not isinstance(checks, Mapping):
+        return ""
+    rows = []
+    for name in (
+        "sma_alignment", "ema_trend", "macd_summary", "trend_quality",
+        "volatility", "volume", "rating",
+    ):
+        values = checks.get(name, {})
+        if not isinstance(values, Mapping):
+            continue
+        status = values.get("status") or values.get("grade") or "-"
+        direction = values.get("direction") or "-"
+        detail = values.get("event") or values.get("state") or values.get("score") or "-"
+        rows.append(
+            "<tr>" + "".join(
+                f"<td>{escape(str(value if value is not None else '-'))}</td>"
+                for value in (name, status, direction, detail)
+            ) + "</tr>"
+        )
+    macd = checks.get("macd", {})
+    if isinstance(macd, Mapping):
+        for timeframe, values in macd.items():
+            if not isinstance(values, Mapping):
+                continue
+            rows.append(
+                "<tr>" + "".join(
+                    f"<td>{escape(str(value if value is not None else '-'))}</td>"
+                    for value in (
+                        f"macd_{timeframe}",
+                        values.get("status"),
+                        values.get("zero_axis"),
+                        values.get("event") or values.get("bar_end"),
+                    )
+                ) + "</tr>"
+            )
+    if not rows:
+        return ""
+    return (
+        "<h3>Strategy checks</h3><table><thead><tr>"
+        "<th>Check</th><th>Status</th><th>Direction</th><th>Detail</th>"
+        "</tr></thead><tbody>" + "".join(rows) + "</tbody></table>"
+    )
 
 
 def _indicator_table(indicators: Mapping[str, Any]) -> str:
