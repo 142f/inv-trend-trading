@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import hashlib
+import json
 from pathlib import Path
 import sqlite3
 
@@ -85,7 +87,8 @@ def test_bootstrap_is_idempotent_in_sqlite_and_log(tmp_path: Path) -> None:
     scanner, provider = _service(tmp_path)
     first = scanner.run(bootstrap_days=80)
     assert first.exit_code == 0
-    assert first.snapshot["schema_version"] == "3"
+    assert first.snapshot["schema_version"] == "4"
+    assert first.snapshot["report_schema_version"] == "3"
     assert first.snapshot["configuration"]["daily_checks"]["sma_periods"] == (5, 10, 20, 55, 120)
     assert "strategy_checks" in first.snapshot["symbols"][0]["scan"]
     assert first.snapshot["summary"]["signals_new"] >= 4
@@ -101,6 +104,70 @@ def test_bootstrap_is_idempotent_in_sqlite_and_log(tmp_path: Path) -> None:
     # The second run intentionally re-fetches the bounded revision overlap;
     # content addressing keeps the dataset and signals unchanged.
     assert len(provider.requests) == 2
+
+
+def test_run_artifacts_are_authoritative_and_keep_flat_compatibility(tmp_path: Path) -> None:
+    scanner, _ = _service(tmp_path)
+    result = scanner.run(bootstrap_days=80)
+    root = tmp_path / "out"
+    run_root = root / "runs" / "2024-04-19" / result.snapshot["run_id"] / "AAA"
+    canonical = run_root / "01_canonical"
+    exports = run_root / "03_exports"
+    audit = run_root / "04_audit"
+
+    for path in (
+        canonical / "data_update_result.json",
+        canonical / "strategy_screening_result.json",
+        canonical / "trend_decision_result.json",
+        canonical / "complete_analysis_result.json",
+        run_root / "02_report" / "trend_analysis_report.html",
+        exports / "strategy_conditions.csv",
+        exports / "signals.csv",
+        exports / "anomalies.csv",
+        exports / "state_transitions.csv",
+        audit / "run_manifest.json",
+        audit / "configuration_snapshot.json",
+        audit / "data_lineage.json",
+        audit / "artifact_hashes.json",
+    ):
+        assert path.exists(), path
+
+    complete_path = canonical / "complete_analysis_result.json"
+    complete = json.loads(complete_path.read_text(encoding="utf-8"))
+    assert set(("metadata", "data_update", "strategy_screening", "trend_decision", "signals", "anomalies", "state_transitions", "report_bundle", "hashes")) <= set(complete)
+    assert complete["hashes"]["hash_chain_valid"] is True
+    assert complete["trend_decision"]["input_screening_hash"] == complete["strategy_screening"]["result_hash"]
+    assert complete["strategy_screening"]["input_data_hash"] == complete["data_update"]["result_hash"]
+    assert result.snapshot_path == root / "2024-04-19.json"
+    assert result.snapshot_path.with_suffix(".html").exists()
+    assert root / "state" / "signals.sqlite3" == result.database_path
+    assert not any(path.name == "signals.sqlite3" for path in run_root.rglob("*"))
+
+    artifact_hashes = json.loads((audit / "artifact_hashes.json").read_text(encoding="utf-8"))
+    digest = hashlib.sha256(complete_path.read_bytes()).hexdigest()
+    assert artifact_hashes["complete_analysis_result.json"] == f"sha256:{digest}"
+    configuration = json.loads((audit / "configuration_snapshot.json").read_text(encoding="utf-8"))
+    assert configuration["strategy_config_hash"] == complete["strategy_screening"]["configuration_hash"]
+    assert len(configuration["data_config_hash"]) == 64
+    assert len(configuration["decision_config_hash"]) == 64
+    assert (root / "latest" / "AAA" / "complete_analysis_result.json").read_bytes() == complete_path.read_bytes()
+    assert (root / "latest" / "AAA" / "trend_analysis_report.html").exists()
+
+    second = scanner.run(bootstrap_days=80)
+    dated_runs = list((root / "runs" / "2024-04-19").iterdir())
+    assert len(dated_runs) == 2
+    assert second.snapshot["run_id"] != result.snapshot["run_id"]
+
+
+def test_no_html_keeps_authoritative_json_and_skips_derived_html(tmp_path: Path) -> None:
+    scanner, _ = _service(tmp_path)
+    result = scanner.run(bootstrap_days=80, render_html=False)
+    root = tmp_path / "out"
+    run_root = root / "runs" / "2024-04-19" / result.snapshot["run_id"] / "AAA"
+    assert (run_root / "01_canonical" / "complete_analysis_result.json").exists()
+    assert not (run_root / "02_report" / "trend_analysis_report.html").exists()
+    assert not result.snapshot_path.with_suffix(".html").exists()
+    assert not (root / "latest" / "AAA" / "trend_analysis_report.html").exists()
 
 
 def test_refresh_failure_uses_fresh_current_but_returns_nonzero(tmp_path: Path) -> None:

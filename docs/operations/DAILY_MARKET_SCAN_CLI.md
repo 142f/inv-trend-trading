@@ -20,8 +20,8 @@
 |---|---:|---|
 | `--symbol SYMBOL` | 全部 D1 | 可重复指定，例如 `--symbol BTC --symbol ETH` |
 | `--data-root PATH` | `data` | Parquet 数据湖和 Catalog 根目录 |
-| `--output-dir PATH` | `outputs/daily_market_scan` | JSON、HTML、SQLite 输出目录 |
-| `--database PATH` | `<output-dir>/signals.sqlite3` | SignalStore 路径 |
+| `--output-dir PATH` | `outputs/daily_market_scan` | 日扫制品根目录；运行制品、latest、兼容快照和状态库在其下分层保存 |
+| `--database PATH` | `<output-dir>/state/signals.sqlite3` | SignalStore 路径 |
 | `--signal-log-dir PATH` | `logs/signals` | 正式新信号 JSONL 目录 |
 | `--bootstrap-days N` | `400` | 首次初始化自然日数 |
 | `--provider-timeout N` | `10` | Provider 单次 HTTP 超时（秒） |
@@ -70,16 +70,18 @@
   --symbol BTC `
   --scan-only `
   --output-dir outputs\daily_market_scan_test `
-  --database outputs\daily_market_scan_test\signals.sqlite3 `
+  --database outputs\daily_market_scan_test\state\signals.sqlite3 `
   --signal-log-dir logs\signals_test `
   --no-color
 ```
 
 ## 输出和状态
 
-- `YYYY-MM-DD.json`：机器可读快照，同日重跑覆盖。
-- `YYYY-MM-DD.html`：UTF-8、自包含 CSS/SVG 日报，不依赖 CDN。
-- `signals.sqlite3`：信号、唯一业务 key、DailyRun、cursor 和 outbox。
+- `runs/YYYY-MM-DD/<run_id>/<symbol>/01_canonical/`：权威 JSON，含三个阶段结果与 `complete_analysis_result.json`；同日重跑使用不同 `run_id`，绝不覆盖历史审计证据。
+- `02_report/trend_analysis_report.html`：由完整 JSON 派生的自包含中文报告；`03_exports/` 提供条件、信号、异常、状态变化 CSV；`04_audit/` 保存运行清单、配置/血缘快照及 SHA-256。
+- `latest/<symbol>/`：最近一次成功运行的完整 JSON 与 HTML 快捷入口，不承担历史归档。
+- `YYYY-MM-DD.json` 与 `YYYY-MM-DD.html`：兼容旧脚本的平铺副本，同日重跑覆盖；它们不替代 `runs/` 中的权威制品。
+- `state/signals.sqlite3`：信号、唯一业务 key、DailyRun、cursor 和 outbox；不混入单次运行目录。
 - `logs/signals/YYYY-MM-DD.jsonl`：仅追加成功进入 SignalStore 的正式新信号。
 
 状态为 `updated`、`unchanged`、`blocked`、`stale` 或 `failed`。任一品种 `blocked/stale/failed` 时退出码为 1；参数错误为 2；Ctrl+C 为 130。通知失败时 DailyRun 为 `COMPLETED_WITH_DELIVERY_ERRORS`，不会永久停留在 `RUNNING`。

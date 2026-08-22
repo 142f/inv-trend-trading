@@ -4,8 +4,8 @@ This module owns the use case and returns a result object.  Report rendering is
 deliberately left to ``inv_trend.observability`` at the CLI boundary.
 """
 
-from dataclasses import asdict, dataclass
-from datetime import datetime, timedelta, timezone
+from dataclasses import asdict, dataclass, replace
+from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
@@ -24,11 +24,22 @@ from inv_trend.adapters.detector.indicators.daily_signals import (
 from inv_trend.adapters.detector.models import AssetConfig
 from inv_trend.adapters.detector.storage.daily_signal_repository import SQLiteDailySignalRepository
 from .daily_analysis import (
-    analyze_prepared_daily_analysis,
+    build_breakout_assessments,
     build_instrument_report_bundle,
-    prepare_daily_analysis,
 )
-from .strategy_config import DailyChecksConfig, load_resolved_run_config
+from .daily_artifacts import DailyArtifactPublication, DailyRunArtifactWriter
+from .daily_models import BreakoutAssessment, MarketAssessment
+from .daily_stages import (
+    DailyDataUpdateService,
+    ExecutionContext,
+    StrategyScreeningService,
+    TrendDecisionService,
+)
+from .strategy_config import (
+    DailyChecksConfig,
+    TrendDecisionConfig,
+    load_resolved_run_config,
+)
 
 
 BEIJING = ZoneInfo("Asia/Shanghai")
@@ -41,6 +52,7 @@ class DailyMarketScanResult:
     database_path: Path
     signal_log_root: Path
     snapshot: Mapping[str, Any]
+    artifact_publication: DailyArtifactPublication | None = None
 
     @property
     def failed_symbols(self) -> tuple[str, ...]:
@@ -69,12 +81,14 @@ class DailyMarketScanService:
         provider_retries: int = 1,
         refresh_data: bool = True,
         daily_checks_config: DailyChecksConfig | None = None,
+        trend_decision_config: TrendDecisionConfig | None = None,
+        execution_context: ExecutionContext | Mapping[str, Any] | None = None,
         strategy_config_path: str | Path | None = None,
         now: Callable[[], datetime] | None = None,
     ) -> None:
         self.data_root = Path(data_root)
         self.output_dir = Path(output_dir)
-        self.database_path = Path(database_path or self.output_dir / "signals.sqlite3")
+        self.database_path = Path(database_path or self.output_dir / "state" / "signals.sqlite3")
         self.signal_log_dir = Path(signal_log_dir)
         from .asset_config import load_detector_asset_configs
 
@@ -89,9 +103,24 @@ class DailyMarketScanService:
         self.provider_retries = provider_retries
         self.refresh_data = refresh_data
         resolved_path = strategy_config_path or Path(__file__).with_name("config") / "strategy.yaml"
-        self.daily_checks_config = daily_checks_config or load_resolved_run_config(
-            resolved_path
-        ).daily_checks
+        resolved_config = load_resolved_run_config(resolved_path)
+        self.daily_checks_config = daily_checks_config or resolved_config.daily_checks
+        self.trend_decision_config = trend_decision_config or resolved_config.trend_decision
+        self.execution_context = execution_context
+        self.data_update_service = DailyDataUpdateService(
+            self.historical_service,
+            freshness_policy=self.freshness_policy,
+            provider_retries=self.provider_retries,
+            refresh_data=self.refresh_data,
+        )
+        self.strategy_screening_service = StrategyScreeningService(
+            self.daily_checks_config,
+            self.trend_decision_config,
+        )
+        self.trend_decision_service = TrendDecisionService(self.trend_decision_config)
+        self.artifact_writer = DailyRunArtifactWriter(
+            self.output_dir, signal_log_root=self.signal_log_dir
+        )
         self._now = now or (lambda: datetime.now(timezone.utc))
 
     def run(
@@ -103,6 +132,7 @@ class DailyMarketScanService:
         strategy_version: str = CORRECTED_STRATEGY_VERSION,
         backfill_signals: bool = False,
         chart_bars: int = 180,
+        render_html: bool = True,
     ) -> DailyMarketScanResult:
         if bootstrap_days < 1:
             raise ValueError("bootstrap_days must be positive")
@@ -136,7 +166,7 @@ class DailyMarketScanService:
         self.signal_repository.finish_run(run_id, finished_at.isoformat(), summary)
         report_date = started_at.astimezone(BEIJING).date().isoformat()
         snapshot = {
-            "schema_version": "3", "report_schema_version": "1",
+            "schema_version": "4", "report_schema_version": "3",
             "run_id": run_id, "report_date": report_date,
             "started_at": started_at.isoformat(), "finished_at": finished_at.isoformat(),
             "timezone": "Asia/Shanghai", "timeframe": "D1",
@@ -146,12 +176,18 @@ class DailyMarketScanService:
                 "chart_bars": chart_bars, "formal_quality_statuses": ["CURATED"],
                 "symbols": [asset.symbol for asset in selected],
                 "daily_checks": asdict(self.daily_checks_config),
+                "trend_decision": asdict(self.trend_decision_config),
             },
             "symbols": rows, "summary": summary,
         }
-        snapshot_path = self.output_dir / f"{report_date}.json"
-        _atomic_write_json(snapshot_path, snapshot)
-        return DailyMarketScanResult(snapshot_path, self.database_path, self.signal_log_dir, snapshot)
+        publication = self.artifact_writer.publish(snapshot, render_html=render_html)
+        return DailyMarketScanResult(
+            publication.compatibility_json,
+            self.database_path,
+            self.signal_log_dir,
+            snapshot,
+            publication,
+        )
 
     def _selected_assets(self, symbols: Iterable[str] | None) -> tuple[AssetConfig, ...]:
         d1_assets = {name: asset for name, asset in self.assets.items() if "D1" in asset.timeframes}
@@ -168,98 +204,173 @@ class DailyMarketScanService:
         research_mode: bool, strategy_version: str, backfill_signals: bool, chart_bars: int,
     ) -> tuple[dict[str, Any], list[SignalEvent]]:
         instrument = self.historical_service.instrument(asset.symbol)
-        before = self.historical_service.lake.current_version(asset.symbol, "D1")
         row: dict[str, Any] = {
             "symbol": asset.symbol, "instrument": asset.instrument, "instrument_id": instrument.instrument_id,
             "market": asset.market.value, "timeframe": "D1",
             "provider": {"primary": instrument.primary_source, "fallbacks": list(instrument.fallback_sources)},
         }
-        refresh_error: Exception | None = None
-        manifest = None
-        try:
-            if not self.refresh_data:
-                if before is None:
-                    raise FileNotFoundError(f"no current dataset for {asset.symbol}/D1")
-                row["update"] = {"status": "unchanged", "mode": "scan_only", "dataset_version": str(before["version"]), "refresh_failed": False, "skipped": True}
-            else:
-                manifest = self._refresh(asset.symbol, started_at, bootstrap_days)
-                after = self.historical_service.lake.current_version(asset.symbol, "D1")
-                if not manifest.quality_passed or after is None:
-                    raise RuntimeError(f"refresh not published: status={manifest.quality_status}, score={manifest.quality_score}")
-                operation = "updated" if before is None or before.get("version") != after.get("version") else "unchanged"
-                row["update"] = {"status": operation, "mode": "bootstrap" if before is None else "incremental", "provider": manifest.data_source, "dataset_version": str(after["version"]), "quality_status": manifest.quality_status, "quality_score": manifest.quality_score, "row_count": manifest.row_count, "refresh_failed": False}
-        except Exception as exc:
-            refresh_error = exc
-            row["update"] = {"status": "failed", "error_type": type(exc).__name__, "error": str(exc), "refresh_failed": True, "previous_current_preserved": before is not None}
-            if before is None:
-                row["run_status"] = "blocked" if type(exc).__name__ == "ProviderIdentityError" else "failed"
-                row["scan"] = {"status": "not_run", "reason": "update_failed_no_current"}
-                return row, []
-        try:
-            bars = self.historical_service.load_bars(
-                asset.symbol, "D1", completed_only=True, allow_research=True
+        self.data_update_service.refresh_data = self.refresh_data
+        data_stage = self.data_update_service.run(
+            asset,
+            started_at=started_at,
+            bootstrap_days=bootstrap_days,
+            research_mode=research_mode,
+        )
+        data_result = data_stage.result
+        row["update"] = dict(data_stage.update)
+        row["data"] = {
+            "dataset_version": data_result.dataset_version,
+            "quality_statuses": list(data_result.quality.get("statuses", ())),
+            "completed_bars": len(data_stage.bars) if data_stage.bars is not None else 0,
+            "latest_complete_bar": data_result.latest_complete_d1,
+        }
+        row["freshness"] = dict(data_result.freshness)
+        row["data_update_result"] = data_result.to_dict()
+
+        formal_eligible = data_result.formal_ready and not research_mode
+        if not formal_eligible and not research_mode:
+            screening_stage = self.strategy_screening_service.screen(
+                data_result, asset, bars=None
             )
-            data = _data_metadata(bars)
-            row["data"] = data
-            freshness = self.freshness_policy.evaluate(instrument, data["latest_complete_bar"], now=started_at)
-            row["freshness"] = freshness.to_dict()
-            completed = normalize_completed_daily_bars(bars)
-            if len(completed):
-                session_anchor = self.signal_repository.get_or_create_session_anchor(
-                    instrument.instrument_id,
-                    "D1",
-                    completed.index[0].isoformat(),
-                )
+            decision = self.trend_decision_service.decide(data_result, screening_stage.result)
+            _attach_stage_results(row, data_result.to_dict(), screening_stage.result.to_dict(), decision.to_dict(), ())
+            row["scan"] = {"status": "not_run", "reason": "data_readiness_gate_blocked"}
+            row["alert_policy"] = {
+                "formal_eligible": False,
+                "research_mode": False,
+                "suppressed_reason": ",".join(data_result.blocking_reasons) or "data_not_ready",
+            }
+            row["signals_detected"] = 0
+            row["signals"] = []
+            row["signals_new"] = 0
+            row["signals_duplicate"] = 0
+            row["cursor"] = {
+                "strategy_version": strategy_version,
+                "before": self.signal_repository.load_cursor(instrument.instrument_id, "D1", strategy_version),
+                "after": self.signal_repository.load_cursor(instrument.instrument_id, "D1", strategy_version),
+                "bars_replayed": 0,
+            }
+            row["run_status"] = _data_gate_status(data_stage, research_mode=False)
+            return row, []
+
+        try:
+            if data_stage.bars is None:
+                raise RuntimeError("data stage supplied no readable completed D1 bars")
+            completed = normalize_completed_daily_bars(data_stage.bars)
+            if not len(completed):
+                raise RuntimeError("data stage supplied an empty completed D1 frame")
+            session_anchor = self.signal_repository.get_or_create_session_anchor(
+                instrument.instrument_id,
+                "D1",
+                completed.index[0].isoformat(),
+            )
+            cursor_before = self.signal_repository.load_cursor(
+                instrument.instrument_id, "D1", strategy_version
+            )
+            if backfill_signals:
+                positions = tuple(range(len(completed)))
+            elif cursor_before is None:
+                positions = (len(completed) - 1,)
             else:
-                session_anchor = started_at.isoformat()
-            prepared_analysis = prepare_daily_analysis(
-                completed,
-                self.daily_checks_config,
+                positions = tuple(
+                    index
+                    for index, timestamp in enumerate(completed.index)
+                    if timestamp.isoformat() > cursor_before
+                ) or (len(completed) - 1,)
+            screening_stage = self.strategy_screening_service.screen(
+                data_stage,
+                asset,
                 session_anchor=session_anchor,
+                replay_positions=positions,
+                execution_context=self.execution_context,
             )
-            prepared = prepared_analysis.base
-            analysis = analyze_prepared_daily_analysis(prepared_analysis)
-            row["scan"] = analysis
-            row["chart"] = _chart_payload(prepared.tail(chart_bars))
-            formal_eligible = data["quality_statuses"] == ["CURATED"] and freshness.is_fresh
-            reason = "stale_data" if not freshness.is_fresh else ("non_curated_data" if not formal_eligible else None)
-            row["alert_policy"] = {"formal_eligible": formal_eligible, "research_mode": research_mode, "suppressed_reason": reason}
+            screening = screening_stage.result
+            decision = self.trend_decision_service.decide(data_result, screening)
+            event_decisions = tuple(
+                self.trend_decision_service.decide(
+                    data_result, screening, event_snapshot=snapshot
+                )
+                for snapshot in screening.event_snapshots
+            )
+            prepared = screening_stage.prepared
+            if prepared is None:
+                raise RuntimeError("strategy screening did not prepare D1 features")
+            row["scan"] = dict(screening_stage.analysis)
+            row["chart"] = _chart_payload(prepared.base.tail(chart_bars))
+            row["alert_policy"] = {
+                "formal_eligible": formal_eligible,
+                "research_mode": research_mode,
+                "suppressed_reason": None if formal_eligible else "research_observation_only",
+            }
+
             detected: list[SignalEvent] = []
-            replayed = 0
-            cursor_before = self.signal_repository.load_cursor(instrument.instrument_id, "D1", strategy_version)
-            if len(prepared):
-                if backfill_signals:
-                    positions = range(len(prepared))
-                elif cursor_before is None:
-                    positions = (len(prepared) - 1,)
-                else:
-                    positions = tuple(index for index, timestamp in enumerate(prepared.index) if timestamp.isoformat() > cursor_before)
-                    if not positions:
-                        positions = (len(prepared) - 1,)
-                for position in positions:
-                    replay = analyze_prepared_daily_analysis(
-                        prepared_analysis, position=position
-                    )
-                    detected.extend(self._signal_events(instrument.instrument_id, asset, replay, data["dataset_version"], started_at.isoformat(), refresh_error is not None, strategy_version))
-                    replayed += 1
+            breakout_assessments: list[BreakoutAssessment] = []
+            decisions_by_position = {
+                int(snapshot.get("position", -1)): event_decision
+                for snapshot, event_decision in zip(screening.event_snapshots, event_decisions)
+            }
+            for position in positions:
+                replay = screening_stage.replay_analyses.get(position)
+                if replay is None:
+                    continue
+                replay_events = self._signal_events(
+                    instrument.instrument_id,
+                    asset,
+                    replay,
+                    data_result.dataset_version or "unknown",
+                    started_at.isoformat(),
+                    data_stage.refresh_error is not None,
+                    strategy_version,
+                )
+                detected.extend(replay_events)
+                signal_ids = {
+                    (event.indicator_name, event.signal_time, event.direction.lower()): event.signal_id
+                    for event in replay_events
+                }
+                assessments = build_breakout_assessments(
+                    prepared,
+                    replay,
+                    position=position,
+                    signal_ids=signal_ids,
+                )
+                event_decision = decisions_by_position.get(position)
+                breakout_assessments.extend(
+                    _decision_backed_assessment(item, event_decision)
+                    for item in assessments
+                )
+
             row["signals_detected"] = len(detected)
+            row["signals"] = [event.to_dict() for event in detected]
+            event_decision_payloads = tuple(item.to_dict() for item in event_decisions)
             report_bundle = build_instrument_report_bundle(
-                prepared_analysis,
+                prepared,
                 symbol=asset.symbol,
                 instrument_id=instrument.instrument_id,
                 generated_at=started_at.isoformat(),
-                analysis=analysis,
-                signals=(event.to_dict() for event in detected),
+                analysis=screening_stage.analysis,
+                signals=row["signals"],
+                breakout_assessments=breakout_assessments,
+                market_assessment=_market_assessment_from_decision(decision),
+                data_update_result=data_result.to_dict(),
+                strategy_screening_result=screening.to_dict(),
+                trend_decision_result=decision.to_dict(),
+                event_decisions=event_decision_payloads,
                 chart_bars=chart_bars,
             )
             row["report_bundle"] = report_bundle.to_dict()
             row["result_id"] = report_bundle.result_id
             row["result_hash"] = report_bundle.result_hash
+            _attach_stage_results(
+                row,
+                data_result.to_dict(),
+                screening.to_dict(),
+                decision.to_dict(),
+                event_decision_payloads,
+            )
             if formal_eligible:
-                latest_time = prepared.index[-1].isoformat()
+                latest_time = prepared.base.index[-1].isoformat()
                 notification_signal_ids = {
-                    event.signal_id
-                    for event in detected
+                    event.signal_id for event in detected
                     if event.signal_type.startswith("STRATEGY_GRADE_A_")
                 }
                 new, duplicates = self.signal_repository.commit_events_and_cursor(
@@ -270,37 +381,32 @@ class DailyMarketScanService:
                     strategy_version=strategy_version,
                     last_signal_time=latest_time,
                     enqueue_notifications=not backfill_signals,
-                    notification_signal_ids=(
-                        notification_signal_ids if not backfill_signals else ()
-                    ),
+                    notification_signal_ids=(notification_signal_ids if not backfill_signals else ()),
                 )
                 row["signals_new"], row["signals_duplicate"] = len(new), duplicates
             else:
                 new = []
                 row["signals_new"], row["signals_duplicate"] = 0, 0
-                row["research_signals"] = [event.to_dict() for event in detected] if research_mode else []
-            row["cursor"] = {"strategy_version": strategy_version, "before": cursor_before, "after": prepared.index[-1].isoformat() if formal_eligible and len(prepared) else cursor_before, "bars_replayed": replayed}
-            if not freshness.is_fresh:
-                row["run_status"] = "stale"
-            elif refresh_error is not None:
-                row["run_status"] = "blocked" if manifest is not None and not manifest.quality_passed else "failed"
-            else:
-                row["run_status"] = row["update"]["status"]
+                row["research_signals"] = row["signals"]
+            row["cursor"] = {
+                "strategy_version": strategy_version,
+                "before": cursor_before,
+                "after": prepared.base.index[-1].isoformat() if formal_eligible else cursor_before,
+                "bars_replayed": len(positions),
+            }
+            row["run_status"] = _data_gate_status(data_stage, research_mode=research_mode)
             return row, new
         except Exception as exc:
             row["run_status"] = "failed"
             row["scan"] = {"status": "failed", "error_type": type(exc).__name__, "error": str(exc)}
+            screening_stage = self.strategy_screening_service.screen(data_result, asset, bars=None)
+            decision = self.trend_decision_service.decide(data_result, screening_stage.result)
+            _attach_stage_results(row, data_result.to_dict(), screening_stage.result.to_dict(), decision.to_dict(), ())
+            row["signals_detected"] = 0
+            row["signals"] = []
+            row["signals_new"] = 0
+            row["signals_duplicate"] = 0
             return row, []
-
-    def _refresh(self, symbol: str, now: datetime, bootstrap_days: int):
-        daily_end = _daily_refresh_end(now)
-        if self.historical_service.lake.current_version(symbol, "D1") is not None:
-            return self.historical_service.update(symbol, "D1", end=daily_end, retries=self.provider_retries)
-        instrument = self.historical_service.instrument(symbol)
-        start = daily_end - timedelta(days=bootstrap_days)
-        if instrument.earliest_valid_date:
-            start = max(start, _earliest_utc(instrument.earliest_valid_date))
-        return self.historical_service.ingest(symbol, "D1", start, daily_end, retries=self.provider_retries)
 
     @staticmethod
     def _signal_events(instrument_id: str, asset: AssetConfig, analysis: Mapping[str, Any], dataset_version: str, detected_at: str, refresh_failed: bool, strategy_version: str) -> list[SignalEvent]:
@@ -342,6 +448,103 @@ class DailyMarketScanService:
             except Exception as exc:
                 self.signal_repository.mark_delivery_error(event.signal_id, str(exc))
         return result
+
+
+def _attach_stage_results(
+    row: dict[str, Any],
+    data_update: Mapping[str, Any],
+    strategy_screening: Mapping[str, Any],
+    trend_decision: Mapping[str, Any],
+    event_decisions: Iterable[Mapping[str, Any]],
+) -> None:
+    """Keep full stage payloads in both snapshot and SQLite instrument JSON."""
+
+    row["data_update_result"] = dict(data_update)
+    row["strategy_screening_result"] = dict(strategy_screening)
+    row["trend_decision_result"] = dict(trend_decision)
+    row["event_decisions"] = [dict(item) for item in event_decisions]
+    row["stages"] = {
+        "data_update": row["data_update_result"],
+        "strategy_screening": row["strategy_screening_result"],
+        "trend_decision": row["trend_decision_result"],
+    }
+
+
+def _data_gate_status(data_stage: Any, *, research_mode: bool) -> str:
+    """Preserve legacy run statuses while refusing formal gate bypasses."""
+
+    result = data_stage.result
+    freshness = result.freshness.get("status")
+    update = data_stage.update
+    if freshness == "STALE_DATA":
+        return "stale"
+    if not result.formal_ready:
+        if research_mode and data_stage.readable:
+            return str(update.get("status", "unchanged"))
+        if update.get("status") == "failed" and not data_stage.readable:
+            return "blocked" if update.get("error_type") == "ProviderIdentityError" else "failed"
+        return "blocked"
+    if update.get("status") == "failed":
+        return "blocked" if update.get("error_type") == "ProviderIdentityError" else "failed"
+    return str(update.get("status", "unchanged"))
+
+
+def _market_assessment_from_decision(decision: Any) -> MarketAssessment:
+    direction = str(decision.trend_direction)
+    trend = {"LONG": "上升趋势", "SHORT": "下降趋势"}.get(direction, "趋势不明确")
+    entry = {
+        "ENTER_LONG": "做多",
+        "ENTER_SHORT": "做空",
+    }.get(str(decision.execution_state), "不入场")
+    confidence = decision.confidence
+    evidence = (
+        decision.long_evidence if direction == "LONG"
+        else decision.short_evidence if direction == "SHORT"
+        else decision.reverse_evidence
+    )
+    return MarketAssessment(
+        as_of=decision.as_of,
+        market_status="观察性结果" if decision.observation_only else "已使用结构化三阶段结果",
+        trend=trend,
+        trend_basis=tuple(evidence),
+        entry_direction=entry,
+        entry_reason=decision.conclusion,
+        rating_grade=confidence.get("rating_grade"),
+        rating_score=confidence.get("rating_score"),
+    )
+
+
+def _decision_backed_assessment(
+    assessment: BreakoutAssessment,
+    decision: Any | None,
+) -> BreakoutAssessment:
+    if decision is None:
+        return assessment
+    trend = {"LONG": "上升趋势", "SHORT": "下降趋势"}.get(
+        str(decision.trend_direction), "趋势不明确"
+    )
+    entry = {
+        "ENTER_LONG": "做多",
+        "ENTER_SHORT": "做空",
+    }.get(str(decision.execution_state), "不入场")
+    confidence = decision.confidence
+    strength = f"{confidence.get('rating_grade') or '无'}级 / {confidence.get('rating_score', '不可用')} 分"
+    direction_evidence = (
+        decision.long_evidence if decision.trend_direction == "LONG"
+        else decision.short_evidence if decision.trend_direction == "SHORT"
+        else ()
+    )
+    return replace(
+        assessment,
+        assessment_id=decision.result_id,
+        trend=trend,
+        trend_basis=tuple(direction_evidence),
+        entry_direction=entry,
+        signal_strength=strength,
+        triggered_conditions=tuple(direction_evidence),
+        unmet_conditions=tuple(decision.reverse_evidence) + tuple(decision.risk_blocks),
+        conclusion=decision.conclusion,
+    )
 
 
 def _signal_identity(

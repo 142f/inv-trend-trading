@@ -5,10 +5,14 @@ import numpy as np
 import pandas as pd
 
 from inv_trend.application.daily_analysis import (
+    PreparedDailyAnalysis,
     analyze_prepared_daily_analysis,
+    build_breakout_assessments,
     build_instrument_report_bundle,
+    build_market_assessment,
     prepare_daily_analysis,
 )
+from inv_trend.application.daily_models import BreakoutAssessment
 from inv_trend.application.strategy_config import DailyChecksConfig
 
 
@@ -78,3 +82,112 @@ def test_report_bundle_hash_is_stable_and_json_safe() -> None:
     encoded = json.dumps(first.to_dict(), ensure_ascii=False, allow_nan=False)
     assert "rule_evaluations" in encoded
     assert "change_log" in encoded
+
+
+def test_breakout_assessment_uses_event_bar_and_keeps_entry_policy_display_only() -> None:
+    index = pd.date_range("2026-01-01", periods=3, freq="D", tz="UTC")
+    base = pd.DataFrame(
+        {
+            "close": [99.0, 106.0, 40.0],
+            "channel_high_20": [100.0, 100.0, 100.0],
+            "channel_low_20": [90.0, 90.0, 90.0],
+            "channel_high_55": [100.0, 100.0, 100.0],
+            "channel_low_55": [90.0, 90.0, 90.0],
+        },
+        index=index,
+    )
+    prepared = PreparedDailyAnalysis(
+        base=base,
+        strategy=None,  # type: ignore[arg-type]
+        feature_request=None,  # type: ignore[arg-type]
+        dataset_version="assessment-test",
+    )
+    checks = {
+        "sma_alignment": {"direction": "long"},
+        "ema_trend": {"direction": "long"},
+        "macd_summary": {"direction": "long"},
+        "trend_quality": {"direction": "long", "confirmed": True},
+        "volatility": {"state": "normal"},
+        "volume": {"confirmed": False},
+        "rating": {
+            "grade": "A",
+            "direction": "long",
+            "score": 7.0,
+            "family_votes": {"turtle": "long", "sma": "long", "ema": "long", "macd": "long"},
+        },
+    }
+    analysis = {
+        "latest_bar": {"timestamp": index[1].isoformat(), "close": 106.0},
+        "status": {"state": "ready"},
+        "strategy_checks": checks,
+        "indicators": {"turtle_20": {"breakout_level": 100.0}},
+        "signals": [
+            {
+                "indicator": "turtle_20",
+                "event": "breakout_up",
+                "direction": "long",
+                "signal_time": index[1].isoformat(),
+                "breakout_level": 100.0,
+            }
+        ],
+    }
+
+    assessments = build_breakout_assessments(
+        prepared,
+        analysis,
+        position=1,
+        signal_ids={("turtle_20", index[1].isoformat(), "long"): "signal-20"},
+    )
+    assessment = assessments[0]
+
+    assert assessment.assessment_id == "signal-20"
+    assert assessment.current_price == 106.0
+    assert assessment.previous_state == "位于通道区间内"
+    assert assessment.post_state == "位于上轨上方"
+    assert assessment.trend == "上升趋势"
+    assert assessment.entry_direction == "做多"
+    assert any("相对成交量" in item for item in assessment.quality_notes)
+    assert "40.0" not in " ".join(assessment.trend_basis)
+    assert build_market_assessment(prepared, analysis).entry_direction == "做多"
+
+    checks["rating"] = {"grade": "B", "direction": "long", "score": 5.0}
+    b_grade = build_breakout_assessments(prepared, analysis, position=1)[0]
+    assert b_grade.trend == "上升趋势"
+    assert b_grade.entry_direction == "不入场"
+
+    checks["rating"] = {"grade": "CONFLICT", "direction": None, "score": 0.0}
+    conflict = build_breakout_assessments(prepared, analysis, position=1)[0]
+    assert conflict.trend == "震荡"
+    assert conflict.entry_direction == "不入场"
+
+
+def test_report_series_extends_to_earliest_breakout_assessment() -> None:
+    bars = _bars(320)
+    prepared = prepare_daily_analysis(bars, DailyChecksConfig(), session_anchor=bars.index[0])
+    result = analyze_prepared_daily_analysis(prepared)
+    event_time = prepared.base.index[30].isoformat()
+    assessment = BreakoutAssessment(
+        assessment_id="historic-breakout",
+        signal_id=None,
+        timestamp=event_time,
+        timeframe="D1",
+        current_price=float(prepared.base.iloc[30]["close"]),
+        breakout_type="向上突破",
+        breakout_object="海龟 20 日唐奇安上轨",
+        breakout_level=1.0,
+        previous_state="位于通道区间内",
+        post_state="位于上轨上方",
+        trend="上升趋势",
+    )
+    bundle = build_instrument_report_bundle(
+        prepared,
+        symbol="BTC",
+        instrument_id="BTCUSDT.BINANCE.SPOT",
+        generated_at="2026-08-21T19:00:00+08:00",
+        analysis=result,
+        breakout_assessments=(assessment,),
+        chart_bars=10,
+    )
+
+    assert bundle.series[0]["timestamp"] == event_time
+    assert bundle.breakout_assessments == (assessment,)

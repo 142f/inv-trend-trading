@@ -11,7 +11,6 @@ from rich.console import Console
 from rich.table import Table
 
 from inv_trend.application import DEFAULT_BOOTSTRAP_DAYS, DailyMarketScanService
-from inv_trend.observability import write_daily_report
 from inv_trend.core.signals import CORRECTED_STRATEGY_VERSION
 
 
@@ -88,6 +87,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             strategy_version=args.strategy_version,
             backfill_signals=args.backfill_signals,
             chart_bars=args.chart_bars,
+            render_html=not args.no_html,
         )
     except KeyboardInterrupt:
         print("Daily scan interrupted by user (Ctrl+C).", file=sys.stderr)
@@ -100,11 +100,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     console.print(f"Snapshot: {result.snapshot_path}")
     console.print(f"SignalStore: {result.database_path}")
     console.print(f"Signal logs: {result.signal_log_root}")
-    html_path = None
-    if not args.no_html:
-        html_path = write_daily_report(
-            result.snapshot, result.snapshot_path.with_suffix(".html")
-        )
+    html_path = getattr(
+        getattr(result, "artifact_publication", None), "compatibility_html", None
+    )
+    if not args.no_html and html_path is not None:
         console.print(f"HTML report: {html_path}")
         if args.open_report:
             webbrowser.open(html_path.resolve().as_uri())

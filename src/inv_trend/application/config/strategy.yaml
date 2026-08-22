@@ -38,3 +38,6 @@ daily_checks:
     b_min_score: 4.0
     a_min_families: 3
     b_min_families: 2
+trend_decision:
+  execution_grade: A
+  eligibility_gate_enabled: false

@@ -112,6 +112,40 @@ class DailyChecksConfig:
 
 
 @dataclass(frozen=True)
+class TrendDecisionConfig:
+    """Execution-only controls for the final trend-decision stage.
+
+    Scoring remains entirely in :class:`DailyChecksConfig`.  This separate
+    section is intentionally small so a deployment cannot accidentally turn a
+    report-score tweak into a new execution rule.
+    """
+
+    execution_grade: str = "A"
+    eligibility_gate_enabled: bool = False
+
+    def __post_init__(self) -> None:
+        if self.execution_grade != "A":
+            raise ValueError("trend_decision.execution_grade must be 'A'")
+        if not isinstance(self.eligibility_gate_enabled, bool):
+            raise ValueError("trend_decision.eligibility_gate_enabled must be boolean")
+
+    @classmethod
+    def from_mapping(cls, raw: Mapping[str, Any]) -> "TrendDecisionConfig":
+        if not isinstance(raw, Mapping):
+            raise ValueError("trend_decision must be a mapping")
+        allowed = {"execution_grade", "eligibility_gate_enabled"}
+        unknown = set(raw) - allowed
+        if unknown:
+            raise ValueError(
+                f"unsupported trend_decision keys: {sorted(unknown)}"
+            )
+        return cls(
+            execution_grade=str(raw.get("execution_grade", "A")),
+            eligibility_gate_enabled=raw.get("eligibility_gate_enabled", False),
+        )
+
+
+@dataclass(frozen=True)
 class ResolvedRunConfig:
     """Immutable execution contract after profile/default resolution.
 
@@ -124,6 +158,7 @@ class ResolvedRunConfig:
     risk: Mapping[str, Any] = field(default_factory=dict)
     contracts: Mapping[str, Mapping[str, Any]] = field(default_factory=dict)
     daily_checks: DailyChecksConfig = field(default_factory=DailyChecksConfig)
+    trend_decision: TrendDecisionConfig = field(default_factory=TrendDecisionConfig)
 
     def __post_init__(self) -> None:
         for field_name in ("rules", "risk", "contracts"):
@@ -137,6 +172,14 @@ class ResolvedRunConfig:
             )
         elif not isinstance(self.daily_checks, DailyChecksConfig):
             raise ValueError("daily_checks must be a DailyChecksConfig or mapping")
+        if isinstance(self.trend_decision, Mapping):
+            object.__setattr__(
+                self,
+                "trend_decision",
+                TrendDecisionConfig.from_mapping(self.trend_decision),
+            )
+        elif not isinstance(self.trend_decision, TrendDecisionConfig):
+            raise ValueError("trend_decision must be a TrendDecisionConfig or mapping")
 
 
 def load_resolved_run_config(path: str | Path) -> ResolvedRunConfig:
