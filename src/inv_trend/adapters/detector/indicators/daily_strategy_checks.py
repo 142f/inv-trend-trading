@@ -35,11 +35,27 @@ class PreparedDailyStrategyChecks:
     session_anchor: pd.Timestamp
 
 
+def daily_strategy_feature_request(config: DailyChecksConfig) -> FeatureRequest:
+    """Return the D1 feature contract for report-only strategy dimensions."""
+
+    return FeatureRequest(
+        atr_period=config.atr_period,
+        donchian_periods=TURTLE_PERIODS,
+        sma_lags=tuple((period, 0) for period in config.sma_periods),
+        ema_periods=config.ema_periods,
+        macd_periods=(config.macd_fast, config.macd_slow, config.macd_signal),
+        dmi_period=config.dmi_period,
+        volume_sma_lags=((config.volume_lookback, 1),),
+        include_true_range=True,
+    )
+
+
 def prepare_daily_strategy_checks(
     bars: pd.DataFrame,
     config: DailyChecksConfig,
     *,
     session_anchor: pd.Timestamp | str,
+    prepared_base: pd.DataFrame | None = None,
 ) -> PreparedDailyStrategyChecks:
     """Prepare all strategy dimensions from completed, timestamp-indexed D1 bars."""
 
@@ -52,17 +68,21 @@ def prepare_daily_strategy_checks(
         return PreparedDailyStrategyChecks(bars.copy(), {}, config, anchor)
 
     anchor = _utc_timestamp(session_anchor)
-    request = FeatureRequest(
-        atr_period=config.atr_period,
-        donchian_periods=TURTLE_PERIODS,
-        sma_lags=tuple((period, 0) for period in config.sma_periods),
-        ema_periods=config.ema_periods,
-        macd_periods=(config.macd_fast, config.macd_slow, config.macd_signal),
-        dmi_period=config.dmi_period,
-        volume_sma_lags=((config.volume_lookback, 1),),
-        include_true_range=True,
-    )
-    base = PreparedBars.build(bars, request).frame.copy()
+    if prepared_base is None:
+        base = PreparedBars.build(bars, daily_strategy_feature_request(config)).frame.copy()
+    else:
+        if not isinstance(prepared_base.index, pd.DatetimeIndex):
+            raise ValueError("prepared_base requires a DatetimeIndex")
+        if not prepared_base.index.equals(bars.index):
+            raise ValueError("prepared_base must represent the same completed D1 bars")
+        missing = [
+            column
+            for column in daily_strategy_feature_request(config).required_columns()
+            if column not in prepared_base
+        ]
+        if missing:
+            raise ValueError(f"prepared_base is missing strategy features: {missing}")
+        base = prepared_base.copy()
     for period in config.sma_periods:
         base[f"sma_{period}"] = base[f"sma_{period}_lag_0"]
     close = pd.to_numeric(base["close"], errors="coerce")
@@ -70,7 +90,7 @@ def prepare_daily_strategy_checks(
     base["atr_percentile"] = base["atr_pct"].rolling(
         config.atr_percentile_lookback,
         min_periods=config.atr_percentile_lookback,
-    ).apply(lambda values: float((values <= values.iloc[-1]).mean()), raw=False)
+    ).rank(method="max", pct=True)
     volume_average = base[f"volume_sma_{config.volume_lookback}_lag_1"]
     if "volume" in base:
         volume = pd.to_numeric(base["volume"], errors="coerce")
@@ -477,5 +497,6 @@ def _empty_checks(config: DailyChecksConfig) -> dict[str, Any]:
 __all__ = [
     "PreparedDailyStrategyChecks",
     "analyze_prepared_strategy_checks",
+    "daily_strategy_feature_request",
     "prepare_daily_strategy_checks",
 ]

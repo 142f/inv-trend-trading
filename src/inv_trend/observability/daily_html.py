@@ -8,8 +8,18 @@ import math
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 
+from .report_renderer import write_daily_dashboard
+
 
 def write_daily_report(snapshot: Mapping[str, Any], path: str | Path) -> Path:
+    if any(
+        isinstance(row, Mapping) and isinstance(row.get("report_bundle"), Mapping)
+        for row in snapshot.get("symbols", [])
+    ):
+        return write_daily_dashboard(snapshot, path)
+
+    # Backward-compatible renderer for schema-v3 snapshots created before
+    # ReportBundle was introduced.
     target = Path(path)
     target.parent.mkdir(parents=True, exist_ok=True)
     summary = snapshot.get("summary", {})

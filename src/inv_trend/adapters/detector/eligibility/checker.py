@@ -78,6 +78,9 @@ class TradeEligibilityChecker:
         self,
         thresholds: EligibilityThresholds | None = None,
     ) -> None:
+        self._explicit_thresholds = thresholds
+        # Retain the public attribute for compatibility; resolution now correctly
+        # honors an explicitly injected threshold object.
         self.thresholds = thresholds or get_thresholds_for_market("crypto")
 
     # ── 主入口 ──────────────────────────────────────────────────────────
@@ -130,7 +133,10 @@ class TradeEligibilityChecker:
             )
 
         # 2. 品种确认
-        instrument_verified = self._check_instrument(bars, asset, thresholds)
+        instrument_verified, instrument_blocks, instrument_evidence = self._check_instrument(
+            bars, asset, thresholds
+        )
+        hard_blocks.extend(instrument_blocks)
 
         # 3. 流动性
         liquidity_passed, liquidity_blocks = self._check_liquidity(
@@ -255,6 +261,10 @@ class TradeEligibilityChecker:
                 "trigger_price": signal.trigger_price,
                 "atr": signal.atr,
                 "atr_pct": signal.atr_pct,
+                "threshold_source": (
+                    "explicit" if self._explicit_thresholds is not None else "market_config"
+                ),
+                "instrument_check": instrument_evidence,
             },
         )
 
@@ -332,19 +342,36 @@ class TradeEligibilityChecker:
         bars: pd.DataFrame,
         asset: AssetConfig,
         thresholds: EligibilityThresholds,
-    ) -> SignalReadiness:
-        if "symbol" in bars.columns:
-            values = set(bars["symbol"].dropna().astype(str))
-            allowed = {asset.symbol, asset.instrument, *asset.source_symbols}
-            if not values.issubset(allowed):
-                return SignalReadiness.INSTRUMENT_VERIFIED
-
-        if "instrument" in bars.columns:
-            values = set(bars["instrument"].dropna().astype(str))
-            if values and values != {asset.instrument}:
-                return SignalReadiness.INSTRUMENT_VERIFIED
-
-        return SignalReadiness.INSTRUMENT_VERIFIED
+    ) -> tuple[SignalReadiness, list[BlockedReason], dict[str, Any]]:
+        del thresholds  # identity is validated against the canonical asset contract
+        allowed_symbols = {asset.symbol, asset.instrument, *asset.source_symbols}
+        observed_symbols = (
+            set(bars["symbol"].dropna().astype(str)) if "symbol" in bars.columns else set()
+        )
+        observed_instruments = (
+            set(bars["instrument"].dropna().astype(str))
+            if "instrument" in bars.columns
+            else set()
+        )
+        symbol_ok = not observed_symbols or observed_symbols.issubset(allowed_symbols)
+        instrument_ok = (
+            not observed_instruments or observed_instruments == {asset.instrument}
+        )
+        passed = symbol_ok and instrument_ok
+        evidence = {
+            "passed": passed,
+            "allowed_symbols": sorted(allowed_symbols),
+            "expected_instrument": asset.instrument,
+            "observed_symbols": sorted(observed_symbols),
+            "observed_instruments": sorted(observed_instruments),
+        }
+        if not passed:
+            return (
+                SignalReadiness.NOT_READY,
+                [BlockedReason.DATA_SOURCE_MISMATCH],
+                evidence,
+            )
+        return SignalReadiness.INSTRUMENT_VERIFIED, [], evidence
 
     # ── 3. 流动性 ────────────────────────────────────────────────────────
 
@@ -647,7 +674,9 @@ class TradeEligibilityChecker:
     def _resolve_thresholds(
         self, asset: AssetConfig
     ) -> EligibilityThresholds:
-        """根据品种获取对应的阈值配置。"""
+        """Resolve thresholds with explicit dependency injection taking priority."""
+        if self._explicit_thresholds is not None:
+            return self._explicit_thresholds
         return get_thresholds_for_market(asset.market.value)
 
     def _build_result(

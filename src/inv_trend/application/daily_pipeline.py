@@ -19,15 +19,15 @@ from inv_trend.core.signals import CORRECTED_STRATEGY_VERSION, SignalEvent
 from inv_trend.adapters.detector.alerts.daily_notifier import LogNotifier, SignalNotifier
 from inv_trend.adapters.detector.freshness import FreshnessPolicy
 from inv_trend.adapters.detector.indicators.daily_signals import (
-    analyze_prepared_daily_signals,
-    prepare_daily_signal_frame,
-)
-from inv_trend.adapters.detector.indicators.daily_strategy_checks import (
-    analyze_prepared_strategy_checks,
-    prepare_daily_strategy_checks,
+    normalize_completed_daily_bars,
 )
 from inv_trend.adapters.detector.models import AssetConfig
 from inv_trend.adapters.detector.storage.daily_signal_repository import SQLiteDailySignalRepository
+from .daily_analysis import (
+    analyze_prepared_daily_analysis,
+    build_instrument_report_bundle,
+    prepare_daily_analysis,
+)
 from .strategy_config import DailyChecksConfig, load_resolved_run_config
 
 
@@ -136,7 +136,8 @@ class DailyMarketScanService:
         self.signal_repository.finish_run(run_id, finished_at.isoformat(), summary)
         report_date = started_at.astimezone(BEIJING).date().isoformat()
         snapshot = {
-            "schema_version": "3", "run_id": run_id, "report_date": report_date,
+            "schema_version": "3", "report_schema_version": "1",
+            "run_id": run_id, "report_date": report_date,
             "started_at": started_at.isoformat(), "finished_at": finished_at.isoformat(),
             "timezone": "Asia/Shanghai", "timeframe": "D1",
             "configuration": {
@@ -202,25 +203,22 @@ class DailyMarketScanService:
             row["data"] = data
             freshness = self.freshness_policy.evaluate(instrument, data["latest_complete_bar"], now=started_at)
             row["freshness"] = freshness.to_dict()
-            prepared = prepare_daily_signal_frame(bars)
-            if len(prepared):
+            completed = normalize_completed_daily_bars(bars)
+            if len(completed):
                 session_anchor = self.signal_repository.get_or_create_session_anchor(
                     instrument.instrument_id,
                     "D1",
-                    prepared.index[0].isoformat(),
+                    completed.index[0].isoformat(),
                 )
             else:
                 session_anchor = started_at.isoformat()
-            strategy_prepared = prepare_daily_strategy_checks(
-                prepared,
+            prepared_analysis = prepare_daily_analysis(
+                completed,
                 self.daily_checks_config,
                 session_anchor=session_anchor,
             )
-            analysis = analyze_prepared_daily_signals(prepared)
-            analysis["strategy_checks"] = analyze_prepared_strategy_checks(strategy_prepared)
-            analysis["signals"] = [
-                *analysis["signals"], *analysis["strategy_checks"]["signals"]
-            ]
+            prepared = prepared_analysis.base
+            analysis = analyze_prepared_daily_analysis(prepared_analysis)
             row["scan"] = analysis
             row["chart"] = _chart_payload(prepared.tail(chart_bars))
             formal_eligible = data["quality_statuses"] == ["CURATED"] and freshness.is_fresh
@@ -239,16 +237,24 @@ class DailyMarketScanService:
                     if not positions:
                         positions = (len(prepared) - 1,)
                 for position in positions:
-                    replay = analyze_prepared_daily_signals(prepared, position)
-                    replay["strategy_checks"] = analyze_prepared_strategy_checks(
-                        strategy_prepared, position=position
+                    replay = analyze_prepared_daily_analysis(
+                        prepared_analysis, position=position
                     )
-                    replay["signals"] = [
-                        *replay["signals"], *replay["strategy_checks"]["signals"]
-                    ]
                     detected.extend(self._signal_events(instrument.instrument_id, asset, replay, data["dataset_version"], started_at.isoformat(), refresh_error is not None, strategy_version))
                     replayed += 1
             row["signals_detected"] = len(detected)
+            report_bundle = build_instrument_report_bundle(
+                prepared_analysis,
+                symbol=asset.symbol,
+                instrument_id=instrument.instrument_id,
+                generated_at=started_at.isoformat(),
+                analysis=analysis,
+                signals=(event.to_dict() for event in detected),
+                chart_bars=chart_bars,
+            )
+            row["report_bundle"] = report_bundle.to_dict()
+            row["result_id"] = report_bundle.result_id
+            row["result_hash"] = report_bundle.result_hash
             if formal_eligible:
                 latest_time = prepared.index[-1].isoformat()
                 notification_signal_ids = {
