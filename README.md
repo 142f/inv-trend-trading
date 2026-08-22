@@ -144,3 +144,39 @@ pytest -q --basetemp .tmp/a
 ## 7. 当前边界
 
 本版已通过本地 **P0-core** 验收，但完整应用层迁移尚未完成：`turtle-alert` 与部分 `turtle-data` 子命令仍有平行路径，策略配置和 Turtle 规则内核也尚未完全收敛。正式部署封版仍需在目标环境完成真实 Provider 响应、实际数据根、生产规模 Catalog、独立进程恢复和 Windows 文件系统语义验证。交易所官方 holiday/halt、完整历史 QQQ 持仓谱系及全部 research Repository 迁移仍属于后续范围。
+
+---
+
+## 可解释日报与交互报告（v2 增强）
+
+本版本在不改变既有 Turtle / 日线策略核心判定语义的前提下，增加统一条件解释、单次 D1 特征准备和结构化 ReportBundle。新版 HTML 只消费 ReportBundle，不在展示层重新计算指标或策略。
+
+### 离线可视化 smoke 验证
+
+```bash
+PYTHONPATH=src python scripts/生成离线演示报告_v1.py
+```
+
+输出：
+
+- `outputs/离线可视化验证_v1/离线验证结构化结果_v1.json`
+- `outputs/离线可视化验证_v1/离线验证可视化报告_v1.html`
+
+该数据是**确定性离线 smoke fixture**，仅验证计算/解释/渲染链路，不冒充真实市场数据。
+
+### Binance 公开 BTCUSDT D1 端到端复现
+
+```bash
+python scripts/下载公开BTC测试数据_v1.py
+PYTHONPATH=src python scripts/运行公开BTC端到端_v1.py
+```
+
+默认区间为 `[2023-01-01, 2025-01-01)`，来源为 Binance Vision 公共月度 Kline 归档；下载器会校验相邻 `.CHECKSUM` 后再冻结 CSV fixture。
+
+### 新增回归测试
+
+```bash
+PYTHONPATH=src pytest -q
+```
+
+覆盖 FeatureRequest 合并、D1 单次准备、ATR 分位等价性、策略条件可解释结构、结果哈希稳定性、eligibility 两项 Bug 修复及 HTML 单一数据源约束。公开 BTC E2E 在 fixture 尚未下载时会显式 skip，而不是伪造成功。

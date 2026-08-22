@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 import json
 from pathlib import Path
 import sqlite3
-from typing import Any, Iterator, Mapping
+from typing import Any, Collection, Iterator, Mapping
 
 from inv_trend.core.signals import SignalEvent
 
@@ -97,6 +97,13 @@ class SQLiteDailySignalRepository:
                     FOREIGN KEY (signal_id) REFERENCES signal_events(signal_id),
                     FOREIGN KEY (run_id) REFERENCES daily_runs(run_id)
                 );
+                CREATE TABLE IF NOT EXISTS strategy_session_anchors (
+                    instrument_id TEXT NOT NULL,
+                    base_timeframe TEXT NOT NULL,
+                    anchor_time TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    PRIMARY KEY (instrument_id, base_timeframe)
+                );
                 """
             )
             self._ensure_column(db, "signal_events", "run_id", "TEXT")
@@ -104,6 +111,10 @@ class SQLiteDailySignalRepository:
             self._ensure_column(db, "daily_runs", "recovered_deliveries", "INTEGER NOT NULL DEFAULT 0")
             db.execute(
                 "INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (1, ?)",
+                (datetime.now(timezone.utc).isoformat(),),
+            )
+            db.execute(
+                "INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (2, ?)",
                 (datetime.now(timezone.utc).isoformat(),),
             )
 
@@ -156,9 +167,15 @@ class SQLiteDailySignalRepository:
         strategy_version: str,
         last_signal_time: str,
         enqueue_notifications: bool = True,
+        notification_signal_ids: Collection[str] | None = None,
     ) -> tuple[list[SignalEvent], int]:
         """Atomically insert unique events, enqueue them, and advance the cursor."""
         inserted: list[SignalEvent] = []
+        notification_ids = (
+            frozenset(event.signal_id for event in events)
+            if notification_signal_ids is None and enqueue_notifications
+            else frozenset(notification_signal_ids or ())
+        )
         with self._connect() as db:
             for event in events:
                 payload = json.dumps(event.to_dict(), ensure_ascii=False, sort_keys=True, allow_nan=False)
@@ -178,7 +195,7 @@ class SQLiteDailySignalRepository:
                 )
                 if cursor.rowcount == 1:
                     inserted.append(event)
-                    if enqueue_notifications:
+                    if event.signal_id in notification_ids:
                         db.execute(
                             "INSERT INTO signal_outbox(signal_id, run_id, created_at) VALUES (?, ?, ?)",
                             (event.signal_id, run_id, event.detected_at),
@@ -194,6 +211,35 @@ class SQLiteDailySignalRepository:
                  datetime.now(timezone.utc).isoformat()),
             )
         return inserted, len(events) - len(inserted)
+
+    def get_or_create_session_anchor(
+        self,
+        instrument_id: str,
+        base_timeframe: str,
+        first_complete_time: str,
+    ) -> str:
+        """Return a stable D1 grouping anchor for multi-session bars."""
+
+        with self._connect() as db:
+            db.execute(
+                """INSERT OR IGNORE INTO strategy_session_anchors(
+                    instrument_id, base_timeframe, anchor_time, created_at
+                ) VALUES (?, ?, ?, ?)""",
+                (
+                    instrument_id,
+                    base_timeframe,
+                    first_complete_time,
+                    datetime.now(timezone.utc).isoformat(),
+                ),
+            )
+            row = db.execute(
+                """SELECT anchor_time FROM strategy_session_anchors
+                WHERE instrument_id=? AND base_timeframe=?""",
+                (instrument_id, base_timeframe),
+            ).fetchone()
+        if row is None:  # Defensive; the INSERT above is atomic under the PK.
+            raise RuntimeError("failed to create strategy session anchor")
+        return str(row[0])
 
     def load_cursor(
         self, instrument_id: str, timeframe: str, strategy_version: str

@@ -1,4 +1,4 @@
-"""Refresh configured D1 data and scan Turtle, SMA, and MACD signals."""
+"""Refresh configured D1 data and scan parallel trend-strategy checks."""
 
 from __future__ import annotations
 
@@ -11,7 +11,6 @@ from rich.console import Console
 from rich.table import Table
 
 from inv_trend.application import DEFAULT_BOOTSTRAP_DAYS, DailyMarketScanService
-from inv_trend.observability import write_daily_report
 from inv_trend.core.signals import CORRECTED_STRATEGY_VERSION
 
 
@@ -88,6 +87,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             strategy_version=args.strategy_version,
             backfill_signals=args.backfill_signals,
             chart_bars=args.chart_bars,
+            render_html=not args.no_html,
         )
     except KeyboardInterrupt:
         print("Daily scan interrupted by user (Ctrl+C).", file=sys.stderr)
@@ -100,11 +100,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     console.print(f"Snapshot: {result.snapshot_path}")
     console.print(f"SignalStore: {result.database_path}")
     console.print(f"Signal logs: {result.signal_log_root}")
-    html_path = None
-    if not args.no_html:
-        html_path = write_daily_report(
-            result.snapshot, result.snapshot_path.with_suffix(".html")
-        )
+    html_path = getattr(
+        getattr(result, "artifact_publication", None), "compatibility_html", None
+    )
+    if not args.no_html and html_path is not None:
         console.print(f"HTML report: {html_path}")
         if args.open_report:
             webbrowser.open(html_path.resolve().as_uri())
@@ -115,13 +114,14 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 def _render(console: Console, snapshot: Mapping[str, Any]) -> None:
     table = Table(title=f"Daily D1 scan {snapshot['report_date']}")
-    for heading in ("Symbol", "Run", "Latest", "Version", "Turtle 20/55", "SMA10/20", "MACD", "Signals"):
+    for heading in ("Symbol", "Run", "Latest", "Version", "Turtle 20/55", "SMA10/20", "MACD", "Grade", "Signals"):
         table.add_column(heading)
     for row in snapshot["symbols"]:
         scan = row.get("scan", {})
         indicators = scan.get("indicators", {}) if isinstance(scan, Mapping) else {}
         t20, t55 = indicators.get("turtle_20", {}), indicators.get("turtle_55", {})
         sma, macd = indicators.get("sma_10_20", {}), indicators.get("macd_12_26_9", {})
+        rating = scan.get("strategy_checks", {}).get("rating", {})
         table.add_row(
             str(row["symbol"]),
             str(row.get("run_status", "failed")),
@@ -130,6 +130,7 @@ def _render(console: Console, snapshot: Mapping[str, Any]) -> None:
             f"{t20.get('event') or '-'} / {t55.get('event') or '-'}",
             f"{_number(sma.get('sma_10'))}/{_number(sma.get('sma_20'))} {sma.get('event') or '-'}",
             f"{_number(macd.get('dif'))}/{_number(macd.get('dea'))} {macd.get('event') or '-'}",
+            f"{rating.get('grade') or '-'} {rating.get('direction') or '-'} ({_number(rating.get('score'))})",
             f"{row.get('signals_new', 0)} new",
         )
     console.print(table)
@@ -146,6 +147,7 @@ def _render_plain(snapshot: Mapping[str, Any]) -> None:
         indicators = scan.get("indicators", {}) if isinstance(scan, Mapping) else {}
         t20, t55 = indicators.get("turtle_20", {}), indicators.get("turtle_55", {})
         sma, macd = indicators.get("sma_10_20", {}), indicators.get("macd_12_26_9", {})
+        rating = scan.get("strategy_checks", {}).get("rating", {})
         print(
             f"{row['symbol']} status={row.get('run_status', 'failed')} "
             f"latest={row.get('data', {}).get('latest_complete_bar', '-')} "
@@ -154,6 +156,8 @@ def _render_plain(snapshot: Mapping[str, Any]) -> None:
             f"sma10={_number(sma.get('sma_10'))} sma20={_number(sma.get('sma_20'))} "
             f"ma_cross={sma.get('event') or '-'} dif={_number(macd.get('dif'))} "
             f"dea={_number(macd.get('dea'))} macd_cross={macd.get('event') or '-'} "
+            f"grade={rating.get('grade') or '-'} rating_direction={rating.get('direction') or '-'} "
+            f"rating_score={_number(rating.get('score'))} "
             f"new_signals={row.get('signals_new', 0)}"
         )
     print("Summary: " + " ".join(f"{key}={value}" for key, value in snapshot["summary"].items()))

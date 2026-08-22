@@ -25,6 +25,22 @@ MACD_SLOW_PERIOD = 26
 MACD_SIGNAL_PERIOD = 9
 
 
+def daily_signal_feature_request() -> FeatureRequest:
+    """Return the exact D1 feature contract required by legacy daily signals."""
+
+    return FeatureRequest(
+        donchian_periods=TURTLE_PERIODS,
+        sma_lags=((SMA_FAST_PERIOD, 0), (SMA_SLOW_PERIOD, 0)),
+        macd_periods=(MACD_FAST_PERIOD, MACD_SLOW_PERIOD, MACD_SIGNAL_PERIOD),
+    )
+
+
+def normalize_completed_daily_bars(bars: pd.DataFrame) -> pd.DataFrame:
+    """Normalize canonical input once before a merged feature request is built."""
+
+    return _completed_bars(bars)
+
+
 def prepare_daily_signal_frame(bars: pd.DataFrame) -> pd.DataFrame:
     """Return completed, UTC-indexed bars with causal daily indicators.
 
@@ -40,14 +56,7 @@ def prepare_daily_signal_frame(bars: pd.DataFrame) -> pd.DataFrame:
     if out.empty:
         return out
 
-    prepared = PreparedBars.build(
-        out,
-        FeatureRequest(
-            donchian_periods=TURTLE_PERIODS,
-            sma_lags=((SMA_FAST_PERIOD, 0), (SMA_SLOW_PERIOD, 0)),
-            macd_periods=(MACD_FAST_PERIOD, MACD_SLOW_PERIOD, MACD_SIGNAL_PERIOD),
-        ),
-    ).frame
+    prepared = PreparedBars.build(out, daily_signal_feature_request()).frame
     out = prepared.copy()
     out[f"sma_{SMA_FAST_PERIOD}"] = out[f"sma_{SMA_FAST_PERIOD}_lag_0"]
     out[f"sma_{SMA_SLOW_PERIOD}"] = out[f"sma_{SMA_SLOW_PERIOD}_lag_0"]
@@ -543,4 +552,10 @@ def _timestamp_or_none(value: Any) -> str | None:
     return _timestamp_text(value)
 
 
-__all__ = ["analyze_daily_signals", "prepare_daily_signal_frame"]
+__all__ = [
+    "analyze_daily_signals",
+    "analyze_prepared_daily_signals",
+    "daily_signal_feature_request",
+    "normalize_completed_daily_bars",
+    "prepare_daily_signal_frame",
+]
