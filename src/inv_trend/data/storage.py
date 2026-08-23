@@ -219,9 +219,15 @@ class DataLake:
                         )
                     return path
                 raise FileExistsError(path)
-            temporary = path.with_name(
-                f".{path.name}.{os.getpid()}.{uuid4().hex}.tmp"
-            )
+            # Keep the same-directory atomic-write contract, but do not make
+            # the temporary name a second copy of a deeply partitioned
+            # Parquet filename.  On Windows a normal pytest/data-lake root
+            # plus the old ``.<name>.<pid>.<uuid>.tmp`` suffix can hit the
+            # legacy 260-character path boundary before pyarrow opens it.
+            # The destination lock already serializes writers for this
+            # artifact, so a short UUID is sufficient for a recoverable temp
+            # token while preserving atomic ``os.replace`` publication.
+            temporary = path.with_name(f".tmp-{uuid4().hex[:16]}")
             try:
                 frame.to_parquet(
                     temporary,
@@ -688,6 +694,74 @@ class DataLake:
                 result.append(path.parent.name.split("=", 1)[1])
         return sorted(result)
 
+    def curated_version_path(
+        self, symbol: str, timeframe: str, version: str
+    ) -> Path:
+        """Resolve one immutable curated artifact without consulting ``current``.
+
+        A D1 workflow pins the content-addressed dataset version during its
+        data-update stage.  Later stages must therefore resolve the recorded
+        artifact directly, rather than re-reading a mutable current pointer.
+        The symbol check is intentional: a version directory is not accepted
+        merely because it has the requested name.
+        """
+
+        require_parquet()
+        symbol, timeframe = symbol.upper(), timeframe.upper()
+        version = _validated_version(version)
+        matches: list[Path] = []
+        for path in (self.root / "curated").glob(
+            f"asset_class=*/instrument=*/timeframe={timeframe}/version=*/bars.parquet"
+        ):
+            if path.parent.name != f"version={version}":
+                continue
+            try:
+                sample = pd.read_parquet(path, columns=["symbol"])
+            except Exception as exc:
+                raise DataLineageError(
+                    f"cannot inspect curated version for {symbol}/{timeframe}: {path}"
+                ) from exc
+            if "symbol" in sample and (sample["symbol"].astype(str).str.upper() == symbol).any():
+                matches.append(path)
+        if len(matches) != 1:
+            if not matches:
+                raise FileNotFoundError(
+                    f"curated version not found for {symbol}/{timeframe}: {version}"
+                )
+            raise DataLineageError(
+                f"multiple curated artifacts match {symbol}/{timeframe}/{version}: {matches}"
+            )
+        return matches[0]
+
+    def read_bars_version(
+        self, symbol: str, timeframe: str, version: str
+    ) -> pd.DataFrame:
+        """Read exactly one immutable curated dataset version.
+
+        This deliberately does not assert that the version is still current.
+        It does, however, fail closed if the selected Parquet payload claims a
+        different dataset version, which prevents a malformed artifact from
+        being used as a pinned input.
+        """
+
+        version = _validated_version(version)
+        frame = self._read_bars_from_paths(
+            symbol,
+            timeframe,
+            [self.curated_version_path(symbol, timeframe, version)],
+        )
+        if "dataset_version" not in frame:
+            raise DataLineageError(
+                f"curated version {version} for {symbol}/{timeframe} has no dataset_version"
+            )
+        actual_versions = set(frame["dataset_version"].astype(str).dropna())
+        if actual_versions != {version}:
+            raise DataLineageError(
+                f"curated artifact version mismatch for {symbol}/{timeframe}: "
+                f"expected {version}, got {sorted(actual_versions)}"
+            )
+        return frame
+
     def rollback(
         self,
         symbol: str,
@@ -764,6 +838,14 @@ class DataLake:
                     "year=*/*.parquet"
                 )
             )
+        return self._read_bars_from_paths(symbol, timeframe, paths)
+
+    def _read_bars_from_paths(
+        self, symbol: str, timeframe: str, paths: list[Path]
+    ) -> pd.DataFrame:
+        """Load and normalize one or more already-resolved data artifacts."""
+
+        symbol, timeframe = symbol.upper(), timeframe.upper()
         frames = []
         for path in paths:
             if path.exists():
@@ -1046,6 +1128,15 @@ class DataLake:
 
 def _safe(value: str) -> str:
     return value.replace("/", "_").replace("\\", "_")
+
+
+def _validated_version(value: str) -> str:
+    """Return a portable version token or reject a path-like value."""
+
+    version = str(value).strip()
+    if not version or version in {".", ".."} or "/" in version or "\\" in version:
+        raise DataLineageError(f"invalid dataset version: {value!r}")
+    return version
 
 
 def _raise_on_conflicting_duplicates(frame: pd.DataFrame) -> None:

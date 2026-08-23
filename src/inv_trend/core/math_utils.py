@@ -105,6 +105,72 @@ def macd(
     )
 
 
+def directional_movement_index(
+    high: pd.Series, low: pd.Series, close: pd.Series, period: int = 14
+) -> pd.DataFrame:
+    """Return the standard Wilder ``+DI``, ``-DI``, DX and ADX series.
+
+    The calculation intentionally shares the same Wilder seeding convention as
+    :func:`wilder_atr`: the first available smoothed value is the arithmetic
+    mean of the first ``period`` observations, and later values use the Wilder
+    recurrence.  This makes the feature safe for both reports and replayed
+    historical scans.
+    """
+
+    for name, value in (("high", high), ("low", low), ("close", close)):
+        _numeric_series(value, name)
+    if not high.index.equals(low.index) or not high.index.equals(close.index):
+        raise ValueError("high, low, close indexes must match")
+    if period < 2:
+        raise ValueError("period must be >= 2")
+
+    up_move = high.diff()
+    down_move = -low.diff()
+    plus_dm = pd.Series(
+        np.where((up_move > down_move) & (up_move > 0.0), up_move, 0.0),
+        index=high.index,
+        dtype=float,
+        name="plus_dm",
+    )
+    minus_dm = pd.Series(
+        np.where((down_move > up_move) & (down_move > 0.0), down_move, 0.0),
+        index=high.index,
+        dtype=float,
+        name="minus_dm",
+    )
+    # The first directional move has no previous bar, so it contributes zero
+    # to the first Wilder seed (matching the true-range treatment of bar 0).
+    plus_dm.iloc[0] = 0.0
+    minus_dm.iloc[0] = 0.0
+
+    atr = wilder_atr(high, low, close, period)
+    plus_smoothed = wilder_average(plus_dm, period)
+    minus_smoothed = wilder_average(minus_dm, period)
+    plus_di = 100.0 * plus_smoothed / atr
+    minus_di = 100.0 * minus_smoothed / atr
+    denominator = plus_di + minus_di
+    dx = (100.0 * (plus_di - minus_di).abs() / denominator).where(
+        denominator > 0.0
+    )
+    adx = pd.Series(np.nan, index=dx.index, dtype=float, name="adx")
+    first_dx = dx.first_valid_index()
+    if first_dx is not None:
+        # DX starts only after the first DI seed.  Smooth its contiguous tail
+        # rather than letting leading NaNs suppress the whole ADX series.
+        smoothed = wilder_average(dx.loc[first_dx:], period)
+        adx.loc[smoothed.index] = smoothed
+    return pd.DataFrame(
+        {
+            "plus_dm": plus_dm,
+            "minus_dm": minus_dm,
+            "plus_di": plus_di,
+            "minus_di": minus_di,
+            "dx": dx,
+            "adx": adx,
+        }
+    )
+
+
 def donchian_channels(
     high: pd.Series, low: pd.Series, periods: set[int] | tuple[int, ...]
 ) -> pd.DataFrame:

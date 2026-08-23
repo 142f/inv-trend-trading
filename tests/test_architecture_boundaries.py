@@ -11,7 +11,7 @@ def test_core_does_not_depend_on_io_or_application_packages() -> None:
         "inv_trend.adapters.detector", "inv_trend.adapters.multi_asset", "sqlite3", "requests", "urllib",
     }
     violations = []
-    for source in root.glob("*.py"):
+    for source in root.rglob("*.py"):
         tree = ast.parse(source.read_text(encoding="utf-8"))
         for node in ast.walk(tree):
             names = []
@@ -19,6 +19,8 @@ def test_core_does_not_depend_on_io_or_application_packages() -> None:
                 names = [alias.name for alias in node.names]
             elif isinstance(node, ast.ImportFrom) and node.module:
                 names = [node.module]
+            elif isinstance(node, ast.Call):
+                names = _dynamic_import_names(node)
             for name in names:
                 if _is_banned(name, banned):
                     violations.append(f"{source.name}: {name}")
@@ -37,6 +39,8 @@ def test_application_does_not_depend_on_cli_or_presentation_packages() -> None:
                 names = [alias.name for alias in node.names]
             elif isinstance(node, ast.ImportFrom) and node.module:
                 names = [node.module]
+            elif isinstance(node, ast.Call):
+                names = _dynamic_import_names(node)
             for name in names:
                 if _is_banned(name, banned):
                     violations.append(f"{source.name}: {name}")
@@ -55,6 +59,8 @@ def test_historical_data_does_not_depend_on_strategy_or_application_packages() -
                 names = [alias.name for alias in node.names]
             elif isinstance(node, ast.ImportFrom) and node.module:
                 names = [node.module]
+            elif isinstance(node, ast.Call):
+                names = _dynamic_import_names(node)
             for name in names:
                 if _is_banned(name, banned):
                     violations.append(f"{source.name}: {name}")
@@ -83,3 +89,19 @@ def test_source_has_one_canonical_package_namespace() -> None:
 
 def _is_banned(name: str, banned: set[str]) -> bool:
     return any(name == package or name.startswith(f"{package}.") for package in banned)
+
+
+def _dynamic_import_names(node: ast.Call) -> list[str]:
+    """Return literal module names passed to Python's dynamic import hooks."""
+
+    function_name = (
+        node.func.id
+        if isinstance(node.func, ast.Name)
+        else node.func.attr
+        if isinstance(node.func, ast.Attribute)
+        else None
+    )
+    if function_name not in {"__import__", "import_module"} or not node.args:
+        return []
+    first = node.args[0]
+    return [first.value] if isinstance(first, ast.Constant) and isinstance(first.value, str) else []

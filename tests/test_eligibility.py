@@ -158,6 +158,38 @@ def test_data_ready_valid_bars() -> None:
     assert result.status != EligibilityStatus.NOT_READY
 
 
+def test_checker_accepts_the_daily_eligibility_port_request() -> None:
+    """D1 screening can use the checker without importing detector models."""
+
+    request = {
+        "symbol": "BTC",
+        "instrument": "BTCUSDT_BINANCE_SPOT",
+        "market": "crypto",
+        "timeframe": "D1",
+        "signal_type": "SYSTEM1_BREAKOUT",
+        "raw_signal_type": "SYSTEM1_BREAKOUT",
+        "direction": "long",
+        "signal_time": "2024-06-15T00:00:00+00:00",
+        "trigger_price": 105.0,
+        "channel_high": 100.0,
+        "channel_low": 90.0,
+        "atr": 2.0,
+        "atr_pct": 0.02,
+        "distance_to_breakout_atr": 0.3,
+        "volatility_percentile": 0.5,
+        "suggested_risk_unit": 0.01,
+        "confirmation_status": "close_confirmed",
+        "data_source": "binance",
+        "generated_at": "2024-06-15T00:00:00+00:00",
+        "tradeable": True,
+    }
+
+    result = TradeEligibilityChecker().evaluate(request, _bars(n=300), _asset())
+
+    assert result.symbol == "BTC"
+    assert result.timeframe == "D1"
+
+
 def test_data_not_ready_missing_columns() -> None:
     """缺少必要列应返回DATA_NOT_READY。"""
     checker = TradeEligibilityChecker()
