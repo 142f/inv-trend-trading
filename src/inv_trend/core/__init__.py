@@ -1,5 +1,10 @@
 """Shared, dependency-light primitives for the trend-trading applications."""
 
+from .decision_events import (
+    DEFAULT_DECISION_RULE_VERSION,
+    ExecutionDecisionEvent,
+    ExecutionDecisionEventType,
+)
 from .events import DecisionEvent, EventType
 from .identity import ConfigFingerprint, DataFingerprint, RunId
 from .features import FeatureCache, FeatureRequest, PreparedBars, ohlcv_fingerprint
@@ -19,6 +24,8 @@ from .performance import equity_statistics
 
 __all__ = [
     "ConfigFingerprint", "DataFingerprint", "DecisionEvent", "EventType", "RunId",
+    "DEFAULT_DECISION_RULE_VERSION", "ExecutionDecisionEvent",
+    "ExecutionDecisionEventType",
     "FeatureCache", "FeatureRequest", "PreparedBars", "ohlcv_fingerprint", "equity_statistics",
     "CORRECTED_STRATEGY_VERSION",
     "SignalEvent", "crossed_above", "crossed_below", "donchian_channels",

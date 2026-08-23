@@ -145,9 +145,13 @@ class DailyStateRepositoryPort(Protocol):
         strategy_version: str,
         last_signal_time: str,
         enqueue_notifications: bool = True,
+        notification_event_ids: Collection[str] | None = None,
         notification_signal_ids: Collection[str] | None = None,
     ) -> tuple[list[SignalEvent], int]:
-        """Atomically persist deduplicated events, outbox records, and cursor."""
+        """Persist events/cursor; enqueue selected execution-decision IDs.
+
+        ``notification_signal_ids`` is a deprecated compatibility alias.
+        """
 
     def commit_daily_run(
         self,
@@ -237,10 +241,10 @@ class DailyReportRendererPort(Protocol):
 
 @runtime_checkable
 class NotificationPort(Protocol):
-    """Deliver a committed signal to an external notification channel."""
+    """Deliver a committed formal execution-decision event."""
 
     def notify(self, signal: SignalEvent) -> None:
-        """Deliver one deduplicated signal."""
+        """Deliver one deduplicated execution event projected as SignalEvent."""
 
 
 @runtime_checkable

@@ -67,6 +67,8 @@ def trend_decision_result(payload: Mapping[str, Any]) -> TrendDecisionResult:
         trend_direction=str(payload.get("trend_direction", "NEUTRAL")),
         execution_state=str(payload.get("execution_state", "WAIT")),
         decision=str(payload.get("decision", "WAIT")),
+        reason_code=str(payload.get("reason_code", "")),
+        eligibility_status=str(payload.get("eligibility_status", "UNKNOWN")),
         confidence=mapping(payload.get("confidence")),
         long_evidence=tuple(str(item) for item in payload.get("long_evidence", ())),
         short_evidence=tuple(str(item) for item in payload.get("short_evidence", ())),

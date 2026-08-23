@@ -190,15 +190,23 @@ class SQLiteDailySignalRepository:
         strategy_version: str,
         last_signal_time: str,
         enqueue_notifications: bool = True,
+        notification_event_ids: Collection[str] | None = None,
         notification_signal_ids: Collection[str] | None = None,
     ) -> tuple[list[SignalEvent], int]:
-        """Atomically insert unique events, enqueue them, and advance the cursor."""
+        """Atomically insert unique events, enqueue them, and advance the cursor.
+
+        New callers must select formal outbox rows with
+        ``notification_event_ids``.  ``notification_signal_ids`` remains a
+        parameter-name compatibility alias with the same execution-only rule.
+        """
         inserted: list[SignalEvent] = []
-        notification_ids = (
-            frozenset(event.signal_id for event in events)
-            if notification_signal_ids is None and enqueue_notifications
-            else frozenset(notification_signal_ids or ())
+        notification_ids = _resolve_notification_ids(
+            events,
+            enqueue_notifications=enqueue_notifications,
+            notification_event_ids=notification_event_ids,
+            notification_signal_ids=notification_signal_ids,
         )
+        _validate_execution_notification_events(events, notification_ids)
         with self._connect() as db:
             for event in events:
                 payload = json.dumps(event.to_dict(), ensure_ascii=False, sort_keys=True, allow_nan=False)
@@ -308,10 +316,25 @@ class SQLiteDailySignalRepository:
                 events = list(commit.get("events") or ())
                 if not all(isinstance(event, SignalEvent) for event in events):
                     raise TypeError("daily run commit events must be SignalEvent instances")
-                notification_ids = frozenset(
-                    str(value) for value in (commit.get("notification_signal_ids") or ())
+                has_execution_ids = "notification_event_ids" in commit
+                notification_ids = _resolve_notification_ids(
+                    events,
+                    enqueue_notifications=bool(
+                        commit.get("enqueue_notifications", True)
+                    ),
+                    notification_event_ids=(
+                        commit.get("notification_event_ids")
+                        if has_execution_ids
+                        else None
+                    ),
+                    notification_signal_ids=(
+                        None
+                        if has_execution_ids
+                        else commit.get("notification_signal_ids")
+                    ),
                 )
                 enqueue_notifications = bool(commit.get("enqueue_notifications", True))
+                _validate_execution_notification_events(events, notification_ids)
                 inserted_for_symbol: list[SignalEvent] = []
                 for event in events:
                     payload = json.dumps(
@@ -590,6 +613,79 @@ class SQLiteDailySignalRepository:
     def signal_count(self) -> int:
         with self._connect() as db:
             return int(db.execute("SELECT COUNT(*) FROM signal_events").fetchone()[0])
+
+
+def _resolve_notification_ids(
+    events: Collection[SignalEvent],
+    *,
+    enqueue_notifications: bool,
+    notification_event_ids: Collection[str] | None,
+    notification_signal_ids: Collection[str] | None,
+) -> frozenset[str]:
+    """Resolve selectors while enforcing execution-event-only outbox semantics."""
+
+    execution_ids = _coerce_id_set(
+        notification_event_ids, "notification_event_ids"
+    )
+    legacy_ids = _coerce_id_set(
+        notification_signal_ids, "notification_signal_ids"
+    )
+    if execution_ids is not None and legacy_ids is not None and execution_ids != legacy_ids:
+        raise ValueError(
+            "notification_event_ids and notification_signal_ids must identify the same events"
+        )
+    selected = (
+        execution_ids
+        if execution_ids is not None
+        else legacy_ids
+        if legacy_ids is not None
+        else frozenset(
+            event.signal_id
+            for event in events
+            if _is_execution_notification_event(event)
+        )
+        if enqueue_notifications
+        else frozenset()
+    )
+    known_ids = {event.signal_id for event in events}
+    if not selected.issubset(known_ids):
+        unknown = sorted(selected - known_ids)
+        raise ValueError(f"notification event IDs are not present in events: {unknown}")
+    return selected if enqueue_notifications else frozenset()
+
+
+def _coerce_id_set(
+    values: Collection[str] | None,
+    name: str,
+) -> frozenset[str] | None:
+    if values is None:
+        return None
+    if isinstance(values, (str, bytes)):
+        raise TypeError(f"{name} must be a collection of event IDs")
+    return frozenset(str(value) for value in values)
+
+
+def _validate_execution_notification_events(
+    events: Collection[SignalEvent], notification_ids: Collection[str]
+) -> None:
+    selected = {event.signal_id: event for event in events if event.signal_id in notification_ids}
+    invalid = sorted(
+        event.signal_type
+        for event in selected.values()
+        if not _is_execution_notification_event(event)
+    )
+    if invalid:
+        raise ValueError(
+            "notification selectors may select only confirmed execution decision events: "
+            f"{invalid}"
+        )
+
+
+def _is_execution_notification_event(event: SignalEvent) -> bool:
+    return (
+        event.indicator_name == "execution_decision"
+        and event.signal_type in {"ENTRY_DECISION_LONG", "ENTRY_DECISION_SHORT"}
+    )
 
 
 def _daily_run_summary(rows: list[Mapping[str, Any]], signals_new: int) -> dict[str, int]:

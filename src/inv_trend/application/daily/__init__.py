@@ -27,7 +27,11 @@ from .strategy_screening import (
     StrategyScreeningService,
     StrategyScreeningStage,
 )
-from .trend_decision import TrendDecisionResult, TrendDecisionService
+from .trend_decision import (
+    TrendDecisionResult,
+    TrendDecisionService,
+    build_execution_decision_event,
+)
 
 __all__ = [
     "ArtifactPublisherPort",
@@ -58,6 +62,7 @@ __all__ = [
     "StrategyScreeningStage",
     "TrendDecisionResult",
     "TrendDecisionService",
+    "build_execution_decision_event",
 ]
 
 

@@ -40,4 +40,5 @@ daily_checks:
     b_min_families: 2
 trend_decision:
   execution_grade: A
+  # false 或未注入执行上下文时仅输出 ENTRY_CANDIDATE，不生成正式入场通知。
   eligibility_gate_enabled: false

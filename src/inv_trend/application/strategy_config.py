@@ -121,7 +121,9 @@ class TrendDecisionConfig:
 
     Scoring remains entirely in :class:`DailyChecksConfig`.  This separate
     section is intentionally small so a deployment cannot accidentally turn a
-    report-score tweak into a new execution rule.
+    report-score tweak into a new execution rule.  When the eligibility gate
+    is disabled or no execution context is supplied, A-grade breakouts remain
+    ``ENTRY_CANDIDATE_*`` rather than being overstated as executable entries.
     """
 
     execution_grade: str = "A"

@@ -6,8 +6,9 @@ from dataclasses import replace
 import hashlib
 import json
 import math
-from typing import Any, Mapping
+from typing import Any, Iterable, Mapping
 
+from inv_trend.core.decision_events import ExecutionDecisionEvent
 from inv_trend.core.signals import SignalEvent
 from inv_trend.core.strategy.daily import build_daily_signal_events
 
@@ -63,6 +64,7 @@ class TrendDecisionService:
             item for item in candidates if str(item.get("direction")) == raw_direction
         )
         eligibility = _mapping(evidence.get("eligibility"))
+        eligibility_status = str(eligibility.get("status") or "NOT_EVALUATED").upper()
         risk_blocks = _eligibility_blocks(eligibility, raw_direction)
         long_evidence, short_evidence, reverse_evidence = _directional_evidence(
             checks, candidates, raw_direction
@@ -72,31 +74,52 @@ class TrendDecisionService:
         observation_only = bool(data.observation_only or screening.observation_only)
         if observation_only:
             decision, execution_state = "WAIT", "WAIT"
+            reason_code = "OBSERVATION_ONLY"
             conclusion = "研究模式仅生成观察性结论，不可执行、不推进 cursor，也不会进入通知队列。"
         elif not data.formal_ready:
             decision, execution_state = "WAIT", "WAIT"
+            reason_code = "DATA_BLOCKED"
             conclusion = "数据就绪闸门未通过，停止正式策略筛选与信号持久化，等待数据恢复。"
             trend_direction = "NEUTRAL"
         elif screening.screening_status != "READY":
             decision, execution_state = "WAIT", "WAIT"
+            reason_code = "SCREENING_NOT_READY"
             conclusion = "策略筛选结果不可用，等待完整 D1 筛选证据。"
             trend_direction = "NEUTRAL"
         elif not has_direction or grade in {"C", "CONFLICT", "NONE"}:
             decision, execution_state = "NEUTRAL", "NOT_APPLICABLE"
+            reason_code = "NO_EXECUTABLE_TREND"
             conclusion = "策略评级没有形成可执行的同向趋势，维持中性观察。"
             trend_direction = "NEUTRAL"
         elif grade == "B":
             decision, execution_state = "WAIT", "WAIT"
+            reason_code = "GRADE_B_WAIT"
             conclusion = "已形成 B 级同向趋势，但 B 级仅用于等待确认，不形成执行信号。"
         elif not same_direction:
             decision, execution_state = "WAIT", "WAIT"
+            reason_code = "TREND_NO_TRIGGER"
             conclusion = "已形成 A 级同向趋势，但当日没有同向海龟价格突破，继续等待。"
         elif risk_blocks:
             decision, execution_state = "WAIT", "WAIT"
+            reason_code = "RISK_BLOCKED"
             conclusion = "同向 A 级海龟突破已出现，但资格校验存在阻断，暂不执行。"
+        elif not _eligibility_confirmed(eligibility):
+            decision = trend_direction
+            execution_state = (
+                "ENTRY_CANDIDATE_LONG"
+                if trend_direction == "LONG"
+                else "ENTRY_CANDIDATE_SHORT"
+            )
+            reason_code = "ELIGIBILITY_NOT_CONFIRMED"
+            side = "多头" if trend_direction == "LONG" else "空头"
+            conclusion = (
+                f"同向 A 级{side}评级与当日海龟价格突破一致，但资格闸门未确认通过，"
+                f"仅形成 {execution_state}，不进入正式通知队列。"
+            )
         else:
             decision = trend_direction
             execution_state = "ENTER_LONG" if trend_direction == "LONG" else "ENTER_SHORT"
+            reason_code = "ENTRY_CONFIRMED"
             side = "多头" if trend_direction == "LONG" else "空头"
             conclusion = f"同向 A 级{side}评级与当日海龟价格突破一致，可形成 {execution_state}。"
 
@@ -110,6 +133,8 @@ class TrendDecisionService:
             trend_direction=trend_direction,
             execution_state=execution_state,
             decision=decision,
+            reason_code=reason_code,
+            eligibility_status=eligibility_status,
             confidence=confidence,
             long_evidence=long_evidence,
             short_evidence=short_evidence,
@@ -117,6 +142,7 @@ class TrendDecisionService:
             risk_blocks=risk_blocks,
             conclusion=conclusion,
             observation_only=observation_only,
+            schema_version="2",
         )
 
     run = decide
@@ -181,6 +207,25 @@ class TrendDecisionProjectionBuilder:
         decisions_by_position = {
             int(item.get("position", -1)): item for item in event_decisions
         }
+        execution_decision_events: list[ExecutionDecisionEvent] = []
+        for position, payload in decisions_by_position.items():
+            event_decision = _decision_from_event_payload(payload)
+            if event_decision is None:
+                continue
+            execution_event = build_execution_decision_event(
+                event_decision,
+                trigger_events=events_by_position.get(position, ()),
+                dataset_version=data.dataset_version or "unknown",
+                detected_at=detected_at,
+                strategy_version=strategy_version,
+                market=market,
+            )
+            if execution_event is None:
+                continue
+            execution_decision_events.append(execution_event)
+            signal_event = execution_event.to_signal_event()
+            events_by_position.setdefault(position, []).append(signal_event)
+            detected.append(signal_event)
         assessments: list[BreakoutAssessment] = []
         base_assessments = _mapping(runtime.get("base_breakout_assessments"))
         for position in positions:
@@ -210,6 +255,9 @@ class TrendDecisionProjectionBuilder:
             event_decisions=event_decisions,
             signals=[event.to_dict() for event in detected],
             assessments=assessments,
+            execution_decision_events=[
+                event.to_dict() for event in execution_decision_events
+            ],
         )
         research_mode = bool(_mapping(context.get("configuration")).get("research_mode", False))
         formal_eligible = (
@@ -219,21 +267,27 @@ class TrendDecisionProjectionBuilder:
             and not screening.observation_only
             and not decision.observation_only
         )
-        notification_signal_ids = sorted(
-            event.signal_id
-            for event in detected
-            if event.signal_type.startswith("STRATEGY_GRADE_A_")
+        notification_event_ids = sorted(
+            event.event_id
+            for event in execution_decision_events
+            if event.action in {"ENTER_LONG", "ENTER_SHORT"}
         )
         return json_safe(
             {
-                "schema_version": "1",
+                "schema_version": "2",
                 "operational_context_hash": str(
                     context.get("operational_context_hash") or ""
                 ),
                 "input_screening_commit_evidence_hash": screening.commit_evidence_hash,
                 "decision_result_hash": decision.result_hash,
                 "formal_signal_events": [event.to_dict() for event in detected],
-                "notification_signal_ids": notification_signal_ids,
+                "execution_decision_events": [
+                    event.to_dict() for event in execution_decision_events
+                ],
+                "notification_event_ids": notification_event_ids,
+                # Deprecated compatibility alias for staged artifacts/readers
+                # created before execution-decision events became authoritative.
+                "notification_signal_ids": notification_event_ids,
                 "persistence": {
                     "instrument_id": data.instrument_id,
                     "timeframe": "D1",
@@ -341,6 +395,97 @@ def _eligibility_blocks(eligibility: Mapping[str, Any], direction: str) -> tuple
     return tuple(dict.fromkeys(blocks or ["eligibility_blocked"]))
 
 
+def _eligibility_confirmed(eligibility: Mapping[str, Any]) -> bool:
+    """Fail closed unless the execution gate was actually evaluated and passed."""
+
+    return (
+        str(eligibility.get("status") or "").upper() == "PASSED"
+        and eligibility.get("evaluated") is True
+        and eligibility.get("passed") is True
+    )
+
+
+def build_execution_decision_event(
+    decision: TrendDecisionResult,
+    *,
+    trigger_events: Iterable[SignalEvent],
+    dataset_version: str,
+    detected_at: str,
+    strategy_version: str,
+    market: str = "",
+) -> ExecutionDecisionEvent | None:
+    """Create one formal entry event from a confirmed decision and its triggers.
+
+    Technical/rating events remain evidence.  Only ``ENTER_LONG`` or
+    ``ENTER_SHORT`` may produce this event, and each event must be traceable to
+    at least one same-direction Turtle breakout on the decision bar.
+    """
+
+    action = str(decision.execution_state)
+    if action not in {"ENTER_LONG", "ENTER_SHORT"}:
+        return None
+    direction = "LONG" if action == "ENTER_LONG" else "SHORT"
+    if (
+        decision.reason_code != "ENTRY_CONFIRMED"
+        or decision.eligibility_status.upper() != "PASSED"
+        or decision.risk_blocks
+        or decision.trend_direction != direction
+    ):
+        raise ValueError(
+            "execution event requires a confirmed, unblocked, same-direction decision"
+        )
+    source_events = tuple(
+        event
+        for event in trigger_events
+        if event.signal_type in {"TURTLE_20_BREAKOUT", "TURTLE_55_BREAKOUT"}
+        and event.direction.upper() == direction
+        and (decision.as_of is None or event.signal_time == decision.as_of)
+    )
+    if not source_events:
+        raise ValueError(
+            "confirmed execution decision has no same-direction Turtle trigger event"
+        )
+    trigger_prices = {float(event.trigger_price) for event in source_events}
+    if len(trigger_prices) != 1:
+        raise ValueError("execution decision trigger events have inconsistent prices")
+    reference_values = tuple(
+        float(event.reference_value)
+        for event in source_events
+        if event.reference_value is not None
+    )
+    reference_value = None
+    if reference_values:
+        reference_value = (
+            max(reference_values) if direction == "LONG" else min(reference_values)
+        )
+    as_of = str(decision.as_of or source_events[0].signal_time)
+    return ExecutionDecisionEvent.create(
+        instrument_id=decision.instrument_id,
+        symbol=decision.symbol,
+        timeframe=decision.timeframe,
+        as_of=as_of,
+        action=action,
+        decision_hash=decision.result_hash,
+        strategy_version=strategy_version,
+        dataset_version=dataset_version,
+        detected_at=detected_at,
+        trigger_price=next(iter(trigger_prices)),
+        reference_value=reference_value,
+        trigger_signal_ids=tuple(event.signal_id for event in source_events),
+        reason_code=decision.reason_code,
+        metadata={
+            "market": market,
+            "trend_direction": decision.trend_direction,
+            "eligibility_status": decision.eligibility_status,
+            "rating_grade": decision.confidence.get("rating_grade"),
+            "rating_score": decision.confidence.get("rating_score"),
+            "source_signal_types": sorted(
+                {event.signal_type for event in source_events}
+            ),
+        },
+    )
+
+
 def _decision_from_event_payload(payload: Mapping[str, Any] | None) -> TrendDecisionResult | None:
     """Restore the event-day decision projection without touching indicators."""
 
@@ -356,6 +501,8 @@ def _decision_from_event_payload(payload: Mapping[str, Any] | None) -> TrendDeci
         trend_direction=str(payload.get("trend_direction") or "NEUTRAL"),
         execution_state=str(payload.get("execution_state") or "WAIT"),
         decision=str(payload.get("decision") or "WAIT"),
+        reason_code=str(payload.get("reason_code") or ""),
+        eligibility_status=str(payload.get("eligibility_status") or "UNKNOWN"),
         confidence=_mapping(payload.get("confidence")),
         long_evidence=tuple(str(item) for item in payload.get("long_evidence", ())),
         short_evidence=tuple(str(item) for item in payload.get("short_evidence", ())),
@@ -377,6 +524,7 @@ def _report_bundle_projection(
     event_decisions: list[Mapping[str, Any]],
     signals: list[Mapping[str, Any]],
     assessments: list[BreakoutAssessment],
+    execution_decision_events: list[Mapping[str, Any]],
 ) -> dict[str, Any]:
     """Finish a legacy report bundle from staged values only.
 
@@ -393,6 +541,7 @@ def _report_bundle_projection(
     result["strategy_screening_result"] = json_safe(screening)
     result["trend_decision_result"] = json_safe(decision)
     result["event_decisions"] = json_safe(event_decisions)
+    result["execution_decision_events"] = json_safe(execution_decision_events)
     result["signals"] = json_safe(signals)
     result["breakout_assessments"] = [item.to_dict() for item in assessments]
     result["market_assessment"] = market_assessment_from_decision(
@@ -410,6 +559,7 @@ def _report_bundle_projection(
     ).to_dict()
     result_summary = dict(_mapping(result.get("summary")))
     result_summary["signals"] = len(signals)
+    result_summary["execution_decision_events"] = len(execution_decision_events)
     result_summary["breakout_assessments"] = len(assessments)
     result["summary"] = result_summary
     result.pop("result_id", None)
@@ -480,4 +630,5 @@ __all__ = [
     "TrendDecisionProjectionBuilder",
     "TrendDecisionResult",
     "TrendDecisionService",
+    "build_execution_decision_event",
 ]
