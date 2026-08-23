@@ -14,7 +14,15 @@ from typing import Iterable
 import numpy as np
 import pandas as pd
 
-from .math_utils import donchian_channels, macd, simple_moving_average, true_range, wilder_average
+from .math_utils import (
+    directional_movement_index,
+    donchian_channels,
+    exponential_moving_average,
+    macd,
+    simple_moving_average,
+    true_range,
+    wilder_average,
+)
 
 
 @dataclass(frozen=True)
@@ -29,7 +37,10 @@ class FeatureRequest:
     atr_period: int | None = None
     donchian_periods: tuple[int, ...] = ()
     sma_lags: tuple[tuple[int, int], ...] = ()
+    ema_periods: tuple[int, ...] = ()
     macd_periods: tuple[int, int, int] | None = None
+    dmi_period: int | None = None
+    volume_sma_lags: tuple[tuple[int, int], ...] = ()
     include_true_range: bool = False
 
     def __post_init__(self) -> None:
@@ -39,10 +50,74 @@ class FeatureRequest:
             raise ValueError("Donchian periods must be >= 2")
         if any(period < 2 or lag < 0 for period, lag in self.sma_lags):
             raise ValueError("SMA periods must be >= 2 and lags must be non-negative")
+        if any(period < 2 for period in self.ema_periods):
+            raise ValueError("EMA periods must be >= 2")
         if self.macd_periods is not None:
             fast, slow, signal = self.macd_periods
             if not 1 < fast < slow or signal < 2:
                 raise ValueError("invalid MACD periods")
+        if self.dmi_period is not None and self.dmi_period < 2:
+            raise ValueError("dmi_period must be >= 2")
+        if any(period < 2 or lag < 0 for period, lag in self.volume_sma_lags):
+            raise ValueError("volume SMA periods must be >= 2 and lags must be non-negative")
+
+    @classmethod
+    def merge(cls, *requests: "FeatureRequest") -> "FeatureRequest":
+        """Return the minimal superset request required by all callers.
+
+        Conflicting singular feature definitions are rejected instead of silently
+        selecting one, so a merged request cannot change strategy semantics.
+        """
+
+        if not requests:
+            return cls()
+
+        def singular(name: str):
+            values = {getattr(request, name) for request in requests if getattr(request, name) is not None}
+            if len(values) > 1:
+                raise ValueError(f"cannot merge conflicting {name}: {sorted(values)!r}")
+            return next(iter(values)) if values else None
+
+        return cls(
+            atr_period=singular("atr_period"),
+            donchian_periods=tuple(
+                sorted({period for request in requests for period in request.donchian_periods})
+            ),
+            sma_lags=tuple(
+                sorted({item for request in requests for item in request.sma_lags})
+            ),
+            ema_periods=tuple(
+                sorted({period for request in requests for period in request.ema_periods})
+            ),
+            macd_periods=singular("macd_periods"),
+            dmi_period=singular("dmi_period"),
+            volume_sma_lags=tuple(
+                sorted({item for request in requests for item in request.volume_sma_lags})
+            ),
+            include_true_range=any(request.include_true_range for request in requests),
+        )
+
+    def required_columns(self) -> tuple[str, ...]:
+        """Return deterministic generated-column names for diagnostics/tests."""
+
+        columns: list[str] = []
+        if self.include_true_range or self.atr_period is not None:
+            columns.append("tr")
+        if self.atr_period is not None:
+            columns.append("atr")
+        for period in self.donchian_periods:
+            columns.extend((f"channel_high_{period}", f"channel_low_{period}"))
+        columns.extend(f"sma_{period}_lag_{lag}" for period, lag in self.sma_lags)
+        columns.extend(f"ema_{period}" for period in self.ema_periods)
+        if self.macd_periods is not None:
+            fast, slow, _ = self.macd_periods
+            columns.extend((f"ema_{fast}", f"ema_{slow}", "dif", "dea", "histogram", "macd_bar"))
+        if self.dmi_period is not None:
+            columns.extend(("plus_di", "minus_di", "dx", "adx"))
+        columns.extend(
+            f"volume_sma_{period}_lag_{lag}" for period, lag in self.volume_sma_lags
+        )
+        return tuple(dict.fromkeys(columns))
 
     @classmethod
     def turtle(
@@ -85,11 +160,27 @@ class PreparedBars:
                 out[column] = channels[column]
         for period, lag in request.sma_lags:
             out[f"sma_{period}_lag_{lag}"] = simple_moving_average(close, period, lag=lag)
+        for period in request.ema_periods:
+            out[f"ema_{period}"] = exponential_moving_average(close, period)
         if request.macd_periods is not None:
             fast, slow, signal = request.macd_periods
             values = macd(close, fast, slow, signal)
             for column in values:
                 out[column] = values[column]
+        if request.dmi_period is not None:
+            values = directional_movement_index(high, low, close, request.dmi_period)
+            for column in values:
+                out[column] = values[column]
+        if request.volume_sma_lags:
+            if "volume" not in out:
+                for period, lag in request.volume_sma_lags:
+                    out[f"volume_sma_{period}_lag_{lag}"] = np.nan
+            else:
+                volume = pd.to_numeric(out["volume"], errors="coerce")
+                for period, lag in request.volume_sma_lags:
+                    out[f"volume_sma_{period}_lag_{lag}"] = simple_moving_average(
+                        volume, period, lag=lag
+                    )
         out.attrs["_feature_request"] = request
         out.attrs["_ohlcv_fingerprint"] = fingerprint
         return cls(frame=out, request=request, input_fingerprint=fingerprint)
