@@ -57,6 +57,7 @@ class DataUpdateResult:
     update_status: str
     dataset_version: str | None
     latest_complete_d1: str | None
+    update: Mapping[str, Any] = field(default_factory=dict)
     quality: Mapping[str, Any] = field(default_factory=dict)
     freshness: Mapping[str, Any] = field(default_factory=dict)
     lineage: Mapping[str, Any] = field(default_factory=dict)
@@ -66,7 +67,7 @@ class DataUpdateResult:
     schema_version: str = "1"
 
     def __post_init__(self) -> None:
-        for name in ("quality", "freshness", "lineage"):
+        for name in ("update", "quality", "freshness", "lineage"):
             object.__setattr__(self, name, _freeze(getattr(self, name)))
         object.__setattr__(self, "blocking_reasons", tuple(map(str, self.blocking_reasons)))
 
@@ -84,6 +85,7 @@ class DataUpdateResult:
             "update_status": self.update_status,
             "dataset_version": self.dataset_version,
             "latest_complete_d1": self.latest_complete_d1,
+            "update": self.update,
             "quality": self.quality,
             "freshness": self.freshness,
             "lineage": self.lineage,
@@ -125,13 +127,18 @@ class StrategyScreeningResult:
     turtle_breakouts: tuple[Mapping[str, Any], ...] = ()
     eligibility: Mapping[str, Any] = field(default_factory=dict)
     event_snapshots: tuple[Mapping[str, Any], ...] = ()
+    # The complete replay/report projection consumed by commit.  It is JSON
+    # only (never a DataFrame) and lives in the signed stage result so commit
+    # does not depend on a mutable audit-sidecar file.
+    commit_evidence: Mapping[str, Any] = field(default_factory=dict)
+    commit_evidence_hash: str | None = None
     screening_status: str = "NOT_RUN"
     reason: str | None = None
     observation_only: bool = False
     schema_version: str = "1"
 
     def __post_init__(self) -> None:
-        for name in ("strategy_checks", "eligibility"):
+        for name in ("strategy_checks", "eligibility", "commit_evidence"):
             object.__setattr__(self, name, _freeze(getattr(self, name)))
         for name in ("conditions", "rules", "raw_events", "turtle_breakouts", "event_snapshots"):
             object.__setattr__(self, name, tuple(_freeze(item) for item in getattr(self, name)))
@@ -154,6 +161,11 @@ class StrategyScreeningResult:
             "turtle_breakouts": self.turtle_breakouts,
             "eligibility": self.eligibility,
             "event_snapshots": self.event_snapshots,
+            # Precomputed replay/report evidence is JSON-only and part of the
+            # immutable screening contract.  Commit may project it into the
+            # legacy SQLite/report shape but never recalculates indicators.
+            "commit_evidence": self.commit_evidence,
+            "commit_evidence_hash": self.commit_evidence_hash,
             "screening_status": self.screening_status,
             "reason": self.reason,
             "observation_only": self.observation_only,
@@ -192,14 +204,28 @@ class TrendDecisionResult:
     short_evidence: tuple[str, ...] = ()
     reverse_evidence: tuple[str, ...] = ()
     risk_blocks: tuple[str, ...] = ()
+    event_decisions: tuple[Mapping[str, Any], ...] = ()
+    # A run-bound commit plan is intentionally excluded from the business
+    # hash: it carries operational fields such as ``detected_at`` and the
+    # run-context binding.  ``commit_projection_hash`` is validated
+    # separately before persistence, so it remains tamper-evident without
+    # making a decision's business identity depend on a run ID/wall clock.
+    commit_projection: Mapping[str, Any] = field(default_factory=dict)
+    commit_projection_hash: str | None = None
     conclusion: str = ""
     observation_only: bool = False
     schema_version: str = "1"
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "confidence", _freeze(self.confidence))
+        object.__setattr__(self, "commit_projection", _freeze(self.commit_projection))
         for name in ("long_evidence", "short_evidence", "reverse_evidence", "risk_blocks"):
             object.__setattr__(self, name, tuple(map(str, getattr(self, name))))
+        object.__setattr__(
+            self,
+            "event_decisions",
+            tuple(_freeze(item) for item in self.event_decisions),
+        )
 
     def _business_payload(self) -> dict[str, Any]:
         return {
@@ -219,6 +245,7 @@ class TrendDecisionResult:
             "short_evidence": self.short_evidence,
             "reverse_evidence": self.reverse_evidence,
             "risk_blocks": self.risk_blocks,
+            "event_decisions": self.event_decisions,
             "conclusion": self.conclusion,
             "observation_only": self.observation_only,
         }
@@ -233,6 +260,8 @@ class TrendDecisionResult:
 
     def to_dict(self) -> dict[str, Any]:
         payload = _thaw(self._business_payload())
+        payload["commit_projection"] = _thaw(self.commit_projection)
+        payload["commit_projection_hash"] = self.commit_projection_hash
         payload["result_id"] = self.result_id
         payload["result_hash"] = self.result_hash
         return payload

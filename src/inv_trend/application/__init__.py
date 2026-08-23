@@ -2,6 +2,8 @@
 
 from .daily_pipeline import DEFAULT_BOOTSTRAP_DAYS, DailyMarketScanResult, DailyMarketScanService
 from .backtest_service import BacktestRun, BacktestService
+from .detector_scan_service import DetectorScanService, ScanResult
+from .detector_scan_workflow import DetectorScanOutcome, DetectorScanWorkflow
 from .detector_service import DetectorRun, DetectorService
 from .daily_models import DataUpdateResult, StrategyScreeningResult, TrendDecisionResult
 from .daily_stages import (
@@ -11,6 +13,7 @@ from .daily_stages import (
     TrendDecisionService,
 )
 from .daily_artifacts import DailyArtifactPublication, DailyRunArtifactWriter
+from .daily.workflow import DailyWorkflow
 from .strategy_config import (
     DailyChecksConfig,
     ResolvedRunConfig,
@@ -21,10 +24,11 @@ from .asset_config import load_detector_asset_configs
 
 __all__ = [
     "BacktestRun", "BacktestService", "DEFAULT_BOOTSTRAP_DAYS", "DailyMarketScanResult", "DailyMarketScanService",
-    "DetectorRun", "DetectorService",
+    "DetectorRun", "DetectorService", "DetectorScanOutcome", "DetectorScanService",
+    "DetectorScanWorkflow", "ScanResult",
     "DataUpdateResult", "StrategyScreeningResult", "TrendDecisionResult",
     "DailyDataUpdateService", "StrategyScreeningService", "TrendDecisionService", "ExecutionContext",
-    "DailyArtifactPublication", "DailyRunArtifactWriter",
+    "DailyArtifactPublication", "DailyRunArtifactWriter", "DailyWorkflow",
     "DailyChecksConfig", "TrendDecisionConfig", "ResolvedRunConfig", "load_resolved_run_config",
     "load_detector_asset_configs",
 ]

@@ -19,7 +19,7 @@ from .models import (
     path_text, utc_now,
 )
 from .integrity import sha256_file, stable_hash, strategy_frame_hash
-from .lineage import load_current_lineage
+from .lineage import load_current_lineage, load_versioned_lineage
 from .processing import FRAME_DELTAS, RULE_VERSION, NormalizationResult, assess_quality, normalize_bars, resample_ohlcv_session
 from .providers import BarsProvider, HoldingsCsvProvider, QqqHoldingsCsvProvider
 from .registry import InstrumentRegistry
@@ -702,6 +702,97 @@ class HistoricalDataService:
                 timeframe,
                 bars=frame,
             )
+        quality_report = ""
+        if lineage is not None:
+            quality_report = str(lineage.quality_report_path)
+        return self._strategy_visible_bars(
+            frame,
+            symbol=symbol,
+            timeframe=timeframe,
+            instrument=instrument,
+            start=start,
+            end=end,
+            adjusted=adjusted,
+            completed_only=completed_only,
+            allow_research=allow_research,
+            allow_legacy=allow_legacy,
+            min_quality_score=min_quality_score,
+            quality_report=quality_report,
+        )
+
+    def load_bars_version(
+        self,
+        symbol: str,
+        timeframe: str,
+        dataset_version: str,
+        start: datetime | None = None,
+        end: datetime | None = None,
+        adjusted: bool = True,
+        *,
+        completed_only: bool = True,
+        allow_research: bool = False,
+        allow_legacy: bool = False,
+        min_quality_score: float = 50.0,
+    ) -> pd.DataFrame:
+        """Load one immutable curated version, independently of ``current``.
+
+        ``dataset_version`` is the stage hand-off identity, not a hint.  The
+        method verifies its versioned lineage before applying the caller's
+        visibility filters, so an activated newer pointer cannot change a
+        resumed D1 scan's inputs.
+        """
+
+        if allow_legacy:
+            raise DataQualityError(
+                "version-pinned reads do not support legacy-only datasets"
+            )
+        instrument = self.instrument(symbol)
+        version = str(dataset_version or "")
+        if not version:
+            raise DataLineageError(
+                f"dataset version is required for {symbol.upper()}/{timeframe.upper()}"
+            )
+        frame = self.lake.read_bars_version(symbol.upper(), timeframe.upper(), version)
+        lineage = load_versioned_lineage(
+            self.lake,
+            symbol,
+            timeframe,
+            version,
+            bars=frame,
+        )
+        return self._strategy_visible_bars(
+            frame,
+            symbol=symbol,
+            timeframe=timeframe,
+            instrument=instrument,
+            start=start,
+            end=end,
+            adjusted=adjusted,
+            completed_only=completed_only,
+            allow_research=allow_research,
+            allow_legacy=False,
+            min_quality_score=min_quality_score,
+            quality_report=str(lineage.quality_report_path),
+        )
+
+    @staticmethod
+    def _strategy_visible_bars(
+        frame: pd.DataFrame,
+        *,
+        symbol: str,
+        timeframe: str,
+        instrument: InstrumentConfig,
+        start: datetime | None,
+        end: datetime | None,
+        adjusted: bool,
+        completed_only: bool,
+        allow_research: bool,
+        allow_legacy: bool,
+        min_quality_score: float,
+        quality_report: str,
+    ) -> pd.DataFrame:
+        """Apply the existing D1 visibility/adjustment policy to verified bars."""
+
         if completed_only:
             frame = frame.loc[frame["is_complete"].astype(bool)]
         allowed = {"CURATED"}
@@ -710,7 +801,9 @@ class HistoricalDataService:
         if allow_legacy:
             allowed.add("LEGACY_ONLY")
         frame = frame.loc[frame["quality_status"].isin(allowed)]
-        frame = frame.loc[pd.to_numeric(frame["quality_score"], errors="coerce") >= min_quality_score]
+        frame = frame.loc[
+            pd.to_numeric(frame["quality_score"], errors="coerce") >= min_quality_score
+        ]
         if frame.empty:
             raise DataQualityError(f"no {symbol}/{timeframe} bars meet requested quality policy")
         if start is not None:
@@ -722,15 +815,22 @@ class HistoricalDataService:
             for column in ("open", "high", "low", "close"):
                 frame[f"unadjusted_{column}"] = frame[column]
                 frame[column] = frame[column] * factor
-        frame = frame.sort_values("timestamp").drop_duplicates("timestamp", keep="last").reset_index(drop=True)
-        quality_report = ""
-        if lineage is not None:
-            quality_report = str(lineage.quality_report_path)
-        frame.attrs.update({"symbol": symbol.upper(), "instrument_id": instrument.instrument_id,
-                            "timeframe": timeframe.upper(), "adjustment": instrument.adjustment_policy if adjusted else "none",
-                            "data_sources": sorted(frame["data_source"].dropna().unique().tolist()),
-                            "dataset_version": str(frame["dataset_version"].iloc[-1]),
-                            "quality_report": quality_report})
+        frame = (
+            frame.sort_values("timestamp")
+            .drop_duplicates("timestamp", keep="last")
+            .reset_index(drop=True)
+        )
+        frame.attrs.update(
+            {
+                "symbol": symbol.upper(),
+                "instrument_id": instrument.instrument_id,
+                "timeframe": timeframe.upper(),
+                "adjustment": instrument.adjustment_policy if adjusted else "none",
+                "data_sources": sorted(frame["data_source"].dropna().unique().tolist()),
+                "dataset_version": str(frame["dataset_version"].iloc[-1]),
+                "quality_report": quality_report,
+            }
+        )
         return frame
 
     def status(self, symbol: str, timeframe: str) -> dict[str, object]:

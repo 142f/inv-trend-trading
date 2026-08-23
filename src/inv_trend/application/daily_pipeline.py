@@ -4,30 +4,32 @@ This module owns the use case and returns a result object.  Report rendering is
 deliberately left to ``inv_trend.observability`` at the CLI boundary.
 """
 
-from dataclasses import asdict, dataclass, replace
+from dataclasses import asdict, replace
 from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping
 from uuid import uuid4
-from zoneinfo import ZoneInfo
 
 from inv_trend.data import HistoricalDataService, create_default_providers
 from inv_trend.core.signals import CORRECTED_STRATEGY_VERSION, SignalEvent
+from inv_trend.core.strategy.daily.signals import build_daily_signal_events
 
 from inv_trend.adapters.detector.alerts.daily_notifier import LogNotifier, SignalNotifier
+from inv_trend.adapters.daily.data_lineage import CurrentLineageAdapter
 from inv_trend.adapters.detector.freshness import FreshnessPolicy
 from inv_trend.adapters.detector.indicators.daily_signals import (
     normalize_completed_daily_bars,
 )
 from inv_trend.adapters.detector.models import AssetConfig
 from inv_trend.adapters.detector.storage.daily_signal_repository import SQLiteDailySignalRepository
+from inv_trend.adapters.daily.composition import create_daily_run_artifact_writer
 from .daily_analysis import (
     build_breakout_assessments,
     build_instrument_report_bundle,
 )
-from .daily_artifacts import DailyArtifactPublication, DailyRunArtifactWriter
+from .daily.run_contract import BEIJING, DEFAULT_BOOTSTRAP_DAYS, DailyMarketScanResult
 from .daily_models import BreakoutAssessment, MarketAssessment
 from .daily_stages import (
     DailyDataUpdateService,
@@ -40,28 +42,6 @@ from .strategy_config import (
     TrendDecisionConfig,
     load_resolved_run_config,
 )
-
-
-BEIJING = ZoneInfo("Asia/Shanghai")
-DEFAULT_BOOTSTRAP_DAYS = 400
-
-
-@dataclass(frozen=True)
-class DailyMarketScanResult:
-    snapshot_path: Path
-    database_path: Path
-    signal_log_root: Path
-    snapshot: Mapping[str, Any]
-    artifact_publication: DailyArtifactPublication | None = None
-
-    @property
-    def failed_symbols(self) -> tuple[str, ...]:
-        bad = {"failed", "blocked", "stale"}
-        return tuple(str(row["symbol"]) for row in self.snapshot["symbols"] if row["run_status"] in bad)
-
-    @property
-    def exit_code(self) -> int:
-        return 1 if self.failed_symbols else 0
 
 
 class DailyMarketScanService:
@@ -102,14 +82,17 @@ class DailyMarketScanService:
         self.freshness_policy = freshness_policy or FreshnessPolicy()
         self.provider_retries = provider_retries
         self.refresh_data = refresh_data
-        resolved_path = strategy_config_path or Path(__file__).with_name("config") / "strategy.yaml"
-        resolved_config = load_resolved_run_config(resolved_path)
+        # Omitted configuration now resolves to the versioned canonical
+        # strategy document.  An explicit historical application YAML remains
+        # accepted by ``load_resolved_run_config`` for compatibility.
+        resolved_config = load_resolved_run_config(strategy_config_path)
         self.daily_checks_config = daily_checks_config or resolved_config.daily_checks
         self.trend_decision_config = trend_decision_config or resolved_config.trend_decision
         self.execution_context = execution_context
         self.data_update_service = DailyDataUpdateService(
             self.historical_service,
             freshness_policy=self.freshness_policy,
+            lineage_port=CurrentLineageAdapter(),
             provider_retries=self.provider_retries,
             refresh_data=self.refresh_data,
         )
@@ -118,12 +101,48 @@ class DailyMarketScanService:
             self.trend_decision_config,
         )
         self.trend_decision_service = TrendDecisionService(self.trend_decision_config)
-        self.artifact_writer = DailyRunArtifactWriter(
-            self.output_dir, signal_log_root=self.signal_log_dir
+        self.artifact_writer = create_daily_run_artifact_writer(
+            self.output_dir,
+            signal_log_root=self.signal_log_dir,
         )
         self._now = now or (lambda: datetime.now(timezone.utc))
 
     def run(
+        self,
+        *,
+        symbols: Iterable[str] | None = None,
+        bootstrap_days: int = DEFAULT_BOOTSTRAP_DAYS,
+        research_mode: bool = False,
+        strategy_version: str = CORRECTED_STRATEGY_VERSION,
+        backfill_signals: bool = False,
+        chart_bars: int = 180,
+        render_html: bool = True,
+    ) -> DailyMarketScanResult:
+        """Run the staged D1 workflow through this legacy public facade.
+
+        Existing callers keep their ``DailyMarketScanService`` construction
+        and return type.  The actual chain is now the one authoritative
+        sequence used by the CLI: data update, screening, decision, commit,
+        publication, then outbox delivery.  The retained ``_run_legacy`` is
+        deliberately private during the evidence-backed migration window.
+        """
+
+        # Imports are local because this class remains the composition root
+        # used by ``LegacyDailyRuntimeAdapter`` itself.
+        from .daily.legacy_runtime_adapter import LegacyDailyRuntimeAdapter
+        from .daily.workflow import DailyWorkflow
+
+        return DailyWorkflow(runtime=LegacyDailyRuntimeAdapter(service=self)).run(
+            symbols=symbols,
+            bootstrap_days=bootstrap_days,
+            research_mode=research_mode,
+            strategy_version=strategy_version,
+            backfill_signals=backfill_signals,
+            chart_bars=chart_bars,
+            render_html=render_html,
+        )
+
+    def _run_legacy(
         self,
         *,
         symbols: Iterable[str] | None = None,
@@ -410,22 +429,16 @@ class DailyMarketScanService:
 
     @staticmethod
     def _signal_events(instrument_id: str, asset: AssetConfig, analysis: Mapping[str, Any], dataset_version: str, detected_at: str, refresh_failed: bool, strategy_version: str) -> list[SignalEvent]:
-        close = analysis.get("latest_bar", {}).get("close")
-        if close is None:
-            return []
-        events: list[SignalEvent] = []
-        for raw in analysis.get("signals", []):
-            indicator_name = str(raw["indicator"])
-            event_name = str(raw["event"])
-            direction = str(raw["direction"])
-            identity = _signal_identity(indicator_name, event_name, direction)
-            indicator = analysis.get("indicators", {}).get(indicator_name, {})
-            parameters = dict(raw.get("parameters") or identity[1])
-            reference_value = raw.get("reference_value")
-            if reference_value is None:
-                reference_value = _reference_value(indicator_name, indicator)
-            events.append(SignalEvent.create(strategy_version=strategy_version, instrument_id=instrument_id, symbol=asset.symbol, timeframe=str(raw.get("timeframe", "D1")), signal_type=identity[0], direction=direction.upper(), signal_time=str(raw["signal_time"]), detected_at=detected_at, trigger_price=float(close), reference_value=reference_value, dataset_version=dataset_version, indicator_name=indicator_name, indicator_parameters=parameters, metadata={"market": asset.market.value, "refresh_failed": refresh_failed}))
-        return events
+        return build_daily_signal_events(
+            analysis,
+            instrument_id=instrument_id,
+            symbol=asset.symbol,
+            market=asset.market.value,
+            dataset_version=dataset_version,
+            detected_at=detected_at,
+            refresh_failed=refresh_failed,
+            strategy_version=strategy_version,
+        )
 
     def _deliver_pending(self, run_id: str) -> dict[str, int]:
         result = {"notified": 0, "errors": 0, "recovered": 0}
@@ -545,45 +558,6 @@ def _decision_backed_assessment(
         unmet_conditions=tuple(decision.reverse_evidence) + tuple(decision.risk_blocks),
         conclusion=decision.conclusion,
     )
-
-
-def _signal_identity(
-    indicator: str, event: str, direction: str | None = None
-) -> tuple[str, dict[str, Any]]:
-    if indicator == "turtle_20":
-        return "TURTLE_20_BREAKOUT", {"period": 20, "confirmation": "close"}
-    if indicator == "turtle_55":
-        return "TURTLE_55_BREAKOUT", {"period": 55, "confirmation": "close"}
-    if indicator == "sma_10_20":
-        return ("MA_GOLDEN_CROSS_10_20" if event == "golden_cross" else "MA_DEATH_CROSS_10_20"), {"fast": 10, "slow": 20, "average": "SMA"}
-    if indicator == "macd_12_26_9":
-        return ("MACD_GOLDEN_CROSS" if event == "golden_cross" else "MACD_DEATH_CROSS"), {"fast": 12, "slow": 26, "signal": 9, "adjust": False}
-    if indicator == "sma_alignment":
-        return (
-            "SMA_STACK_BULLISH" if direction == "long" else "SMA_STACK_BEARISH",
-            {"average": "SMA"},
-        )
-    if indicator == "ema_trend":
-        return (
-            "EMA_144_169_BULLISH" if direction == "long" else "EMA_144_169_BEARISH",
-            {"average": "EMA", "fast": 144, "slow": 169},
-        )
-    if indicator == "strategy_rating":
-        return (
-            "STRATEGY_GRADE_A_LONG" if direction == "long" else "STRATEGY_GRADE_A_SHORT",
-            {"grade": "A"},
-        )
-    raise ValueError(f"unsupported daily signal indicator: {indicator}")
-
-
-def _reference_value(name: str, indicator: Mapping[str, Any]) -> float | None:
-    if name.startswith("turtle_"):
-        return indicator.get("breakout_level")
-    if name == "sma_10_20":
-        return indicator.get("sma_20")
-    if name == "macd_12_26_9":
-        return indicator.get("dea")
-    return None
 
 
 def _data_metadata(bars: Any) -> dict[str, Any]:

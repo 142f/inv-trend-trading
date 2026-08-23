@@ -7,7 +7,11 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Any, Mapping
 
-import yaml
+from inv_trend.config import (
+    canonical_to_application_mapping,
+    is_canonical_strategy_mapping,
+    load_strategy_mapping,
+)
 
 
 @dataclass(frozen=True)
@@ -182,11 +186,17 @@ class ResolvedRunConfig:
             raise ValueError("trend_decision must be a TrendDecisionConfig or mapping")
 
 
-def load_resolved_run_config(path: str | Path) -> ResolvedRunConfig:
-    config_path = Path(path)
-    raw = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
-    if not isinstance(raw, dict):
-        raise ValueError(f"strategy config must contain a mapping: {config_path}")
+def load_resolved_run_config(path: str | Path | None = None) -> ResolvedRunConfig:
+    """Load canonical strategy YAML or the legacy application configuration shape.
+
+    Omitting ``path`` resolves the package-owned, versioned canonical file.
+    Explicit legacy ``application/config/strategy.yaml`` paths continue to be
+    accepted so existing callers can migrate without changing behavior.
+    """
+
+    raw = load_strategy_mapping(path)
+    if is_canonical_strategy_mapping(raw):
+        raw = canonical_to_application_mapping(raw)
     allowed = set(ResolvedRunConfig.__dataclass_fields__)
     unknown = set(raw) - allowed
     if unknown:

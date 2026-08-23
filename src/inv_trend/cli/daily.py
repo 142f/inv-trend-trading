@@ -3,6 +3,10 @@
 from __future__ import annotations
 
 import argparse
+from datetime import date
+import json
+from pathlib import Path
+import re
 import sys
 import webbrowser
 from typing import Any, Mapping, Sequence
@@ -10,7 +14,18 @@ from typing import Any, Mapping, Sequence
 from rich.console import Console
 from rich.table import Table
 
-from inv_trend.application import DEFAULT_BOOTSTRAP_DAYS, DailyMarketScanService
+from inv_trend.application import DEFAULT_BOOTSTRAP_DAYS
+from inv_trend.application.daily.legacy_runtime_adapter import (
+    DeferredStateDailyRuntimeAdapter,
+    PreCommitDailyRuntimeAdapter,
+)
+from inv_trend.application.daily.workflow import DailyWorkflow
+from inv_trend.application.daily.workspace import DailyStagingWorkspace
+from inv_trend.adapters.daily.stage_runtime_adapters import (
+    CommitStageRuntimeAdapter,
+    DeliveryStageRuntimeAdapter,
+    PublishStageRuntimeAdapter,
+)
 from inv_trend.core.signals import CORRECTED_STRATEGY_VERSION
 
 
@@ -54,10 +69,110 @@ def build_parser() -> argparse.ArgumentParser:
         "--open-report", action="store_true",
         help="Open the generated local HTML report after completion",
     )
+    parser.epilog = (
+        "推荐的分阶段入口：turtle-daily run | data-update | strategy-screen | "
+        "trend-decide | commit | publish | deliver。保留无子命令调用以兼容现有任务计划。"
+    )
     return parser
 
 
+_STAGE_COMMANDS = frozenset(
+    {"run", "data-update", "strategy-screen", "trend-decide", "commit", "publish", "deliver"}
+)
+_PRE_COMMIT_STAGE_COMMANDS = frozenset({"data-update", "strategy-screen", "trend-decide"})
+_SAFE_RUN_ID = re.compile(r"^[A-Za-z0-9_.-]+$")
+
+
 def main(argv: Sequence[str] | None = None) -> int:
+    """Dispatch the new stage commands while preserving the legacy invocation."""
+
+    values = list(sys.argv[1:] if argv is None else argv)
+    if values and values[0] in _STAGE_COMMANDS:
+        return _stage_main(values)
+    # Existing scheduled-task and script invocations begin with an option (or
+    # nothing).  They now mean the explicit ``run`` stage while retaining the
+    # exact public option surface and exit-code semantics.
+    return _run_staged_main(values)
+
+
+def _stage_main(argv: Sequence[str]) -> int:
+    command, *values = argv
+    if command == "run":
+        return _run_staged_main(values)
+    parser = _stage_parser(command)
+    args = parser.parse_args(values)
+    if args.provider_timeout < 1:
+        parser.error("--provider-timeout must be positive")
+    if args.provider_retries < 1:
+        parser.error("--provider-retries must be positive")
+    if command == "data-update":
+        if args.bootstrap_days < 1:
+            parser.error("--bootstrap-days must be positive")
+        if args.chart_bars < 1:
+            parser.error("--chart-bars must be positive")
+    workflow = _stage_workflow(
+        command,
+        data_root=args.data_root,
+        output_dir=args.output_dir,
+        database_path=args.database,
+        signal_log_dir=args.signal_log_dir,
+        provider_timeout=args.provider_timeout,
+        provider_retries=args.provider_retries,
+        refresh_data=not getattr(args, "scan_only", False),
+    )
+    try:
+        if command == "data-update":
+            result = workflow.data_update(
+                run_id=args.run_id,
+                report_date=args.report_date,
+                symbols=args.symbol,
+                bootstrap_days=args.bootstrap_days,
+                research_mode=args.research_mode,
+                strategy_version=args.strategy_version,
+                backfill_signals=args.backfill_signals,
+                chart_bars=args.chart_bars,
+            )
+        elif command == "strategy-screen":
+            result = workflow.strategy_screen(run_id=args.run_id, report_date=args.report_date)
+        elif command == "trend-decide":
+            result = workflow.trend_decide(run_id=args.run_id, report_date=args.report_date)
+        elif command == "commit":
+            result = workflow.commit(run_id=args.run_id, report_date=args.report_date)
+        elif command == "publish":
+            publication = workflow.publish(
+                run_id=args.run_id, report_date=args.report_date, render_html=not args.no_html
+            )
+            result = {
+                "stage": "publish",
+                "run_id": args.run_id,
+                "report_date": args.report_date,
+                "run_directory": str(publication.run_directory),
+                "compatibility_json": str(publication.compatibility_json),
+                "compatibility_html": (
+                    None if publication.compatibility_html is None else str(publication.compatibility_html)
+                ),
+            }
+        else:  # deliver
+            result = workflow.deliver(run_id=args.run_id, report_date=args.report_date)
+    except KeyboardInterrupt:
+        print("Daily scan interrupted by user (Ctrl+C).", file=sys.stderr)
+        return 130
+    except Exception as exc:
+        print(f"daily stage {command} failed: {type(exc).__name__}: {exc}", file=sys.stderr)
+        return 1
+    gate_failures = _stage_gate_failures(command, args, result)
+    if gate_failures and isinstance(result, Mapping):
+        result = {**result, "gate_failures": gate_failures}
+    print(json.dumps(result, ensure_ascii=False, sort_keys=True, default=str))
+    summary = result.get("summary", {}) if isinstance(result, Mapping) else {}
+    if isinstance(summary, Mapping) and summary.get("error_count", 0):
+        return 1
+    return 1 if gate_failures else 0
+
+
+def _run_staged_main(argv: Sequence[str]) -> int:
+    """Run the new stage chain with the complete historical daily argument set."""
+
     parser = build_parser()
     args = parser.parse_args(argv)
     if args.bootstrap_days < 1:
@@ -70,17 +185,19 @@ def main(argv: Sequence[str] | None = None) -> int:
         parser.error("--chart-bars must be positive")
     if args.open_report and args.no_html:
         parser.error("--open-report cannot be combined with --no-html")
-    service = DailyMarketScanService(
-        data_root=args.data_root,
-        output_dir=args.output_dir,
-        database_path=args.database,
-        signal_log_dir=args.signal_log_dir,
-        provider_timeout=args.provider_timeout,
-        provider_retries=args.provider_retries,
-        refresh_data=not args.scan_only,
+    workflow = DailyWorkflow(
+        runtime=DeferredStateDailyRuntimeAdapter(
+            data_root=args.data_root,
+            output_dir=args.output_dir,
+            database_path=args.database,
+            signal_log_dir=args.signal_log_dir,
+            provider_timeout=args.provider_timeout,
+            provider_retries=args.provider_retries,
+            refresh_data=not args.scan_only,
+        )
     )
     try:
-        result = service.run(
+        result = workflow.run(
             symbols=args.symbol,
             bootstrap_days=args.bootstrap_days,
             research_mode=args.research_mode,
@@ -110,6 +227,160 @@ def main(argv: Sequence[str] | None = None) -> int:
     if result.failed_symbols:
         console.print(f"Failed/blocked/stale: {', '.join(result.failed_symbols)}", style="red")
     return result.exit_code
+
+
+def _stage_parser(command: str) -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog=f"turtle-daily {command}",
+        description="Execute one auditable D1 daily-workflow stage.",
+    )
+    parser.add_argument("--output-dir", default="outputs/daily_market_scan")
+    parser.add_argument("--data-root", default="data")
+    parser.add_argument("--database", help="SQLite SignalStore path")
+    parser.add_argument("--signal-log-dir", default="logs/signals")
+    parser.add_argument("--provider-timeout", type=int, default=10)
+    parser.add_argument("--provider-retries", type=int, default=1)
+    parser.add_argument("--run-id", required=True, type=_run_id_argument)
+    parser.add_argument(
+        "--report-date",
+        required=True,
+        type=_report_date_argument,
+        help="YYYY-MM-DD artifact date",
+    )
+    if command == "data-update":
+        parser.add_argument("--symbol", action="append", help="Configured D1 symbol; repeat as needed")
+        parser.add_argument("--bootstrap-days", type=int, default=DEFAULT_BOOTSTRAP_DAYS)
+        parser.add_argument("--research-mode", action="store_true")
+        parser.add_argument("--strategy-version", choices=(CORRECTED_STRATEGY_VERSION,), default=CORRECTED_STRATEGY_VERSION)
+        parser.add_argument("--backfill-signals", action="store_true")
+        parser.add_argument("--chart-bars", type=int, default=180)
+        parser.add_argument("--scan-only", action="store_true")
+    elif command == "publish":
+        parser.add_argument("--no-html", action="store_true")
+    return parser
+
+
+def _stage_workflow(command: str, **kwargs: Any) -> DailyWorkflow:
+    """Build a stage-specific runtime without changing the public CLI flags.
+
+    Evidence stages can safely read an already committed cursor/anchor, but
+    they must not create or migrate the SQLite store.  ``run`` deliberately
+    keeps the historical construction path.  Resumed commit, publication,
+    and delivery stages get narrow adapters that never reload mutable assets,
+    strategy YAML, or market-data services.
+    """
+
+    if command in _PRE_COMMIT_STAGE_COMMANDS:
+        return DailyWorkflow(runtime=PreCommitDailyRuntimeAdapter(**kwargs))
+    if command == "commit":
+        return DailyWorkflow(runtime=CommitStageRuntimeAdapter(**kwargs))
+    if command == "publish":
+        return DailyWorkflow(runtime=PublishStageRuntimeAdapter(**kwargs))
+    if command == "deliver":
+        return DailyWorkflow(runtime=DeliveryStageRuntimeAdapter(**kwargs))
+    return DailyWorkflow(**kwargs)
+
+
+def _run_id_argument(value: str) -> str:
+    """Accept one portable, non-traversing artifact directory segment."""
+
+    if not _SAFE_RUN_ID.fullmatch(value) or value in {".", ".."}:
+        raise argparse.ArgumentTypeError(
+            "must be a non-empty ASCII path segment containing only A-Z, a-z, 0-9, ., _, or -"
+        )
+    return value
+
+
+def _report_date_argument(value: str) -> str:
+    """Accept only canonical ISO calendar dates at the CLI boundary."""
+
+    try:
+        parsed = date.fromisoformat(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("must use YYYY-MM-DD") from exc
+    if parsed.isoformat() != value:
+        raise argparse.ArgumentTypeError("must use YYYY-MM-DD")
+    return value
+
+
+def _stage_gate_failures(
+    command: str,
+    args: argparse.Namespace,
+    result: Any,
+) -> list[dict[str, Any]]:
+    """Return formal-stage failures that must produce a non-zero status.
+
+    A normal trend ``WAIT`` (for example, no fresh Turtle breakout) is a
+    valid decision and must not look like a failed process.  In contrast,
+    formal data-readiness and unavailable-screening gates stop the official
+    chain and need an explicit non-zero result.  Research observations remain
+    successful because their staged payloads carry ``observation_only``.
+    """
+
+    if command == "deliver":
+        delivery = _mapping(result).get("delivery")
+        errors = _as_nonnegative_int(_mapping(delivery).get("errors"))
+        return [] if errors == 0 else [{"kind": "delivery", "errors": errors}]
+    if command not in _PRE_COMMIT_STAGE_COMMANDS:
+        return []
+
+    try:
+        workspace = DailyStagingWorkspace(Path(args.output_dir), args.report_date, args.run_id)
+        context = workspace.read_context()
+        symbols = context.get("symbols")
+        if not isinstance(symbols, list):
+            return []
+        failures: list[dict[str, Any]] = []
+        for raw_symbol in symbols:
+            symbol = str(raw_symbol)
+            data = workspace.read_stage(symbol, "data_update")
+            formal = not bool(data.get("observation_only", False))
+            data_ready = (
+                str(data.get("data_readiness") or "").upper() == "READY"
+                and not list(data.get("blocking_reasons") or ())
+            )
+            if formal and not data_ready:
+                failures.append(
+                    {
+                        "symbol": symbol,
+                        "kind": "data_readiness",
+                        "reasons": [str(item) for item in data.get("blocking_reasons", ())],
+                    }
+                )
+                # Strategy-screen and trend-decide are expected to preserve
+                # this same hard gate; one concise reason is sufficient.
+                continue
+            if command == "data-update":
+                continue
+            screening = workspace.read_stage(symbol, "strategy_screening")
+            if (
+                not bool(screening.get("observation_only", False))
+                and str(screening.get("screening_status") or "") != "READY"
+            ):
+                failures.append(
+                    {
+                        "symbol": symbol,
+                        "kind": "strategy_screening",
+                        "reason": screening.get("reason") or screening.get("screening_status"),
+                    }
+                )
+    except (FileNotFoundError, OSError, ValueError, json.JSONDecodeError):
+        # A workflow implementation supplied by an embedding/test may return
+        # a summary without materializing a staging workspace.  Its own exit
+        # contract remains authoritative in that compatibility case.
+        return []
+    return failures
+
+
+def _mapping(value: Any) -> Mapping[str, Any]:
+    return value if isinstance(value, Mapping) else {}
+
+
+def _as_nonnegative_int(value: Any) -> int:
+    try:
+        return max(0, int(value or 0))
+    except (TypeError, ValueError):
+        return 0
 
 
 def _render(console: Console, snapshot: Mapping[str, Any]) -> None:

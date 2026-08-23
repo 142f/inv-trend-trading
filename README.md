@@ -103,16 +103,36 @@ market-data --root data repair-current --symbol BTC --timeframe D1
 .\scripts\run_daily_market_scan.ps1
 ```
 
-等价入口：
+`turtle-daily` 的 D1 主链为：
+
+```text
+data-update → strategy-screen → trend-decide → commit → publish → deliver
+```
+
+推荐的一键入口和兼容入口分别为：
+
+```powershell
+turtle-daily run --symbol BTC --no-color
+turtle-daily --symbol BTC --no-color  # 无子命令兼容 run
+```
+
+需要单独调度、审计或重试时，可依次运行 `data-update`、`strategy-screen`、
+`trend-decide`、`commit`、`publish`、`deliver` 子命令，并以相同的
+`--output-dir`、`--report-date`、`--run-id` 交接 staging 制品。前三阶段不写状态；
+只有 `commit` 写 SQLite/cursor/outbox，`publish` 只从完整 JSON 派生报告，`deliver`
+只投递 outbox。
+
+其他 CLI 入口：
 
 ```bash
-turtle-daily --help
 turtle-detect --help
 turtle-alert --help
 turtle-data --help
 ```
 
-参数、退出码和 Windows 定时任务说明见 [`DAILY_MARKET_SCAN_CLI.md`](docs/operations/DAILY_MARKET_SCAN_CLI.md)。
+完整参数、退出码、制品目录和 Windows 定时任务见
+[`DAILY_MARKET_SCAN_CLI.md`](docs/operations/DAILY_MARKET_SCAN_CLI.md)；阶段交接、
+Hash 校验和配置迁移见 [`DAILY_WORKFLOW_STAGES.md`](docs/operations/DAILY_WORKFLOW_STAGES.md)。
 
 ## 5. 测试与基准
 

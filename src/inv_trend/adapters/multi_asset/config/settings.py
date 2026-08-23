@@ -7,6 +7,12 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Any, Mapping
 
+from inv_trend.config import (
+    canonical_to_backtest_mapping,
+    is_canonical_strategy_mapping,
+    load_strategy_mapping,
+)
+
 
 @dataclass(frozen=True)
 class BacktestConfig:
@@ -41,11 +47,11 @@ class BacktestConfig:
 
 
 def load_config(path: str | Path | None = None) -> BacktestConfig:
-    """Load and strictly validate a YAML backtest configuration."""
+    """Load canonical strategy YAML or an explicitly supplied legacy file."""
 
     explicit_path = path is not None
     if path is None:
-        path = Path(__file__).with_name("defaults.yaml")
+        return BacktestConfig(**canonical_to_backtest_mapping(load_strategy_mapping()))
     path = Path(path)
     if not path.exists():
         if explicit_path:
@@ -62,6 +68,8 @@ def load_config(path: str | Path | None = None) -> BacktestConfig:
     raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
     if not isinstance(raw, dict):
         raise ValueError(f"config file must contain a mapping: {path}")
+    if is_canonical_strategy_mapping(raw):
+        raw = canonical_to_backtest_mapping(raw)
     allowed = set(BacktestConfig.__dataclass_fields__)
     unknown = set(raw) - allowed
     if unknown:

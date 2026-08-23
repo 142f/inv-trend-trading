@@ -28,6 +28,104 @@ class CurrentLineage:
     quality_report: dict[str, Any]
 
 
+@dataclass(frozen=True)
+class VersionedLineage:
+    """Verified lineage for one immutable dataset version.
+
+    This deliberately makes no assertion about the mutable ``current``
+    pointer.  Resumable workflows use it after recording their permitted
+    dataset version during a preceding stage.
+    """
+
+    symbol: str
+    timeframe: str
+    dataset_version: str
+    curated_path: Path
+    dataset_manifest_path: Path
+    dataset_manifest: dict[str, Any]
+    quality_report_path: Path
+    quality_report: dict[str, Any]
+
+
+def load_versioned_lineage(
+    lake: DataLake,
+    symbol: str,
+    timeframe: str,
+    dataset_version: str,
+    *,
+    bars: pd.DataFrame | None = None,
+) -> VersionedLineage:
+    """Verify a recorded curated version without resolving ``current``.
+
+    The manifest, quality report and Parquet checksum are all checked so a
+    pinned stage can safely continue after another process activates a newer
+    version for the same symbol.
+    """
+
+    symbol, timeframe = symbol.upper(), timeframe.upper()
+    version = str(dataset_version or "")
+    if not version:
+        raise DataLineageError(f"dataset version is required for {symbol}/{timeframe}")
+
+    # Let the data-lake boundary validate the token before it is ever used in
+    # a manifest path.  It also resolves the exact immutable artifact that
+    # this lineage record must describe.
+    resolved_version_path = lake.curated_version_path(symbol, timeframe, version)
+    manifest_path = lake.root / "dataset_manifests" / f"{version}.json"
+    manifest = _read_json(manifest_path, "dataset manifest")
+    _require_equal(manifest.get("dataset_version"), version, "dataset manifest version")
+    _require_equal(
+        str(manifest.get("symbol", "")).upper(), symbol, "dataset manifest symbol"
+    )
+    _require_equal(
+        str(manifest.get("timeframe", "")).upper(), timeframe, "dataset manifest timeframe"
+    )
+
+    curated_path = lake._resolve_root_relative(str(manifest.get("curated_path") or ""))
+    if not curated_path.exists():
+        raise DataLineageError(f"curated artifact is missing: {curated_path}")
+    if not _same_path(curated_path, resolved_version_path):
+        raise DataLineageError(
+            "dataset manifest and versioned curated lookup reference different artifacts"
+        )
+    _verify_hash(curated_path, manifest.get("curated_sha256"), "curated artifact")
+
+    report_path = lake._resolve_root_relative(
+        str(manifest.get("quality_report_path") or "")
+    )
+    _verify_hash(report_path, manifest.get("quality_report_sha256"), "quality report")
+    report = _read_json(report_path, "quality report")
+    recorded_version = report.get("dataset_version") or report.get("run_id")
+    _require_equal(recorded_version, version, "quality report version")
+    _require_equal(
+        str(report.get("symbol", "")).upper(), symbol, "quality report symbol"
+    )
+    _require_equal(
+        str(report.get("timeframe", "")).upper(), timeframe, "quality report timeframe"
+    )
+
+    if bars is not None:
+        _validate_bars(
+            bars,
+            symbol=symbol,
+            timeframe=timeframe,
+            version=version,
+            manifest=manifest,
+            report=report,
+        )
+
+    return VersionedLineage(
+        symbol=symbol,
+        timeframe=timeframe,
+        dataset_version=version,
+        curated_path=curated_path,
+        dataset_manifest_path=manifest_path,
+        dataset_manifest=manifest,
+        quality_report_path=report_path,
+        quality_report=report,
+    )
+
+
 def load_current_lineage(
     lake: DataLake,
     symbol: str,
@@ -198,6 +296,13 @@ def _verify_hash(path: Path, expected: object, label: str) -> None:
         raise DataLineageError(
             f"{label} hash mismatch: expected {expected_text}, got {actual}"
         )
+
+
+def _same_path(left: Path, right: Path) -> bool:
+    try:
+        return left.resolve() == right.resolve()
+    except OSError:
+        return left == right
 
 
 def _require_equal(actual: object, expected: object, label: str) -> None:
