@@ -1,0 +1,101 @@
+schema_version: "1"
+
+turtle:
+  profile: corrected-v2
+  rules:
+    n_period: 20
+    fast_entry: 20
+    slow_entry: 55
+    fast_exit: 10
+    slow_exit: 20
+    stop_n: 2.0
+    pyramid_step_n: 0.5
+    breakout_buffer_n: 0.0
+    trigger_mode: close
+    entry_ma_period: 0
+    fast_system_enabled: true
+    slow_system_enabled: true
+    skip_fast_after_win: true
+    allow_short: true
+    max_total_1n_risk_pct: 0.12
+    max_direction_1n_risk_pct: 0.08
+    default_cluster_1n_risk_pct: 0.04
+    cluster_1n_risk_pct: {}
+    max_total_leverage: 2.0
+    max_direction_leverage: 1.5
+    default_cluster_leverage: 1.0
+    cluster_leverage: {}
+    slow_entry_score_bonus: 0.25
+  detector:
+    atr_period: 20
+    system1_entry: 20
+    system2_entry: 55
+    system1_exit: 10
+    system2_exit: 20
+    confirmation_mode: close
+    skip_system1_after_win: true
+    stop_atr: 2.0
+    pyramid_step_atr: 0.5
+    max_additions: 3
+    stop_mode: unified
+    approaching_atr: 0.25
+    overextended_atr: 1.5
+    retest_tolerance_atr: 0.25
+    false_breakout_bars: 3
+    max_holding_bars: 0
+    volatility_lookback: 120
+    volume_filter: false
+    volume_lookback: 20
+    min_volume_ratio: 1.0
+    close_location_filter: false
+    min_close_location: 0.65
+    trend_ma_period: 60
+    long_trend_ma_period: 120
+    trend_filter: false
+    max_gap_atr: 1.5
+
+daily_screening:
+  sma:
+    periods: [5, 10, 20, 55, 120]
+  ema:
+    periods: [144, 169]
+  macd:
+    fast: 12
+    slow: 26
+    signal: 9
+    session_periods: [1, 2, 5, 7]
+  dmi:
+    period: 14
+    adx_threshold: 25.0
+  atr:
+    period: 14
+    percentile_lookback: 120
+    normal_percentile_low: 0.10
+    normal_percentile_high: 0.90
+  volume:
+    lookback: 20
+    confirmation_ratio: 1.5
+  rating:
+    a_min_score: 6.0
+    b_min_score: 4.0
+    a_min_families: 3
+    b_min_families: 2
+
+trend_decision:
+  execution_grade: A
+  eligibility_gate_enabled: false
+
+risk:
+  initial_equity: 100000.0
+  cash_model: derivative
+  liquidate_at_end: true
+  contracts: {}
+  runtime:
+    strategy_version: corrected-v2
+    html_report: true
+    log_level: INFO
+    log_format: "%(asctime)s %(levelname)s %(name)s: %(message)s"
+    log_datefmt: "%Y-%m-%d %H:%M:%S"
+    code_version: unknown
+    data_manifest_hash: ""
+    paths: {}

@@ -7,6 +7,12 @@ from typing import Any
 
 import yaml
 
+from inv_trend.config import (
+    canonical_to_detector_mapping,
+    is_canonical_strategy_mapping,
+    load_strategy_mapping,
+)
+
 from ..models import AssetConfig, Market, StrategyConfig
 
 
@@ -50,9 +56,17 @@ def load_asset_configs(path: str | Path) -> dict[str, AssetConfig]:
 
 
 def load_strategy_config(path: str | Path | None = None) -> StrategyConfig:
-    path = path or Path(__file__).with_name("strategy.yaml")
-    payload = _read_mapping(path)
-    raw = payload.get("strategy", payload)
+    """Load canonical strategy YAML or an explicitly supplied legacy file."""
+
+    if path is None:
+        raw = canonical_to_detector_mapping(load_strategy_mapping())
+    else:
+        payload = _read_mapping(path)
+        raw = (
+            canonical_to_detector_mapping(payload)
+            if is_canonical_strategy_mapping(payload)
+            else payload.get("strategy", payload)
+        )
     if not isinstance(raw, dict):
         raise ValueError("strategy config must contain a mapping")
     unknown = set(raw) - set(StrategyConfig.__dataclass_fields__)

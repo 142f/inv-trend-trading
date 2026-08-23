@@ -50,6 +50,7 @@ include = ["inv_trend", "inv_trend.*"]
 namespaces = false
 
 [tool.setuptools.package-data]
+"inv_trend.config" = ["strategy.yaml"]
 "inv_trend.data.config" = ["assets.yaml"]
 "inv_trend.application.config" = ["strategy.yaml"]
 "inv_trend.adapters.detector.config" = ["strategy.yaml"]

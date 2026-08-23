@@ -9,16 +9,21 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any, Mapping
+from typing import TYPE_CHECKING, Any, Mapping
 
-from inv_trend.application.daily_models import InstrumentReportBundle
+if TYPE_CHECKING:
+    from inv_trend.application.daily_models import InstrumentReportBundle
 
 
 def write_instrument_report(
     bundle: InstrumentReportBundle | Mapping[str, Any],
     path: str | Path,
 ) -> Path:
-    payload = bundle.to_dict() if isinstance(bundle, InstrumentReportBundle) else dict(bundle)
+    # The presentation layer accepts a serialized report bundle and does not
+    # need to import its application DTO at runtime.  This keeps renderer
+    # composition independent of application-package initialization order.
+    to_dict = getattr(bundle, "to_dict", None)
+    payload = to_dict() if callable(to_dict) else dict(bundle)
     snapshot = {
         "report_date": str(payload.get("generated_at", ""))[:10],
         "timeframe": payload.get("timeframe", "D1"),

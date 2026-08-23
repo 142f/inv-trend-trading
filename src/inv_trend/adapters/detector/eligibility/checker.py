@@ -9,12 +9,18 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Mapping
 
 import numpy as np
 import pandas as pd
 
-from ..models import AssetConfig, SignalType, TurtleSignal
+from ..models import (
+    AssetConfig,
+    ConfirmationStatus,
+    Direction,
+    SignalType,
+    TurtleSignal,
+)
 from .models import (
     BlockedReason,
     BreakoutQuality,
@@ -87,7 +93,7 @@ class TradeEligibilityChecker:
 
     def evaluate(
         self,
-        signal: TurtleSignal,
+        signal: TurtleSignal | Mapping[str, Any],
         bars: pd.DataFrame,
         asset: AssetConfig,
         account: AccountSnapshot | None = None,
@@ -108,6 +114,11 @@ class TradeEligibilityChecker:
         Returns:
             EligibilityResult: 完整审查结果
         """
+        # The modular daily screening stage passes a JSON-shaped request
+        # through the application ``EligibilityPort``.  Normalise it here at
+        # the concrete detector boundary, so the application does not need to
+        # import detector enums/models merely to ask for an eligibility check.
+        signal = _coerce_turtle_signal(signal)
         thresholds = self._resolve_thresholds(asset)
         risk_group = get_risk_group(asset.symbol)
         hard_blocks: list[BlockedReason] = []
@@ -721,3 +732,62 @@ class TradeEligibilityChecker:
             + max(0, 1.0 - soft_warning_count * 0.15) * 0.15
         )
         return round(max(0.0, min(1.0, score)), 4)
+
+
+def _coerce_turtle_signal(value: TurtleSignal | Mapping[str, Any]) -> TurtleSignal:
+    """Accept the application-layer eligibility request at the adapter edge.
+
+    The legacy public checker still accepts a native :class:`TurtleSignal`.
+    Supporting a JSON-shaped mapping additionally lets D1 application code
+    depend on ``EligibilityPort`` instead of detector model classes.
+    """
+
+    if isinstance(value, TurtleSignal):
+        return value
+    if not isinstance(value, Mapping):
+        raise TypeError("eligibility signal must be TurtleSignal or a mapping")
+    try:
+        signal_type = SignalType(str(value["signal_type"]))
+        raw_signal_type = SignalType(str(value.get("raw_signal_type", signal_type.value)))
+        direction = Direction(str(value["direction"]))
+        confirmation = ConfirmationStatus(
+            str(value.get("confirmation_status", ConfirmationStatus.CLOSE_CONFIRMED.value))
+        )
+        return TurtleSignal(
+            symbol=str(value["symbol"]),
+            instrument=str(value["instrument"]),
+            market=str(value.get("market", "")),
+            timeframe=str(value.get("timeframe", "D1")),
+            signal_type=signal_type,
+            raw_signal_type=raw_signal_type,
+            direction=direction,
+            signal_time=str(value["signal_time"]),
+            trigger_price=float(value["trigger_price"]),
+            channel_high=_optional_float(value.get("channel_high")),
+            channel_low=_optional_float(value.get("channel_low")),
+            atr=float(value.get("atr", 0.0)),
+            atr_pct=float(value.get("atr_pct", 0.0)),
+            stop_price=_optional_float(value.get("stop_price")),
+            next_add_price=_optional_float(value.get("next_add_price")),
+            distance_to_breakout_atr=float(value.get("distance_to_breakout_atr", 0.0)),
+            volatility_percentile=float(value.get("volatility_percentile", 0.0)),
+            suggested_risk_unit=float(value.get("suggested_risk_unit", 0.0)),
+            trend_status=str(value.get("trend_status", "daily_screening")),
+            confirmation_status=confirmation,
+            data_source=str(value.get("data_source", "")),
+            generated_at=str(value.get("generated_at", value["signal_time"])),
+            tradeable=bool(value.get("tradeable", True)),
+            filtered_reasons=tuple(str(item) for item in value.get("filtered_reasons", ())),
+            confidence_note=str(value.get("confidence_note", "")),
+            metadata=(
+                dict(value["metadata"])
+                if isinstance(value.get("metadata"), Mapping)
+                else {}
+            ),
+        )
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ValueError("invalid eligibility signal request") from exc
+
+
+def _optional_float(value: Any) -> float | None:
+    return None if value is None else float(value)
