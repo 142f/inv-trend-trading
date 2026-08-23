@@ -199,6 +199,8 @@ class TrendDecisionResult:
     trend_direction: str
     execution_state: str
     decision: str
+    reason_code: str = ""
+    eligibility_status: str = "UNKNOWN"
     confidence: Mapping[str, Any] = field(default_factory=dict)
     long_evidence: tuple[str, ...] = ()
     short_evidence: tuple[str, ...] = ()
@@ -214,9 +216,11 @@ class TrendDecisionResult:
     commit_projection_hash: str | None = None
     conclusion: str = ""
     observation_only: bool = False
-    schema_version: str = "1"
+    schema_version: str = "2"
 
     def __post_init__(self) -> None:
+        object.__setattr__(self, "reason_code", str(self.reason_code))
+        object.__setattr__(self, "eligibility_status", str(self.eligibility_status))
         object.__setattr__(self, "confidence", _freeze(self.confidence))
         object.__setattr__(self, "commit_projection", _freeze(self.commit_projection))
         for name in ("long_evidence", "short_evidence", "reverse_evidence", "risk_blocks"):
@@ -228,7 +232,7 @@ class TrendDecisionResult:
         )
 
     def _business_payload(self) -> dict[str, Any]:
-        return {
+        payload = {
             "stage": "trend_decision",
             "schema_version": self.schema_version,
             "symbol": self.symbol,
@@ -249,6 +253,13 @@ class TrendDecisionResult:
             "conclusion": self.conclusion,
             "observation_only": self.observation_only,
         }
+        # Schema v1 artifacts predate explicit reason/eligibility fields.  The
+        # conditional preserves their historical hashes during staged-run
+        # recovery after an application upgrade.
+        if self.schema_version != "1":
+            payload["reason_code"] = self.reason_code
+            payload["eligibility_status"] = self.eligibility_status
+        return payload
 
     @property
     def result_hash(self) -> str:
@@ -406,6 +417,12 @@ class InstrumentReportBundle:
 
 
 DEFAULT_CHANGE_LOG: tuple[Mapping[str, str], ...] = (
+    {
+        "module": "core/decision_events.py + application/daily/trend_decision.py",
+        "change": "正式通知改由确认后的执行决策事件驱动",
+        "reason": "A 级评级事件与 A 级、同向突破、资格通过的最终入场条件不等价。",
+        "effect": "无突破不误报；评级已为 A 后的新突破不漏报；资格未确认仅输出入场候选。",
+    },
     {
         "module": "core/features.py",
         "change": "合并特征请求，并一次性准备 D1 特征",

@@ -1,7 +1,8 @@
 """Outbox delivery component for the modular D1 workflow.
 
 The service deliberately operates only on events already committed to the
-daily outbox.  It preserves the existing retry and recovery semantics while
+daily outbox.  The commit boundary admits only confirmed execution-decision
+events into that outbox.  Delivery preserves retry and recovery semantics while
 making them reusable outside the monolithic daily workflow.
 """
 
@@ -22,7 +23,7 @@ if TYPE_CHECKING:
 
 
 class NotificationDeliveryService:
-    """Deliver a run's outbox entries and retry earlier failed entries."""
+    """Deliver confirmed decision events and retry earlier failed entries."""
 
     def __init__(
         self,

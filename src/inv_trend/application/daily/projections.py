@@ -61,9 +61,7 @@ def market_assessment_from_decision(decision: Any) -> MarketAssessment:
 
     direction = str(decision.trend_direction)
     trend = {"LONG": "上升趋势", "SHORT": "下降趋势"}.get(direction, "趋势不明确")
-    entry = {"ENTER_LONG": "做多", "ENTER_SHORT": "做空"}.get(
-        str(decision.execution_state), "不入场"
-    )
+    entry = _entry_direction(str(decision.execution_state))
     confidence = decision.confidence
     evidence = (
         decision.long_evidence
@@ -99,9 +97,7 @@ def decision_backed_assessment(
     trend = {"LONG": "上升趋势", "SHORT": "下降趋势"}.get(
         str(decision.trend_direction), "趋势不明确"
     )
-    entry = {"ENTER_LONG": "做多", "ENTER_SHORT": "做空"}.get(
-        str(decision.execution_state), "不入场"
-    )
+    entry = _entry_direction(str(decision.execution_state))
     confidence = decision.confidence
     strength = f"{confidence.get('rating_grade') or '无'} 级 / {confidence.get('rating_score', '不可用')} 分"
     direction_evidence = (
@@ -122,6 +118,15 @@ def decision_backed_assessment(
         unmet_conditions=tuple(decision.reverse_evidence) + tuple(decision.risk_blocks),
         conclusion=decision.conclusion,
     )
+
+
+def _entry_direction(execution_state: str) -> str:
+    return {
+        "ENTER_LONG": "做多",
+        "ENTER_SHORT": "做空",
+        "ENTRY_CANDIDATE_LONG": "做多候选",
+        "ENTRY_CANDIDATE_SHORT": "做空候选",
+    }.get(execution_state, "不入场")
 
 
 def summary(

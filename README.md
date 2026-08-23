@@ -1,66 +1,116 @@
 # inv-trend-trading-core
 
-多资产趋势交易研究与每日预警代码库。已迁移的路径围绕以下统一链路组织；
-仍在迁移中的 CLI 例外以独立验收报告为准：
+多资产日线趋势/突破研究与每日预警系统。项目以受治理、可版本化的 OHLCV 为输入，生成可复现的策略证据、趋势判断、执行候选、正式执行决策、审计制品和可重试通知。
+
+本交付基于 `inv-trend-trading-core-architecture-20260823.zip` 完成 **P0 业务正确性修复**：正式通知不再由 A 级评级事件触发，而只由最终确认的执行决策事件触发。完整修改范围、文件清单和兼容性见 [`项目代码修改说明_v1.md`](项目代码修改说明_v1.md)。
+
+## 1. 代码边界
 
 ```text
-CLI / Scheduled Job
+CLI / Scheduler
         ↓
-Application Service（用例编排）
+Application：用例编排、阶段合同、决策投影
         ↓
-Core / Strategy（确定性特征、信号、回测、风险规则）
+Core：无 I/O 指标、策略证据、ExecutionDecisionEvent
         ↓
-Historical Data Repository（版本化读取、质量门禁、血缘校验）
-        ↓
-Provider / File / Catalog / Output Adapter
+Data / Adapters：数据治理、SQLite、Provider、通知、报告
 ```
 
-本版重点重构了历史行情的审核发布、不可变制品、`current` 激活、Catalog 后端选择和血缘校验。源码统一放在 [`src/inv_trend/`](src/inv_trend/) 命名空间；历史交付说明见 [`趋势交易核心-重构说明v1.md`](docs/refactoring/趋势交易核心-重构说明v1.md)，当前验证状态与历史审计说明见 [`docs/REFACTOR_ACCEPTANCE_AUDIT.md`](docs/REFACTOR_ACCEPTANCE_AUDIT.md)。
-
-> **验证状态（2026-08-17，恢复与重新认证进行中）**：下文的历史测试计数和
-> Golden 结论不能解释为当前工作树的验证结果。原始 Golden fixture/expected
-> 成对制品未能从工作树、交付 ZIP 或 Git 历史中完整找回；将使用新固定的 BTC
-> D1 输入重新认证，并在完整门禁执行后更新验收结论。常规测试不会重写 expected。
-
-> **本轮验证（2026-08-18）**：恢复的完整测试套件 `239 passed`；新的 BTC D1
-> Golden Master 已用 Git `121f901` 重新认证，业务语义比较无差异。原始声明的
-> Golden 输入无法找回，因此新 fixture 明确标记为 *re-certified*，并非伪称原始基线。
-> 详见 [`tests/RECOVERY_MANIFEST.json`](tests/RECOVERY_MANIFEST.json) 与
-> [`docs/REFACTOR_REPORT.md`](docs/REFACTOR_REPORT.md)。
-
-## 1. 模块边界
-
-| 模块 | 职责 |
+| 路径 | 职责 |
 |---|---|
-| `src/inv_trend/data/` | Provider 接入、标准化、质量评估、不可变数据湖、审核发布、Catalog、统一 Repository 读取 |
-| `src/inv_trend/core/` | 无外部 I/O 的共享特征、数学、事件、信号和序列化能力 |
-| `src/inv_trend/application/` | 每日扫描、检测、回测等 Use Case 编排与运行清单 |
-| `src/inv_trend/adapters/detector/` | 单资产海龟检测的过渡策略适配器；复用 Core 与 Application |
-| `src/inv_trend/adapters/multi_asset/` | 多资产海龟回测、数据构建与美股趋势预警的过渡策略适配器 |
-| `src/inv_trend/integrations/` | MT5、OKX 等可选外部适配器；采用惰性导入，未安装可选 SDK 不影响核心包 |
-| `src/inv_trend/observability/` | 审计与 HTML/JSON 输出 |
-| `src/inv_trend/cli/` | 五个公开命令的薄入口；命令名称和参数保持不变 |
-| `tests/` | 恢复与重新认证中的单元、集成、架构边界、事务故障注入与 Golden Master 回归 |
-| `scripts/` | 日常运行和基准测试脚本 |
+| `src/inv_trend/core/` | 无外部 I/O 的特征、指标、规则、信号和执行决策事件 |
+| `src/inv_trend/data/` | Provider、标准化、质量门禁、不可变版本、Review、Catalog、current 激活与血缘 |
+| `src/inv_trend/application/` | 日报、检测、回测和阶段工作流编排 |
+| `src/inv_trend/application/daily/` | `data-update → strategy-screen → trend-decide → commit → publish → deliver` |
+| `src/inv_trend/adapters/detector/` | 单资产 Turtle 适配、SQLite 状态/outbox、通知 |
+| `src/inv_trend/adapters/multi_asset/` | 多资产 Turtle 研究、回测、组合风险 |
+| `src/inv_trend/observability/` | JSON、HTML、CSV 与审计展示，不重新计算策略 |
+| `tests/` | 本次 P0 执行决策与通知语义回归测试 |
+
+更完整的模块和数据流见 [`CORE_CODE_ARCHITECTURE.md`](CORE_CODE_ARCHITECTURE.md)。
 
 ## 2. 安装
 
 ```bash
+python -m pip install -e .
 python -m pip install -e ".[test]"
 ```
 
-可选适配器：
+可选集成：
 
 ```bash
 python -m pip install -e ".[okx]"
 python -m pip install -e ".[mt5]"   # MetaTrader5 仅在 Windows 安装
 ```
 
-Python 要求：`>=3.10`。正式数据存储依赖 `PyArrow`；DuckDB Catalog 依赖 `duckdb`，也可使用 SQLite。
+要求 Python `>=3.10`。正式 Parquet 数据链依赖 PyArrow；DuckDB Catalog 依赖 DuckDB，也可使用 SQLite Catalog。
 
-## 3. 历史行情数据
+## 3. 日线工作流
 
-全局参数 `--root` 必须写在子命令前：
+```text
+data-update → strategy-screen → trend-decide → commit → publish → deliver
+```
+
+- `data-update`：固定数据版本、质量、新鲜度、血缘和运行配置；
+- `strategy-screen`：生成指标、评级、突破候选和资格证据，不写状态；
+- `trend-decide`：只消费筛选证据，生成最终趋势与动作；
+- `commit`：唯一允许写入信号、cursor 和 outbox 的阶段；
+- `publish`：只从已完成 JSON 派生 HTML/CSV/Manifest；
+- `deliver`：只投递 outbox，可安全重试。
+
+一键运行：
+
+```bash
+turtle-daily run --symbol BTC --no-color
+```
+
+阶段恢复必须复用相同的 `--output-dir`、`--report-date` 和 `--run-id`。阶段文件 Hash、数据版本或运行上下文不一致时失败，不隐式重算。
+
+## 4. 正式通知语义
+
+正式动作由三个条件共同决定：
+
+```text
+A 级同向趋势
++ 同方向 Turtle 20/55 突破
++ eligibility 已实际评估且 PASSED
+```
+
+| 证据状态 | `execution_state` | 正式 outbox |
+|---|---|---|
+| A 级、无同向突破 | `WAIT` | 不写入 |
+| A 级 + 突破、资格未评估/未确认 | `ENTRY_CANDIDATE_LONG/SHORT` | 不写入 |
+| A 级 + 突破、资格阻断 | `WAIT` / `RISK_BLOCKED` | 不写入 |
+| A 级 + 突破、资格确认通过 | `ENTER_LONG/SHORT` | 写入一个 `ENTRY_DECISION_LONG/SHORT` |
+
+SMA、EMA、MACD、Turtle、A/B/C 等事件继续作为技术证据保存和展示，但不能直接进入正式通知队列。
+
+`ExecutionDecisionEvent` 的 ID 由以下稳定业务维度生成，不包含 `run_id` 或重试时间：
+
+```text
+strategy_version
++ decision_rule_version
++ instrument_id
++ timeframe
++ as_of
++ action
+```
+
+因此同一决策重复运行只保留一条信号和一条 outbox 记录。
+
+> `eligibility_gate_enabled: false` 或未注入执行上下文时，系统只输出 `ENTRY_CANDIDATE_*`。要生成正式 `ENTER_*`，必须启用资格闸门并提供实际评估结果。
+
+## 5. 其他命令
+
+```bash
+market-data --help
+turtle-data --help
+turtle-detect --help
+turtle-alert --help
+turtle-daily --help
+```
+
+历史行情示例：
 
 ```bash
 market-data --root data download \
@@ -68,135 +118,43 @@ market-data --root data download \
   --start 2017-08-17T00:00:00Z
 
 market-data --root data update --symbol BTC --timeframe D1
-market-data --root data missing --symbol BTC --timeframe D1
 market-data --root data coverage --symbol BTC --timeframe D1
 market-data --root data verify --kind catalog
 ```
 
-审核冲突候选：
+## 6. 验证
+
+本交付包内可执行：
 
 ```bash
-market-data --root data review list
-market-data --root data review approve \
-  --run-id <run_id> \
-  --decision approve_incoming \
-  --reason "已核验供应商原始响应" \
-  --actor "reviewer"
-
-market-data --root data review reject \
-  --run-id <run_id> --reason "价格冲突无法解释" --actor "reviewer"
+PYTHONPATH=src pytest -q tests/test_daily_execution_decision_events.py
+PYTHONPATH=src python -m compileall -q src tests
 ```
 
-审批采用“先生成并校验全部不可变制品，再登记 Catalog/审核记录，最后 CAS 激活 current”的流程；失败可重试，指针与 Catalog 不一致时可恢复：
-
-```bash
-market-data --root data repair-current --symbol BTC --timeframe D1
-```
-
-完整的数据边界、目录、Manifest、审核事务和故障恢复说明见 [`src/inv_trend/data/README.md`](src/inv_trend/data/README.md)。完整目录职责见 [`docs/PROJECT_STRUCTURE.md`](docs/PROJECT_STRUCTURE.md)。
-
-## 4. 策略与每日任务
-
-每日市场扫描：
-
-```powershell
-.\scripts\run_daily_market_scan.ps1
-```
-
-`turtle-daily` 的 D1 主链为：
+本次交付验证结果：
 
 ```text
-data-update → strategy-screen → trend-decide → commit → publish → deliver
+P0 targeted tests: 19 passed
+compileall: passed
 ```
 
-推荐的一键入口和兼容入口分别为：
+原始 ZIP 未包含其 README 所引用的完整历史测试、Golden、数据 fixture、脚本和运行输出，因此本交付**不继承也不重新声明**历史 `239 passed`、Golden 或生产环境验收结论。PyArrow、DuckDB、真实 Provider、Windows、多进程和故障注入仍需在目标环境执行。
 
-```powershell
-turtle-daily run --symbol BTC --no-color
-turtle-daily --symbol BTC --no-color  # 无子命令兼容 run
-```
+## 7. 兼容性
 
-需要单独调度、审计或重试时，可依次运行 `data-update`、`strategy-screen`、
-`trend-decide`、`commit`、`publish`、`deliver` 子命令，并以相同的
-`--output-dir`、`--report-date`、`--run-id` 交接 staging 制品。前三阶段不写状态；
-只有 `commit` 写 SQLite/cursor/outbox，`publish` 只从完整 JSON 派生报告，`deliver`
-只投递 outbox。
+- CLI 名称和参数不变；
+- SQLite 的 `signal_events`、`signal_outbox` 表结构不变，无数据库迁移；
+- `notification_signal_ids` 参数名继续接受，但执行“仅允许确认执行事件”的新安全语义；
+- 新投影使用 `notification_event_ids`，同时保留同值的旧字段作为读取兼容别名；
+- schema v1 的 `TrendDecisionResult` Hash 计算保持兼容，可读取旧阶段结果；旧阶段中以 A 级技术事件作为通知候选的记录会被安全抑制，不再进入正式 outbox；
+- 主要行为变化：过去可能输出 `ENTER_*` 的“资格未评估”场景，现在降级为 `ENTRY_CANDIDATE_*`。这是有意的 fail-closed 修复。
 
-其他 CLI 入口：
+## 8. 当前范围
 
-```bash
-turtle-detect --help
-turtle-alert --help
-turtle-data --help
-```
+本版本完成的是 P0 通知/决策语义闭环。以下仍属于后续 P1/P2，不在本次代码中伪装为已完成：
 
-完整参数、退出码、制品目录和 Windows 定时任务见
-[`DAILY_MARKET_SCAN_CLI.md`](docs/operations/DAILY_MARKET_SCAN_CLI.md)；阶段交接、
-Hash 校验和配置迁移见 [`DAILY_WORKFLOW_STAGES.md`](docs/operations/DAILY_WORKFLOW_STAGES.md)。
-
-## 5. 测试与基准
-
-```bash
-pytest -q
-python scripts/benchmark_refactor.py
-```
-
-以下为 2026-08-16 的历史独立验收记录，不是本轮恢复后的当前结果：
-
-```text
-Historical passed: 253
-Failed: 0
-Skipped: 0
-```
-
-在 Windows 上请使用短工作区临时路径，避免 Parquet 临时文件超过路径长度限制：
-
-```bash
-pytest -q --basetemp .tmp/a
-```
-
-历史性能快照保存在 [`性能基准v1.json`](docs/benchmarks/性能基准v1.json)；当前复验结果和适用边界见验收报告。
-
-## 6. 运行数据与版本控制
-
-运行生成的 `data/`、`processed_data/` 和 `outputs/` 默认不入库；源码、测试、Markdown 文档、示例和研究脚本应正常跟踪。敏感配置只放本地 `.env`，模板使用 `.env.example`。
-
-## 7. 当前边界
-
-本版已通过本地 **P0-core** 验收，但完整应用层迁移尚未完成：`turtle-alert` 与部分 `turtle-data` 子命令仍有平行路径，策略配置和 Turtle 规则内核也尚未完全收敛。正式部署封版仍需在目标环境完成真实 Provider 响应、实际数据根、生产规模 Catalog、独立进程恢复和 Windows 文件系统语义验证。交易所官方 holiday/halt、完整历史 QQQ 持仓谱系及全部 research Repository 迁移仍属于后续范围。
-
----
-
-## 可解释日报与交互报告（v2 增强）
-
-本版本在不改变既有 Turtle / 日线策略核心判定语义的前提下，增加统一条件解释、单次 D1 特征准备和结构化 ReportBundle。新版 HTML 只消费 ReportBundle，不在展示层重新计算指标或策略。
-
-### 离线可视化 smoke 验证
-
-```bash
-PYTHONPATH=src python scripts/生成离线演示报告_v1.py
-```
-
-输出：
-
-- `outputs/离线可视化验证_v1/离线验证结构化结果_v1.json`
-- `outputs/离线可视化验证_v1/离线验证可视化报告_v1.html`
-
-该数据是**确定性离线 smoke fixture**，仅验证计算/解释/渲染链路，不冒充真实市场数据。
-
-### Binance 公开 BTCUSDT D1 端到端复现
-
-```bash
-python scripts/下载公开BTC测试数据_v1.py
-PYTHONPATH=src python scripts/运行公开BTC端到端_v1.py
-```
-
-默认区间为 `[2023-01-01, 2025-01-01)`，来源为 Binance Vision 公共月度 Kline 归档；下载器会校验相邻 `.CHECKSUM` 后再冻结 CSV fixture。
-
-### 新增回归测试
-
-```bash
-PYTHONPATH=src pytest -q
-```
-
-覆盖 FeatureRequest 合并、D1 单次准备、ATR 分位等价性、策略条件可解释结构、结果哈希稳定性、eligibility 两项 Bug 修复及 HTML 单一数据源约束。公开 BTC E2E 在 fixture 尚未下载时会显式 skip，而不是伪造成功。
+- daily、detector、multi-asset backtest 共用同一个 canonical 策略内核；
+- 多份策略 YAML 收敛为单一权威 schema；
+- application 对具体 adapter 的依赖反转；
+- A/B/C 与多期限趋势 challenger 的成本后样本外比较；
+- HMM/复杂 regime、性能并行化及生产环境全量验收。

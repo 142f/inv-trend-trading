@@ -280,6 +280,7 @@ class SignalCommitService:
         row["alert_policy"] = {
             "formal_eligible": formal_eligible,
             "research_mode": research_mode,
+            "notification_source": "execution_decision_event",
             "suppressed_reason": (
                 None
                 if formal_eligible
@@ -290,6 +291,9 @@ class SignalCommitService:
         }
         row["signals_detected"] = len(detected) if observable else 0
         row["signals"] = [event.to_dict() for event in detected]
+        row["execution_decision_events"] = json_safe(
+            rows(projection.get("execution_decision_events"))
+        )
         report_bundle = json_safe(mapping(row_projection.get("report_bundle")))
         if not report_bundle:
             raise ValueError(
@@ -325,13 +329,13 @@ class SignalCommitService:
                 raise ValueError(
                     f"D1 session anchor changed after strategy-screen for {symbol}; rerun strategy-screen"
                 )
-            notification_ids = {
-                str(value) for value in projection.get("notification_signal_ids", ())
-            }
-            known_signal_ids = {event.signal_id for event in detected}
-            if not notification_ids.issubset(known_signal_ids):
-                raise ValueError(
-                    f"trend-decision commit projection notification identity is invalid for {symbol}"
+            known_events = {event.signal_id: event for event in detected}
+            notification_ids, legacy_suppressed = _resolve_projection_notification_ids(
+                projection, known_events, symbol=symbol
+            )
+            if legacy_suppressed:
+                row["alert_policy"]["legacy_notification_ids_suppressed"] = list(
+                    legacy_suppressed
                 )
             row["signals_new"], row["signals_duplicate"] = 0, 0
             persistence = {
@@ -346,7 +350,7 @@ class SignalCommitService:
                 "session_anchor": expected_anchor,
                 "events": detected,
                 "enqueue_notifications": bool(persistence_plan.get("enqueue_notifications", True)),
-                "notification_signal_ids": notification_ids,
+                "notification_event_ids": notification_ids,
             }
         else:
             row["signals_new"], row["signals_duplicate"] = 0, 0
@@ -362,6 +366,58 @@ class SignalCommitService:
             data, mapping(row.get("update")), research_mode=research_mode
         )
         return row, persistence
+
+
+def _resolve_projection_notification_ids(
+    projection: Mapping[str, Any],
+    known_events: Mapping[str, SignalEvent],
+    *,
+    symbol: str,
+) -> tuple[set[str], tuple[str, ...]]:
+    """Resolve a hash-bound projection without reviving legacy grade alerts."""
+
+    uses_execution_projection = "notification_event_ids" in projection
+    raw_notification_ids = (
+        projection.get("notification_event_ids", ())
+        if uses_execution_projection
+        else projection.get("notification_signal_ids", ())
+    )
+    if raw_notification_ids is None:
+        raw_notification_ids = ()
+    if not isinstance(raw_notification_ids, (list, tuple, set, frozenset)):
+        raise ValueError(
+            f"trend-decision commit projection notification identity is invalid for {symbol}"
+        )
+    requested = {str(value) for value in raw_notification_ids}
+    if not requested.issubset(known_events):
+        raise ValueError(
+            f"trend-decision commit projection notification identity is invalid for {symbol}"
+        )
+    confirmed = {
+        event_id
+        for event_id in requested
+        if _is_execution_notification_event(known_events[event_id])
+    }
+    invalid = sorted(
+        known_events[event_id].signal_type for event_id in requested - confirmed
+    )
+    if uses_execution_projection and invalid:
+        raise ValueError(
+            "formal notification outbox accepts only confirmed execution "
+            f"decision events for {symbol}: {invalid}"
+        )
+    # Old schema-v1 projections selected A-grade evidence.  Preserve staged
+    # recovery, but fail closed by suppressing those technical notification IDs.
+    suppressed = tuple(sorted(requested - confirmed))
+    return confirmed, suppressed
+
+
+def _is_execution_notification_event(event: SignalEvent) -> bool:
+    return (
+        event.indicator_name == "execution_decision"
+        and event.signal_type in {"ENTRY_DECISION_LONG", "ENTRY_DECISION_SHORT"}
+    )
+
 
 def _projection_events(
     projection: Mapping[str, Any], *, symbol: str
