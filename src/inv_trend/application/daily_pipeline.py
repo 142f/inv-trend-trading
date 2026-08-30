@@ -187,7 +187,7 @@ class DailyMarketScanService:
         self.signal_repository.finish_run(run_id, finished_at.isoformat(), summary)
         report_date = started_at.astimezone(BEIJING).date().isoformat()
         snapshot = {
-            "schema_version": "4", "report_schema_version": "3",
+            "schema_version": "4", "report_schema_version": "4",
             "run_id": run_id, "report_date": report_date,
             "started_at": started_at.isoformat(), "finished_at": finished_at.isoformat(),
             "timezone": "Asia/Shanghai", "timeframe": "D1",

@@ -325,6 +325,78 @@ class BreakoutAssessment:
 
 
 @dataclass(frozen=True)
+class TurtleObservation:
+    """Report-only intraday/close relationship to one prepared Donchian channel."""
+
+    observation_id: str
+    timestamp: str
+    period: int
+    open: float | None
+    high: float | None
+    low: float | None
+    close: float | None
+    channel_high: float | None
+    channel_low: float | None
+    intraday_directions: tuple[str, ...] = ()
+    close_confirmation: str = "none"
+    status: str = "unavailable"
+    upper_excess_pct: float | None = None
+    lower_excess_pct: float | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "observation_id": self.observation_id,
+            "timestamp": self.timestamp,
+            "period": self.period,
+            "open": self.open,
+            "high": self.high,
+            "low": self.low,
+            "close": self.close,
+            "channel_high": self.channel_high,
+            "channel_low": self.channel_low,
+            "intraday_directions": list(self.intraday_directions),
+            "close_confirmation": self.close_confirmation,
+            "status": self.status,
+            "upper_excess_pct": self.upper_excess_pct,
+            "lower_excess_pct": self.lower_excess_pct,
+        }
+
+
+@dataclass(frozen=True)
+class AnomalyEpisode:
+    """Report projection grouping consecutive raw anomaly evidence."""
+
+    episode_id: str
+    anomaly_type: str
+    side: str
+    severity: str
+    start_timestamp: str
+    end_timestamp: str
+    duration_bars: int
+    status: str
+    extreme_actual: float | None
+    reference_value: Any
+    member_anomaly_ids: tuple[str, ...] = ()
+    summary: str = ""
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "episode_id": self.episode_id,
+            "anomaly_type": self.anomaly_type,
+            "side": self.side,
+            "severity": self.severity,
+            "start_timestamp": self.start_timestamp,
+            "end_timestamp": self.end_timestamp,
+            "duration_bars": self.duration_bars,
+            "status": self.status,
+            "extreme_actual": self.extreme_actual,
+            "reference_value": _thaw(_freeze(self.reference_value)),
+            "member_anomaly_ids": list(self.member_anomaly_ids),
+            "summary": self.summary,
+        }
+
+
+@dataclass(frozen=True)
 class MarketAssessment:
     """Latest-bar report conclusion; it neither creates an order nor a signal."""
 
@@ -365,16 +437,18 @@ class InstrumentReportBundle:
     rule_evaluations: tuple[RuleEvaluation, ...]
     market_assessment: MarketAssessment | None = None
     breakout_assessments: tuple[BreakoutAssessment, ...] = ()
+    turtle_observations: tuple[TurtleObservation, ...] = ()
     data_update_result: Mapping[str, Any] = field(default_factory=dict)
     strategy_screening_result: Mapping[str, Any] = field(default_factory=dict)
     trend_decision_result: Mapping[str, Any] = field(default_factory=dict)
     event_decisions: tuple[Mapping[str, Any], ...] = ()
     anomalies: tuple[AnomalyEvent, ...] = ()
+    anomaly_episodes: tuple[AnomalyEpisode, ...] = ()
     state_transitions: tuple[StateTransition, ...] = ()
     summary: Mapping[str, Any] = field(default_factory=dict)
     strategy_snapshot: Mapping[str, Any] = field(default_factory=dict)
     change_log: tuple[Mapping[str, Any], ...] = ()
-    schema_version: str = "3"
+    schema_version: str = "4"
 
     def _payload_without_identity(self) -> dict[str, Any]:
         return {
@@ -390,11 +464,13 @@ class InstrumentReportBundle:
             "rule_evaluations": [item.to_dict() for item in self.rule_evaluations],
             "market_assessment": self.market_assessment.to_dict() if self.market_assessment else None,
             "breakout_assessments": [item.to_dict() for item in self.breakout_assessments],
+            "turtle_observations": [item.to_dict() for item in self.turtle_observations],
             "data_update_result": _thaw(self.data_update_result),
             "strategy_screening_result": _thaw(self.strategy_screening_result),
             "trend_decision_result": _thaw(self.trend_decision_result),
             "event_decisions": [_thaw(item) for item in self.event_decisions],
             "anomalies": [item.to_dict() for item in self.anomalies],
+            "anomaly_episodes": [item.to_dict() for item in self.anomaly_episodes],
             "state_transitions": [item.to_dict() for item in self.state_transitions],
             "summary": dict(self.summary),
             "strategy_snapshot": dict(self.strategy_snapshot),
@@ -417,6 +493,12 @@ class InstrumentReportBundle:
 
 
 DEFAULT_CHANGE_LOG: tuple[Mapping[str, str], ...] = (
+    {
+        "module": "application/daily_analysis.py + observability/report_renderer.py",
+        "change": "区分海龟正式收盘突破与盘中越轨观察，并聚合异常阶段",
+        "reason": "K 线影线越过通道但收盘回落时，旧报告无法解释为何没有正式信号；逐日异常也会形成重复噪声。",
+        "effect": "正式策略语义不变；报告增加盘中未确认证据、异常阶段和可展开的逐日明细。",
+    },
     {
         "module": "core/decision_events.py + application/daily/trend_decision.py",
         "change": "正式通知改由确认后的执行决策事件驱动",
@@ -457,11 +539,13 @@ DEFAULT_CHANGE_LOG: tuple[Mapping[str, str], ...] = (
 
 
 __all__ = [
+    "AnomalyEpisode",
     "BreakoutAssessment",
     "DataUpdateResult",
     "DEFAULT_CHANGE_LOG",
     "InstrumentReportBundle",
     "MarketAssessment",
     "StrategyScreeningResult",
+    "TurtleObservation",
     "TrendDecisionResult",
 ]

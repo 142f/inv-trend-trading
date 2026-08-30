@@ -13,7 +13,7 @@ from inv_trend.observability.daily import render_complete_analysis
 def _snapshot() -> dict[str, object]:
     return {
         "schema_version": "4",
-        "report_schema_version": "3",
+        "report_schema_version": "4",
         "report_date": "2026-08-20",
         "run_id": "artifact-retry-1",
         "configuration": {},
@@ -88,6 +88,8 @@ def test_filesystem_publisher_uses_an_injected_renderer_port_only(tmp_path: Path
     )
     assert renderer.single_payloads[0]["hashes"]["hash_chain_valid"] is True
     assert renderer.aggregate_payloads[0]["BTC"]["hashes"]["hash_chain_valid"] is True
+    assert len(renderer.single_payloads) == 1
+    assert len(renderer.aggregate_payloads) == 1
 
     source = (
         Path(__file__).parents[2]
@@ -117,6 +119,68 @@ def test_legacy_writer_constructor_lazily_composes_the_default_html_renderer(
     assert (
         publication.run_directory / "BTC" / "02_report" / "trend_analysis_report.html"
     ).is_file()
+
+
+def test_publication_adds_self_identifying_names_and_navigation_indexes(
+    tmp_path: Path,
+) -> None:
+    writer = _writer(tmp_path)
+
+    publication = writer.publish(_snapshot(), render_html=True)
+    run_root = publication.run_directory
+    symbol_root = run_root / "BTC"
+    batch_index = json.loads((run_root / "批次索引.json").read_text(encoding="utf-8"))
+    result_index = json.loads((symbol_root / "结果索引.json").read_text(encoding="utf-8"))
+    output_index = json.loads(
+        (tmp_path / "artifacts" / "输出索引.json").read_text(encoding="utf-8")
+    )
+
+    assert batch_index["layout_version"] == "2"
+    assert batch_index["symbols"] == [
+        {
+            "symbol": "BTC",
+            "timeframe": "D1",
+            "directory": "BTC",
+            "result_index": "BTC/结果索引.json",
+        }
+    ]
+    assert result_index["symbol"] == "BTC"
+    assert result_index["timeframe"] == "D1"
+    assert result_index["report_date"] == "2026-08-20"
+    assert result_index["run_id"] == "artifact-retry-1"
+    assert output_index["latest_batch"] == {
+        "run_id": "artifact-retry-1",
+        "report_date": "2026-08-20",
+        "timeframe": "D1",
+        "run_directory": "runs/2026-08-20/artifact-retry-1",
+        "batch_index": "runs/2026-08-20/artifact-retry-1/批次索引.json",
+    }
+    assert output_index["latest_symbols"]["BTC"]["result_index"] == (
+        "latest/BTC/结果索引.json"
+    )
+
+    named_report = symbol_root / result_index["result_types"]["report"]
+    named_complete = symbol_root / result_index["result_types"]["complete_analysis"]
+    assert named_report.name == (
+        "BTC_D1_2026-08-20_artifact-retry-1_趋势分析报告_v4.html"
+    )
+    assert named_complete.name == (
+        "BTC_D1_2026-08-20_artifact-retry-1_完整分析_v4.json"
+    )
+    assert named_report.read_bytes() == (
+        symbol_root / "02_report" / "trend_analysis_report.html"
+    ).read_bytes()
+    assert named_complete.read_bytes() == (
+        symbol_root / "01_canonical" / "complete_analysis_result.json"
+    ).read_bytes()
+
+    summary_reports = list(
+        (tmp_path / "artifacts" / "汇总结果" / "2026-08-20" / "artifact-retry-1").glob(
+            "*_汇总报告_v4.html"
+        )
+    )
+    assert len(summary_reports) == 1
+    assert summary_reports[0].read_bytes() == publication.compatibility_html.read_bytes()
 
 
 def test_filesystem_publisher_retries_an_already_promoted_run(tmp_path: Path) -> None:

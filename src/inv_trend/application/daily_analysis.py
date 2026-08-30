@@ -24,10 +24,12 @@ from inv_trend.core.strategy.daily.analysis import (
 )
 
 from .daily_models import (
+    AnomalyEpisode,
     BreakoutAssessment,
     DEFAULT_CHANGE_LOG,
     InstrumentReportBundle,
     MarketAssessment,
+    TurtleObservation,
 )
 
 
@@ -330,6 +332,11 @@ def build_instrument_report_bundle(
                 series_start = min(series_start, position)
     start_position = max(1, series_start)
     anomalies = detect_anomalies(prepared, start_position=start_position)
+    turtle_observations = build_turtle_observations(
+        prepared,
+        start_position=series_start,
+    )
+    anomaly_episodes = build_anomaly_episodes(prepared, anomalies)
     transitions = state_transitions(prepared, start_position=start_position)
     series = tuple(_series_payload(prepared.base.iloc[series_start:]))
     signal_rows = tuple(dict(item) for item in (signals if signals is not None else current.get("signals", [])))
@@ -345,8 +352,14 @@ def build_instrument_report_bundle(
         "conditions_failed": int(explanation.get("conditions_failed", 0)),
         "conditions_unavailable": int(explanation.get("conditions_unavailable", 0)),
         "anomalies": len(anomalies),
+        "anomaly_episodes": len(anomaly_episodes),
         "state_transitions": len(transitions),
         "breakout_assessments": len(assessments),
+        "turtle_observations": len(turtle_observations),
+        "turtle_cross_observations": sum(
+            item.status not in {"inside", "unavailable"}
+            for item in turtle_observations
+        ),
     }
     latest = current.get("latest_bar")
     return InstrumentReportBundle(
@@ -361,11 +374,13 @@ def build_instrument_report_bundle(
         rule_evaluations=rules,
         market_assessment=market_assessment or build_market_assessment(prepared, current),
         breakout_assessments=assessments,
+        turtle_observations=turtle_observations,
         data_update_result=dict(data_update_result or {}),
         strategy_screening_result=dict(strategy_screening_result or {}),
         trend_decision_result=dict(trend_decision_result or {}),
         event_decisions=tuple(dict(item) for item in (event_decisions or ())),
         anomalies=anomalies,
+        anomaly_episodes=anomaly_episodes,
         state_transitions=transitions,
         summary=summary,
         strategy_snapshot={
@@ -377,6 +392,170 @@ def build_instrument_report_bundle(
         },
         change_log=DEFAULT_CHANGE_LOG,
     )
+
+
+def build_turtle_observations(
+    prepared: PreparedDailyAnalysis,
+    *,
+    start_position: int = 0,
+) -> tuple[TurtleObservation, ...]:
+    """Project intraday and close relationships to existing Donchian features."""
+
+    result: list[TurtleObservation] = []
+    frame = prepared.base
+    for position in range(max(0, start_position), len(frame)):
+        row = frame.iloc[position]
+        timestamp = frame.index[position].isoformat()
+        open_price = _number(row.get("open"))
+        high = _number(row.get("high"))
+        low = _number(row.get("low"))
+        close = _number(row.get("close"))
+        for period in (20, 55):
+            channel_high = _number(row.get(f"channel_high_{period}"))
+            channel_low = _number(row.get(f"channel_low_{period}"))
+            values = (high, low, close, channel_high, channel_low)
+            if any(value is None for value in values):
+                directions: tuple[str, ...] = ()
+                close_confirmation = "none"
+                status = "unavailable"
+                upper_excess_pct = None
+                lower_excess_pct = None
+            else:
+                crossed_up = float(high) > float(channel_high)
+                crossed_down = float(low) < float(channel_low)
+                directions = tuple(
+                    direction
+                    for direction, crossed in (("up", crossed_up), ("down", crossed_down))
+                    if crossed
+                )
+                close_confirmation = (
+                    "up"
+                    if float(close) > float(channel_high)
+                    else ("down" if float(close) < float(channel_low) else "none")
+                )
+                if close_confirmation == "up":
+                    status = "close_confirmed_up"
+                elif close_confirmation == "down":
+                    status = "close_confirmed_down"
+                elif crossed_up and crossed_down:
+                    status = "two_sided_intraday_unconfirmed"
+                elif crossed_up:
+                    status = "intraday_up_unconfirmed"
+                elif crossed_down:
+                    status = "intraday_down_unconfirmed"
+                else:
+                    status = "inside"
+                upper_excess_pct = (
+                    max(0.0, (float(high) - float(channel_high)) / float(channel_high))
+                    if float(channel_high) != 0.0
+                    else None
+                )
+                lower_excess_pct = (
+                    max(0.0, (float(channel_low) - float(low)) / float(channel_low))
+                    if float(channel_low) != 0.0
+                    else None
+                )
+            result.append(
+                TurtleObservation(
+                    observation_id=_stable_id("turtle_observation", period, timestamp),
+                    timestamp=timestamp,
+                    period=period,
+                    open=open_price,
+                    high=high,
+                    low=low,
+                    close=close,
+                    channel_high=channel_high,
+                    channel_low=channel_low,
+                    intraday_directions=directions,
+                    close_confirmation=close_confirmation,
+                    status=status,
+                    upper_excess_pct=upper_excess_pct,
+                    lower_excess_pct=lower_excess_pct,
+                )
+            )
+    return tuple(result)
+
+
+def build_anomaly_episodes(
+    prepared: PreparedDailyAnalysis,
+    anomalies: Iterable[Any],
+) -> tuple[AnomalyEpisode, ...]:
+    """Group same-type raw anomalies on consecutive prepared bars for reporting."""
+
+    items = tuple(anomalies)
+    if not items or prepared.base.empty:
+        return ()
+    position_by_time = {
+        timestamp.isoformat(): position
+        for position, timestamp in enumerate(prepared.base.index)
+    }
+    grouped: dict[tuple[str, str], list[Any]] = {}
+    for item in items:
+        condition = item.conditions[0] if item.conditions else None
+        side = "none"
+        if item.anomaly_type == "atr_percentile_extreme" and condition is not None:
+            if condition.relative_position == "outside_below":
+                side = "low"
+            elif condition.relative_position == "outside_above":
+                side = "high"
+        grouped.setdefault((item.anomaly_type, side), []).append(item)
+
+    result: list[AnomalyEpisode] = []
+    for (anomaly_type, side), group in sorted(grouped.items()):
+        ordered = sorted(group, key=lambda item: position_by_time.get(item.timestamp, -1))
+        runs: list[list[Any]] = []
+        for item in ordered:
+            position = position_by_time.get(item.timestamp)
+            if position is None:
+                continue
+            if not runs:
+                runs.append([item])
+                continue
+            previous_position = position_by_time.get(runs[-1][-1].timestamp, -2)
+            if position == previous_position + 1:
+                runs[-1].append(item)
+            else:
+                runs.append([item])
+        for run in runs:
+            first, last = run[0], run[-1]
+            conditions = [item.conditions[0] for item in run if item.conditions]
+            actuals = [
+                value
+                for value in (_number(condition.actual_value) for condition in conditions)
+                if value is not None
+            ]
+            extreme = min(actuals) if side == "low" and actuals else (max(actuals) if actuals else None)
+            reference = conditions[0].reference_value if conditions else None
+            severity = max(
+                (item.severity for item in run),
+                key=lambda value: {"low": 1, "medium": 2, "high": 3}.get(value, 0),
+            )
+            last_position = position_by_time.get(last.timestamp, -1)
+            status = "active" if last_position == len(prepared.base) - 1 else "recovered"
+            label = {
+                ("atr_percentile_extreme", "low"): "ATR 低波动极端阶段",
+                ("atr_percentile_extreme", "high"): "ATR 高波动极端阶段",
+                ("range_extreme", "none"): "日内振幅异常阶段",
+                ("gap_extreme", "none"): "开盘跳空异常阶段",
+            }.get((anomaly_type, side), anomaly_type)
+            status_text = "仍在持续" if status == "active" else "已恢复"
+            result.append(
+                AnomalyEpisode(
+                    episode_id=_stable_id("anomaly_episode", anomaly_type, side, first.timestamp),
+                    anomaly_type=anomaly_type,
+                    side=side,
+                    severity=severity,
+                    start_timestamp=first.timestamp,
+                    end_timestamp=last.timestamp,
+                    duration_bars=len(run),
+                    status=status,
+                    extreme_actual=extreme,
+                    reference_value=reference,
+                    member_anomaly_ids=tuple(item.anomaly_id for item in run),
+                    summary=f"{label}，持续 {len(run)} 根，{status_text}",
+                )
+            )
+    return tuple(sorted(result, key=lambda item: (item.start_timestamp, item.anomaly_type, item.side)))
 
 
 def _series_payload(frame: pd.DataFrame) -> list[dict[str, Any]]:
@@ -440,9 +619,11 @@ __all__ = [
     "PreparedDailyAnalysis",
     "analyze_prepared_daily_analysis",
     "build_breakout_assessments",
+    "build_anomaly_episodes",
     "build_instrument_report_bundle",
     "build_market_assessment",
     "build_rule_evaluations",
+    "build_turtle_observations",
     "detect_anomalies",
     "prepare_daily_analysis",
     "state_transitions",

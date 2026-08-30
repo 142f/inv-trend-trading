@@ -8,12 +8,15 @@ from inv_trend.application.daily_analysis import (
     PreparedDailyAnalysis,
     analyze_prepared_daily_analysis,
     build_breakout_assessments,
+    build_anomaly_episodes,
     build_instrument_report_bundle,
     build_market_assessment,
+    build_turtle_observations,
     prepare_daily_analysis,
 )
 from inv_trend.application.daily_models import BreakoutAssessment
 from inv_trend.application.strategy_config import DailyChecksConfig
+from inv_trend.core.explanations import AnomalyEvent, ConditionEvaluation
 
 
 def _bars(n: int = 320) -> pd.DataFrame:
@@ -82,6 +85,123 @@ def test_report_bundle_hash_is_stable_and_json_safe() -> None:
     encoded = json.dumps(first.to_dict(), ensure_ascii=False, allow_nan=False)
     assert "rule_evaluations" in encoded
     assert "change_log" in encoded
+    assert first.schema_version == "4"
+    assert "turtle_observations" in encoded
+    assert "anomaly_episodes" in encoded
+
+
+def test_turtle_observations_separate_intraday_crosses_from_close_confirmation() -> None:
+    index = pd.date_range("2026-08-24", periods=3, freq="D", tz="UTC")
+    base = pd.DataFrame(
+        {
+            "open": [79000.0, 79000.0, 78500.0],
+            "high": [80000.0, 81272.62, 79251.60],
+            "low": [78000.0, 78000.0, 77632.58],
+            "close": [78992.75, 78539.14, 79023.75],
+            "channel_high_20": [79500.0, 80000.0, 81272.62],
+            "channel_low_20": [62535.24, 62535.24, 62535.24],
+            "channel_high_55": [79500.0, 80000.0, 81272.62],
+            "channel_low_55": [59588.0, 59588.0, 59588.0],
+        },
+        index=index,
+    )
+    prepared = PreparedDailyAnalysis(
+        base=base,
+        strategy=None,  # type: ignore[arg-type]
+        feature_request=None,  # type: ignore[arg-type]
+        dataset_version="btc-regression",
+    )
+
+    observations = build_turtle_observations(prepared)
+    crossed = [item for item in observations if item.status == "intraday_up_unconfirmed"]
+
+    assert len(crossed) == 4
+    assert {(item.timestamp[:10], item.period) for item in crossed} == {
+        ("2026-08-24", 20),
+        ("2026-08-24", 55),
+        ("2026-08-25", 20),
+        ("2026-08-25", 55),
+    }
+    latest = [item for item in observations if item.timestamp[:10] == "2026-08-26"]
+    assert {item.status for item in latest} == {"inside"}
+    assert {item.close_confirmation for item in observations} == {"none"}
+
+
+def test_turtle_observation_handles_close_confirmation_equality_and_two_sided_wick() -> None:
+    index = pd.date_range("2026-01-01", periods=4, freq="D", tz="UTC")
+    base = pd.DataFrame(
+        {
+            "open": [95.0] * 4,
+            "high": [101.0, 101.0, 100.0, 101.0],
+            "low": [91.0, 89.0, 90.0, 91.0],
+            "close": [101.0, 95.0, 100.0, 99.0],
+            "channel_high_20": [100.0] * 4,
+            "channel_low_20": [90.0] * 4,
+            "channel_high_55": [np.nan] * 4,
+            "channel_low_55": [np.nan] * 4,
+        },
+        index=index,
+    )
+    prepared = PreparedDailyAnalysis(
+        base=base,
+        strategy=None,  # type: ignore[arg-type]
+        feature_request=None,  # type: ignore[arg-type]
+        dataset_version="edge-cases",
+    )
+
+    observations = [item for item in build_turtle_observations(prepared) if item.period == 20]
+
+    assert [item.status for item in observations] == [
+        "close_confirmed_up",
+        "two_sided_intraday_unconfirmed",
+        "inside",
+        "intraday_up_unconfirmed",
+    ]
+    assert all(
+        item.status == "unavailable"
+        for item in build_turtle_observations(prepared)
+        if item.period == 55
+    )
+
+
+def test_anomaly_episodes_group_consecutive_bars_without_losing_raw_ids() -> None:
+    index = pd.date_range("2026-08-05", periods=5, freq="D", tz="UTC")
+    prepared = PreparedDailyAnalysis(
+        base=pd.DataFrame({"close": [100.0] * 5}, index=index),
+        strategy=None,  # type: ignore[arg-type]
+        feature_request=None,  # type: ignore[arg-type]
+        dataset_version="episode-test",
+    )
+
+    def anomaly(position: int, actual: float, anomaly_type: str = "atr_percentile_extreme"):
+        condition = ConditionEvaluation(
+            condition_id="anomaly.test",
+            name="测试异常",
+            actual_value=actual,
+            reference_value=(0.02, 0.98) if anomaly_type == "atr_percentile_extreme" else 3.0,
+            operator="outside" if anomaly_type == "atr_percentile_extreme" else ">",
+            passed=True,
+            relative_position="outside_below" if anomaly_type == "atr_percentile_extreme" else "above",
+        )
+        timestamp = index[position].isoformat()
+        return AnomalyEvent(
+            anomaly_id=f"a-{position}-{anomaly_type}",
+            anomaly_type=anomaly_type,
+            severity="medium",
+            timestamp=timestamp,
+            price=100.0,
+            conditions=(condition,),
+            summary="测试",
+        )
+
+    raw = (anomaly(0, 0.0167), anomaly(1, 0.0083), anomaly(2, 0.0083), anomaly(4, 0.0083))
+    episodes = build_anomaly_episodes(prepared, raw)
+
+    assert [item.duration_bars for item in episodes] == [3, 1]
+    assert episodes[0].status == "recovered"
+    assert episodes[1].status == "active"
+    assert episodes[0].extreme_actual == 0.0083
+    assert episodes[0].member_anomaly_ids == tuple(item.anomaly_id for item in raw[:3])
 
 
 def test_breakout_assessment_uses_event_bar_and_keeps_entry_policy_display_only() -> None:

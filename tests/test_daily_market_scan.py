@@ -95,7 +95,7 @@ def test_bootstrap_is_idempotent_in_sqlite_and_log(tmp_path: Path) -> None:
     first = scanner.run(bootstrap_days=80)
     assert first.exit_code == 0
     assert first.snapshot["schema_version"] == "4"
-    assert first.snapshot["report_schema_version"] == "3"
+    assert first.snapshot["report_schema_version"] == "4"
     assert first.snapshot["configuration"]["daily_checks"]["sma_periods"] == (5, 10, 20, 55, 120)
     assert "strategy_checks" in first.snapshot["symbols"][0]["scan"]
     assert first.snapshot["summary"]["signals_new"] >= 4
@@ -131,6 +131,8 @@ def test_run_artifacts_are_authoritative_and_keep_flat_compatibility(tmp_path: P
         exports / "strategy_conditions.csv",
         exports / "signals.csv",
         exports / "anomalies.csv",
+        exports / "turtle_observations.csv",
+        exports / "anomaly_episodes.csv",
         exports / "state_transitions.csv",
         audit / "run_manifest.json",
         audit / "configuration_snapshot.json",
@@ -141,7 +143,7 @@ def test_run_artifacts_are_authoritative_and_keep_flat_compatibility(tmp_path: P
 
     complete_path = canonical / "complete_analysis_result.json"
     complete = json.loads(complete_path.read_text(encoding="utf-8"))
-    assert set(("metadata", "data_update", "strategy_screening", "trend_decision", "signals", "anomalies", "state_transitions", "report_bundle", "hashes")) <= set(complete)
+    assert set(("metadata", "data_update", "strategy_screening", "trend_decision", "signals", "anomalies", "turtle_observations", "anomaly_episodes", "state_transitions", "report_bundle", "hashes")) <= set(complete)
     assert complete["hashes"]["hash_chain_valid"] is True
     assert complete["trend_decision"]["input_screening_hash"] == complete["strategy_screening"]["result_hash"]
     assert complete["strategy_screening"]["input_data_hash"] == complete["data_update"]["result_hash"]

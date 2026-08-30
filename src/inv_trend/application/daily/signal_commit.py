@@ -106,7 +106,7 @@ class SignalCommitService:
             raise
         snapshot = {
             "schema_version": "4",
-            "report_schema_version": "3",
+            "report_schema_version": "4",
             "run_id": workspace.run_id,
             "report_date": workspace.report_date,
             "started_at": started_at,
@@ -150,7 +150,7 @@ class SignalCommitService:
             raise ValueError("completed daily run does not contain a recoverable summary")
         snapshot = {
             "schema_version": "4",
-            "report_schema_version": "3",
+            "report_schema_version": "4",
             "run_id": workspace.run_id,
             "report_date": workspace.report_date,
             "started_at": str(context.get("started_at") or persisted_mapping.get("started_at") or ""),

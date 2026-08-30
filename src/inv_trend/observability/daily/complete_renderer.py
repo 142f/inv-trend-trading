@@ -88,7 +88,7 @@ def _dashboard_snapshot(complete_results: Iterable[Mapping[str, Any]]) -> dict[s
         )
     return {
         "schema_version": "4",
-        "report_schema_version": "3",
+        "report_schema_version": "4",
         "report_date": report_date,
         "symbols": rows,
         "summary": report_summary or _aggregate_summary(rows),
