@@ -69,6 +69,15 @@ def build_parser() -> argparse.ArgumentParser:
         "--open-report", action="store_true",
         help="Open the generated local HTML report after completion",
     )
+    parser.add_argument(
+        "--with-backtest", action="store_true",
+        help="After publish/delivery, append an independent strategy-backtest batch",
+    )
+    parser.add_argument("--backtest-plan", help="YAML plan required by --with-backtest")
+    parser.add_argument(
+        "--backtest-output-dir", default="outputs/strategy_backtest",
+        help="Independent backtest artifact root",
+    )
     parser.epilog = (
         "推荐的分阶段入口：turtle-daily run | data-update | strategy-screen | "
         "trend-decide | commit | publish | deliver。保留无子命令调用以兼容现有任务计划。"
@@ -87,6 +96,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     """Dispatch the new stage commands while preserving the legacy invocation."""
 
     values = list(sys.argv[1:] if argv is None else argv)
+    if values and values[0] == "backtest":
+        return _daily_backtest_main(values[1:])
     if values and values[0] in _STAGE_COMMANDS:
         return _stage_main(values)
     # Existing scheduled-task and script invocations begin with an option (or
@@ -185,6 +196,8 @@ def _run_staged_main(argv: Sequence[str]) -> int:
         parser.error("--chart-bars must be positive")
     if args.open_report and args.no_html:
         parser.error("--open-report cannot be combined with --no-html")
+    if args.with_backtest and not args.backtest_plan:
+        parser.error("--with-backtest requires --backtest-plan")
     workflow = DailyWorkflow(
         runtime=DeferredStateDailyRuntimeAdapter(
             data_root=args.data_root,
@@ -226,7 +239,61 @@ def _run_staged_main(argv: Sequence[str]) -> int:
             webbrowser.open(html_path.resolve().as_uri())
     if result.failed_symbols:
         console.print(f"Failed/blocked/stale: {', '.join(result.failed_symbols)}", style="red")
-    return result.exit_code
+    backtest_failed = False
+    if args.with_backtest:
+        try:
+            from inv_trend.cli.backtest import load_plan, run_backtest_stage
+
+            publication = getattr(result, "artifact_publication", None)
+            source_run = getattr(publication, "run_directory", None)
+            if source_run is None:
+                raise RuntimeError("daily publication did not expose an immutable run directory")
+            backtest = run_backtest_stage(
+                source_run=source_run,
+                plan=load_plan(args.backtest_plan),
+                data_root=args.data_root,
+                output_dir=args.backtest_output_dir,
+            )
+            console.print(f"Backtest report: {backtest['artifacts']['report']}")
+        except Exception as exc:
+            backtest_failed = True
+            console.print(
+                f"Backtest sidecar failed after daily delivery: {type(exc).__name__}: {exc}",
+                style="red",
+            )
+    return 1 if backtest_failed else result.exit_code
+
+
+def _daily_backtest_main(argv: Sequence[str]) -> int:
+    """Expose the independent backtest stage under the daily command family."""
+
+    parser = argparse.ArgumentParser(
+        prog="turtle-daily backtest",
+        description="Run a read-only strategy-backtest from one immutable daily batch.",
+    )
+    parser.add_argument("--source-run", required=True)
+    parser.add_argument("--plan", required=True)
+    parser.add_argument("--data-root", default="data")
+    parser.add_argument("--output-dir", default="outputs/strategy_backtest")
+    parser.add_argument("--run-id", type=_run_id_argument)
+    args = parser.parse_args(argv)
+    try:
+        from inv_trend.cli.backtest import load_plan, run_backtest_stage
+
+        result = run_backtest_stage(
+            source_run=args.source_run,
+            plan=load_plan(args.plan),
+            data_root=args.data_root,
+            output_dir=args.output_dir,
+            run_id=args.run_id,
+        )
+    except KeyboardInterrupt:
+        return 130
+    except Exception as exc:
+        print(f"daily backtest stage failed: {type(exc).__name__}: {exc}", file=sys.stderr)
+        return 1
+    print(json.dumps(result, ensure_ascii=False, sort_keys=True, default=str))
+    return 0
 
 
 def _stage_parser(command: str) -> argparse.ArgumentParser:

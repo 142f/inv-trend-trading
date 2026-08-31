@@ -300,7 +300,9 @@ class MultiAssetTurtleStrategy:
             point_value=spec.point_value,
             qty_step=spec.qty_step,
         )
-        if qty < spec.min_qty:
+        # A zero-sized order cannot become a valid pending intent even when a
+        # contract profile deliberately leaves ``min_qty`` at zero.
+        if qty <= 0 or qty < spec.min_qty:
             return None
         notional = qty * signal.close * spec.point_value
         if notional < spec.min_notional:

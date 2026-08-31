@@ -69,16 +69,19 @@ class TurtleBacktester:
         *,
         config: BacktestConfig | None = None,
         evaluation_start: str | pd.Timestamp | None = None,
+        evaluation_end: str | pd.Timestamp | None = None,
+        market_data: BacktestDataStore | None = None,
+        strategy: Any | None = None,
     ) -> None:
         self.config = config or BacktestConfig()
         self.specs = dict(specs)
         self.rules = _resolve_rules(rules, self.config.rules)
-        self.market_data = BacktestDataStore(data, self.rules)
+        self.market_data = market_data or BacktestDataStore(data, self.rules)
         self.data = {
             symbol: symbol_data.bars
             for symbol, symbol_data in self.market_data.by_symbol.items()
         }
-        self.strategy = MultiAssetTurtleStrategy(self.specs, self.rules)
+        self.strategy = strategy or MultiAssetTurtleStrategy(self.specs, self.rules)
         resolved_initial_equity = self.config.initial_equity if initial_equity is None else initial_equity
         self.initial_equity = float(resolved_initial_equity)
         if self.initial_equity <= 0:
@@ -94,6 +97,15 @@ class TurtleBacktester:
             if evaluation_start is None
             else _as_utc_timestamp(evaluation_start)
         )
+        self.evaluation_end = (
+            None if evaluation_end is None else _as_utc_timestamp(evaluation_end)
+        )
+        if (
+            self.evaluation_start is not None
+            and self.evaluation_end is not None
+            and self.evaluation_end < self.evaluation_start
+        ):
+            raise ValueError("evaluation_end must not precede evaluation_start")
 
     def run(self) -> BacktestResult:
         dates = self.market_data.calendar
@@ -103,6 +115,10 @@ class TurtleBacktester:
                 raise ValueError(
                     "evaluation_start is after the available market data"
                 )
+        if self.evaluation_end is not None:
+            dates = [date for date in dates if date <= self.evaluation_end]
+            if not dates:
+                raise ValueError("evaluation_end is before the available market data")
         cash = self.initial_equity
         state = PortfolioState()
         reservations = ReservationBook()
@@ -147,12 +163,22 @@ class TurtleBacktester:
                 )
             equity = self._mark_equity(date, cash, state)
             equity_points.append((date, equity))
-            new_orders = self.strategy.generate_orders(
-                snapshots,
-                state,
-                equity,
-                tradable_symbols=tradable_symbols,
-            )
+            dated_generator = getattr(self.strategy, "generate_orders_for_date", None)
+            if callable(dated_generator):
+                new_orders = dated_generator(
+                    date,
+                    snapshots,
+                    state,
+                    equity,
+                    tradable_symbols=tradable_symbols,
+                )
+            else:
+                new_orders = self.strategy.generate_orders(
+                    snapshots,
+                    state,
+                    equity,
+                    tradable_symbols=tradable_symbols,
+                )
             pending_symbols = {intent.order.symbol for intent in reservations.intents.values()}
             for order in new_orders:
                 if order.symbol in pending_symbols:

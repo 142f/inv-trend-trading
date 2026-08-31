@@ -34,6 +34,7 @@ class BacktestService:
         *,
         config: BacktestConfig | None = None,
         evaluation_start: str | pd.Timestamp | None = None,
+        evaluation_end: str | pd.Timestamp | None = None,
         manifest_path: str | Path | None = None,
         mode: str = "backtest",
     ) -> BacktestRun:
@@ -44,12 +45,14 @@ class BacktestService:
             rules=rules,
             config=resolved,
             evaluation_start=evaluation_start,
+            evaluation_end=evaluation_end,
         ).run()
         config_payload = {
             "config": _mapping(resolved),
             "rules": _mapping(rules),
             "specs": {symbol: _mapping(spec) for symbol, spec in sorted(specs.items())},
             "evaluation_start": None if evaluation_start is None else str(evaluation_start),
+            "evaluation_end": None if evaluation_end is None else str(evaluation_end),
         }
         data_payload = {
             symbol: {

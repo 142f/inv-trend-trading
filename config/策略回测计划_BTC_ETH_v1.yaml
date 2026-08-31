@@ -1,0 +1,33 @@
+schema_version: "1"
+symbols: [BTC, ETH]
+
+# 手续费与滑点固定来自 AssetSpec，不能作为同批次的搜索维度。
+initial_equity: 100000.0
+cash_model: derivative
+liquidate_at_end: true
+max_combinations: 1000
+
+parameter_space:
+  turtle.rules.fast_entry: [20, 25]
+  turtle.rules.slow_entry: [55, 60]
+  turtle.rules.stop_n: [1.5, 2.0]
+  assets.BTC.unit_1n_risk_pct: [0.003]
+  assets.ETH.unit_1n_risk_pct: [0.003]
+
+constraints:
+  - "rules.fast_entry < rules.slow_entry"
+
+validation:
+  train_bars: 756
+  validation_bars: 252
+  step_bars: 252
+  holdout_bars: 252
+  min_folds: 3
+
+ranking:
+  min_oos_trades: 10
+  max_drawdown: 0.40
+  sharpe_weight: 0.35
+  mar_weight: 0.25
+  cagr_weight: 0.20
+  stability_weight: 0.20

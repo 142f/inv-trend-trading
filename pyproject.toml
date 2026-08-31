@@ -38,6 +38,7 @@ turtle-data = "inv_trend.cli.data:main"
 turtle-detect = "inv_trend.cli.detect:main"
 turtle-alert = "inv_trend.cli.alert:main"
 turtle-daily = "inv_trend.cli.daily:main"
+turtle-backtest = "inv_trend.cli.backtest:main"
 market-data = "inv_trend.cli.market_data:main"
 
 [tool.setuptools]
