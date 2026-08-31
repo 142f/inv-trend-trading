@@ -8,7 +8,7 @@ import pytest
 
 from inv_trend.application import load_detector_asset_configs
 from inv_trend.adapters.detector.config import load_strategy_config
-from inv_trend.adapters.detector.backtest import DetectorBacktester
+from inv_trend.adapters.detector.backtest import ChronologicalSignalValidator
 from inv_trend.adapters.detector.data.normalizer import apply_split_adjustment, normalize_bars
 from inv_trend.adapters.detector.engine.scanner import TurtleScanner
 from inv_trend.core.math_utils import donchian_channels, wilder_atr
@@ -350,7 +350,7 @@ def test_future_bars_cannot_change_prior_indicators_or_signal() -> None:
 
 def test_chronological_backtest_reports_asset_and_signal_metrics() -> None:
     bars = _bars([10] * 8 + [12, 13, 14, 12, 9, 8, 8])
-    result = DetectorBacktester(_config(), initial_equity=10_000).run(
+    result = ChronologicalSignalValidator(_config(), initial_equity=10_000).run(
         bars,
         _asset(),
         "D1",
@@ -359,3 +359,11 @@ def test_chronological_backtest_reports_asset_and_signal_metrics() -> None:
     assert result.timeframe == "D1"
     assert result.metrics["signal_count"] >= 1
     assert not result.equity_curve.empty
+
+
+def test_detector_backtester_compatibility_alias_warns() -> None:
+    from inv_trend.adapters.detector.backtest import DetectorBacktester
+
+    with pytest.warns(DeprecationWarning, match="signal validator"):
+        validator = DetectorBacktester(_config())
+    assert isinstance(validator, ChronologicalSignalValidator)

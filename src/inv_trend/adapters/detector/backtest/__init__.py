@@ -1,5 +1,13 @@
 """Chronological detector validation."""
 
-from .engine import DetectorBacktestResult, DetectorBacktester
+from .engine import (
+    ChronologicalSignalValidator,
+    DetectorBacktestResult,
+    DetectorBacktester,
+    SignalValidationResult,
+)
 
-__all__ = ["DetectorBacktestResult", "DetectorBacktester"]
+__all__ = [
+    "ChronologicalSignalValidator", "DetectorBacktestResult", "DetectorBacktester",
+    "SignalValidationResult",
+]

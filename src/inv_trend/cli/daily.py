@@ -75,7 +75,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--backtest-plan", help="YAML plan required by --with-backtest")
     parser.add_argument(
-        "--backtest-output-dir", default="outputs/strategy_backtest",
+        "--backtest-output-dir", default="outputs/backtest",
         help="Independent backtest artifact root",
     )
     parser.epilog = (
@@ -274,7 +274,7 @@ def _daily_backtest_main(argv: Sequence[str]) -> int:
     parser.add_argument("--source-run", required=True)
     parser.add_argument("--plan", required=True)
     parser.add_argument("--data-root", default="data")
-    parser.add_argument("--output-dir", default="outputs/strategy_backtest")
+    parser.add_argument("--output-dir", default="outputs/backtest")
     parser.add_argument("--run-id", type=_run_id_argument)
     args = parser.parse_args(argv)
     try:

@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
-import json
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
 import pandas as pd
 
-from inv_trend.application import BacktestService
+from inv_trend.application.backtest import UnifiedBacktestExecutor
+from inv_trend.application.backtest.single_artifacts import write_single_backtest_outputs
 from inv_trend.adapters.multi_asset import AssetSpec, TurtleRules
 from inv_trend.adapters.multi_asset.config import BacktestConfig
 from inv_trend.adapters.multi_asset.models import SHORT
@@ -500,23 +500,15 @@ def run_backtest(
         cluster_leverage=cluster_leverage,
         rule_overrides=rule_overrides,
     )
-    result = BacktestService().run(
+    result = UnifiedBacktestExecutor(
         data=data,
         specs=specs,
         rules=active_rules,
         config=BacktestConfig(initial_equity=initial_equity),
         evaluation_start=start,
-    ).result
+    ).run()
     return result, data, specs, active_rules
 
 
 def write_backtest_outputs(result: Any, out_dir: Path) -> None:
-    out_dir.mkdir(parents=True, exist_ok=True)
-    result.equity_curve.to_csv(out_dir / "equity_curve.csv")
-    result.orders.to_csv(out_dir / "orders.csv", index=False)
-    result.trades.to_csv(out_dir / "trades.csv", index=False)
-    result.trade_details.to_csv(out_dir / "trade_details.csv", index=False)
-    (out_dir / "metrics.json").write_text(
-        json.dumps(result.metrics, indent=2, ensure_ascii=False),
-        encoding="utf-8",
-    )
+    write_single_backtest_outputs(result, out_dir)

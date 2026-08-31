@@ -21,9 +21,11 @@ from .strategy_config import (
     load_resolved_run_config,
 )
 from .asset_config import load_detector_asset_configs
-from .strategy_backtest import (
+from .backtest import (
     BacktestBatchResult,
+    BacktestBatchService,
     BacktestPlan,
+    BacktestReportModel,
     BacktestSourceBundle,
     StrategyBacktestService,
 )
@@ -37,6 +39,6 @@ __all__ = [
     "DailyArtifactPublication", "DailyRunArtifactWriter", "DailyWorkflow",
     "DailyChecksConfig", "TrendDecisionConfig", "ResolvedRunConfig", "load_resolved_run_config",
     "load_detector_asset_configs",
-    "BacktestBatchResult", "BacktestPlan", "BacktestSourceBundle",
-    "StrategyBacktestService",
+    "BacktestBatchResult", "BacktestBatchService", "BacktestPlan",
+    "BacktestReportModel", "BacktestSourceBundle", "StrategyBacktestService",
 ]

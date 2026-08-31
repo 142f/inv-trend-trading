@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
+import hashlib
+import json
 from typing import Any, Mapping
 
 import numpy as np
@@ -197,6 +199,7 @@ class TurtleBacktester:
                         if order.action in {"open", "add"} and equity > 0 else 0.0
                     ),
                     eligible_from=None,
+                    intent_id=_stable_intent_id(date, order),
                 ))
 
         equity_curve = pd.Series(
@@ -214,7 +217,6 @@ class TurtleBacktester:
             orders=orders,
             metrics=compute_backtest_metrics(equity_curve, trades),
         )
-
     def _execute_pending_intents(
         self,
         date: pd.Timestamp,
@@ -743,6 +745,23 @@ class TurtleBacktester:
                 )
             )
         return orders
+
+
+def _stable_intent_id(date: pd.Timestamp, order: Order) -> str:
+    """Create reproducible pending-intent identity from causal order facts."""
+
+    payload = {
+        "created_at": date.isoformat(), "symbol": order.symbol,
+        "action": order.action, "side": order.side, "qty": order.qty,
+        "reason": order.reason, "system": order.system,
+        "signal_price": order.signal_price, "n_at_signal": order.n_at_signal,
+        "stop_price": order.stop_price, "metadata": dict(order.metadata),
+    }
+    encoded = json.dumps(
+        payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"),
+        allow_nan=False, default=str,
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()[:32]
 
 
 def _trade_cost(qty: float, price: float, spec: AssetSpec) -> float:

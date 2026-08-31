@@ -46,7 +46,7 @@ def _baseline_snapshot(fixture: Path) -> dict:
     import numpy as np
     import pandas as pd
 
-    from turtle_detector.backtest.engine import DetectorBacktester
+    from inv_trend.adapters.detector.backtest import ChronologicalSignalValidator
     from turtle_detector.engine.scanner import TurtleScanner
     from turtle_detector.models import AssetConfig, Market, StrategyConfig
     from turtle_multi_asset import AssetSpec, TurtleBacktester, TurtleRules
@@ -119,7 +119,9 @@ def _baseline_snapshot(fixture: Path) -> dict:
 
     bars = pd.read_csv(fixture, parse_dates=["timestamp"]).set_index("timestamp")
     prepared = TurtleScanner(config()).prepare(bars, asset(), "D1")
-    detector = DetectorBacktester(config(), initial_equity=100_000, cost_bps=5).run(
+    detector = ChronologicalSignalValidator(
+        config(), initial_equity=100_000, cost_bps=5
+    ).run(
         bars, asset(), "D1"
     )
     multi = TurtleBacktester(

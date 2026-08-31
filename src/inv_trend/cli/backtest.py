@@ -1,4 +1,4 @@
-"""Independent strategy backtest and hyper-parameter comparison CLI."""
+"""Unified strategy backtest, comparison, and report CLI."""
 
 from __future__ import annotations
 
@@ -11,16 +11,16 @@ from typing import Any, Sequence
 
 import yaml
 
-from inv_trend.application.strategy_backtest import (
+from inv_trend.application.backtest import (
     BacktestArtifactWriter,
     BacktestPlan,
-    StrategyBacktestService,
+    BacktestBatchService,
     expand_parameter_grid,
     load_source_bundle,
     load_versioned_data,
     signal_parameters,
 )
-from inv_trend.application.strategy_backtest.models import canonical_hash
+from inv_trend.application.backtest.models import canonical_hash
 
 
 _SAFE_RUN_ID = re.compile(r"^[A-Za-z0-9_.-]+$")
@@ -36,15 +36,32 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--source-run", required=True)
     run.add_argument("--plan", required=True)
     run.add_argument("--data-root", default="data")
-    run.add_argument("--output-dir", default="outputs/strategy_backtest")
+    run.add_argument("--output-dir", default="outputs/backtest")
     run.add_argument("--run-id", type=_run_id)
+    report = subparsers.add_parser(
+        "report", help="Regenerate HTML from an existing v1/v2 batch result"
+    )
+    report.add_argument("--result", required=True)
+    report.add_argument("--output", required=True)
     return parser
 
 
 def main(argv: Sequence[str] | None = None) -> int:
+    if argv is None and Path(sys.argv[0]).stem == "turtle-backtest":
+        print(
+            "warning: turtle-backtest is deprecated; use strategy-backtest",
+            file=sys.stderr,
+        )
     parser = build_parser()
     args = parser.parse_args(argv)
     try:
+        if args.command == "report":
+            target = BacktestArtifactWriter().regenerate_report(args.result, args.output)
+            print(json.dumps({
+                "stage": "strategy-backtest-report", "status": "COMPLETED",
+                "report": str(target.resolve()),
+            }, ensure_ascii=False, sort_keys=True))
+            return 0
         plan = load_plan(args.plan)
         combinations = expand_parameter_grid(plan)
         if args.command == "validate-plan":
@@ -96,12 +113,12 @@ def run_backtest_stage(
     source_run: str | Path,
     plan: BacktestPlan,
     data_root: str | Path = "data",
-    output_dir: str | Path = "outputs/strategy_backtest",
+    output_dir: str | Path = "outputs/backtest",
     run_id: str | None = None,
 ) -> dict[str, Any]:
     source = load_source_bundle(source_run, plan)
     data, lineage = load_versioned_data(source, data_root)
-    batch = StrategyBacktestService().run(source, plan, data, run_id=run_id)
+    batch = BacktestBatchService().run(source, plan, data, run_id=run_id)
     artifacts = BacktestArtifactWriter(output_dir).write(batch, lineage=lineage)
     return {
         "stage": "strategy-backtest", "status": "COMPLETED",

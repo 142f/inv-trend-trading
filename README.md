@@ -121,6 +121,7 @@ turtle-data --help
 turtle-detect --help
 turtle-alert --help
 turtle-daily --help
+strategy-backtest --help
 ```
 
 历史行情示例：

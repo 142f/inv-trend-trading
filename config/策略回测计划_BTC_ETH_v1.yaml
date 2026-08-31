@@ -1,7 +1,6 @@
+# 历史兼容计划；新批次请使用 策略回测计划_BTC_ETH_v2.yaml。
 schema_version: "1"
 symbols: [BTC, ETH]
-
-# 手续费与滑点固定来自 AssetSpec，不能作为同批次的搜索维度。
 initial_equity: 100000.0
 cash_model: derivative
 liquidate_at_end: true
