@@ -9,6 +9,7 @@ import math
 from typing import Any, Iterable, Mapping
 
 from inv_trend.core.decision_events import ExecutionDecisionEvent
+from inv_trend.core.explanations import DecisionEvidenceItem
 from inv_trend.core.signals import SignalEvent
 from inv_trend.core.strategy.daily import build_daily_signal_events
 
@@ -70,6 +71,21 @@ class TrendDecisionService:
             checks, candidates, raw_direction
         )
         confidence = _confidence_evidence(rating, checks)
+        lifecycle_analyses = (
+            tuple(_mapping(item) for item in screening.indicator_analyses)
+            if event_snapshot is None
+            else ()
+        )
+        evidence_chain, evidence_summary = _structured_evidence_chain(
+            lifecycle_analyses,
+            raw_direction=raw_direction,
+            family_conflict=family_conflict,
+        )
+        confidence = {
+            **confidence,
+            "evidence_strength": evidence_summary.get("composite_confidence", 0.0),
+            "evidence_strength_is_probability": False,
+        }
 
         observation_only = bool(data.observation_only or screening.observation_only)
         if observation_only:
@@ -136,13 +152,15 @@ class TrendDecisionService:
             reason_code=reason_code,
             eligibility_status=eligibility_status,
             confidence=confidence,
+            evidence_chain=evidence_chain,
+            evidence_summary=evidence_summary,
             long_evidence=long_evidence,
             short_evidence=short_evidence,
             reverse_evidence=reverse_evidence,
             risk_blocks=risk_blocks,
             conclusion=conclusion,
             observation_only=observation_only,
-            schema_version="2",
+            schema_version="3",
         )
 
     run = decide
@@ -380,6 +398,103 @@ def _confidence_evidence(rating: Mapping[str, Any], checks: Mapping[str, Any]) -
     }
 
 
+def _structured_evidence_chain(
+    analyses: tuple[Mapping[str, Any], ...],
+    *,
+    raw_direction: str,
+    family_conflict: bool,
+) -> tuple[tuple[Mapping[str, Any], ...], Mapping[str, Any]]:
+    """Project report-only weighted evidence from precomputed lifecycles."""
+
+    items: list[Mapping[str, Any]] = []
+    long_support = 0.0
+    short_support = 0.0
+    quality_adjustment = 0.0
+    for analysis in analyses:
+        indicator_id = str(analysis.get("indicator_id") or "")
+        direction = str(analysis.get("direction") or "neutral")
+        role = str(analysis.get("role") or "directional")
+        active = bool(analysis.get("active", False))
+        weight = _finite_float(analysis.get("decision_weight"), 0.0)
+        strength = min(100.0, max(0.0, _finite_float(analysis.get("strength"), 0.0)))
+        contribution = 0.0
+        contribution_type = "neutral"
+        if active and direction in {"long", "short"}:
+            contribution = weight * strength / 100.0
+            contribution_type = f"{direction}_support"
+            if direction == "long":
+                long_support += contribution
+            else:
+                short_support += contribution
+        elif role == "quality" and active:
+            values = _mapping(analysis.get("current_values"))
+            if indicator_id == "atr_quality":
+                contribution = weight if values.get("state") == "normal" else -weight
+            elif indicator_id == "relative_volume":
+                contribution = weight if bool(values.get("confirmed", False)) else 0.0
+            quality_adjustment += contribution
+            contribution_type = (
+                "quality_positive" if contribution > 0.0
+                else "quality_negative" if contribution < 0.0
+                else "quality_neutral"
+            )
+        item = DecisionEvidenceItem(
+            indicator_id=indicator_id,
+            indicator_name=str(analysis.get("indicator_name") or indicator_id),
+            timeframe=str(analysis.get("timeframe") or "D1"),
+            role=role,
+            direction=direction if direction in {"long", "short"} else "neutral",
+            active=active,
+            strength=round(strength, 4),
+            weight=round(weight, 4),
+            contribution=round(contribution, 4),
+            contribution_type=contribution_type,
+            first_trigger_timestamp=_optional_text(analysis.get("first_trigger_timestamp")),
+            duration_periods=int(analysis.get("duration_periods") or 0),
+            duration_d1_bars=int(analysis.get("duration_d1_bars") or 0),
+            explanation=str(analysis.get("explanation") or ""),
+            episode_id=_optional_text(analysis.get("current_episode_id")),
+            metadata={
+                "lifecycle_state": analysis.get("lifecycle_state"),
+                "strength_trend": analysis.get("strength_trend"),
+                "support_effect": analysis.get("support_effect"),
+            },
+        )
+        items.append(item.to_dict())
+
+    target = (
+        raw_direction if raw_direction in {"long", "short"} and not family_conflict
+        else "neutral"
+    )
+    aligned = long_support if target == "long" else short_support
+    opposing = short_support if target == "long" else long_support
+    net = (
+        max(0.0, aligned - opposing + quality_adjustment)
+        if target in {"long", "short"}
+        else 0.0
+    )
+    summary = {
+        "direction": target,
+        "long_support": round(long_support, 4),
+        "short_support": round(short_support, 4),
+        "quality_adjustment": round(quality_adjustment, 4),
+        "net_support": round(net, 4),
+        "maximum_weight": 11.0,
+        "composite_confidence": round(100.0 * net / 11.0, 4),
+        "is_probability": False,
+        "formula": "100 × max(0, 同向贡献 - 反向贡献 + 质量调整) / 11",
+    }
+    return tuple(items), summary
+
+
+def _finite_float(value: Any, fallback: float) -> float:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return fallback
+    return number if math.isfinite(number) else fallback
+
+
 def _eligibility_blocks(eligibility: Mapping[str, Any], direction: str) -> tuple[str, ...]:
     if eligibility.get("status") != "BLOCKED":
         return ()
@@ -504,6 +619,8 @@ def _decision_from_event_payload(payload: Mapping[str, Any] | None) -> TrendDeci
         reason_code=str(payload.get("reason_code") or ""),
         eligibility_status=str(payload.get("eligibility_status") or "UNKNOWN"),
         confidence=_mapping(payload.get("confidence")),
+        evidence_chain=tuple(rows(payload.get("evidence_chain"))),
+        evidence_summary=_mapping(payload.get("evidence_summary")),
         long_evidence=tuple(str(item) for item in payload.get("long_evidence", ())),
         short_evidence=tuple(str(item) for item in payload.get("short_evidence", ())),
         reverse_evidence=tuple(str(item) for item in payload.get("reverse_evidence", ())),
@@ -538,8 +655,17 @@ def _report_bundle_projection(
     if not isinstance(result, dict):
         result = {}
     result["data_update_result"] = json_safe(data_update)
-    result["strategy_screening_result"] = json_safe(screening)
+    # The ReportBundle already owns the v5 lifecycle projections.  Embedding
+    # the screening stage's replay/report seed here would duplicate megabytes
+    # of immutable evidence inside every HTML payload.  Preserve stage identity
+    # and its digest, while keeping the full canonical stage JSON in 01_canonical.
+    report_screening = dict(_mapping(json_safe(screening)))
+    report_screening.pop("commit_evidence", None)
+    report_screening.pop("indicator_analyses", None)
+    report_screening.pop("indicator_signal_episodes", None)
+    result["strategy_screening_result"] = report_screening
     result["trend_decision_result"] = json_safe(decision)
+    result["decision_evidence_chain"] = json_safe(decision.get("evidence_chain", ()))
     result["event_decisions"] = json_safe(event_decisions)
     result["execution_decision_events"] = json_safe(execution_decision_events)
     result["signals"] = json_safe(signals)

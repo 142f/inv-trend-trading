@@ -3,22 +3,27 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
+from inv_trend.core.math_utils import rolling_percentile
 
-def _legacy_percentile(series: pd.Series, lookback: int) -> pd.Series:
+
+def _midrank_percentile(series: pd.Series, lookback: int) -> pd.Series:
     return series.rolling(lookback, min_periods=lookback).apply(
-        lambda values: float((values <= values[-1]).mean()), raw=True
+        lambda values: float(
+            ((values < values[-1]).sum() + 0.5 * (values == values[-1]).sum())
+            / len(values)
+        ),
+        raw=True,
     )
 
 
-def _optimized_percentile(series: pd.Series, lookback: int) -> pd.Series:
-    return series.rolling(lookback, min_periods=lookback).rank(method="max", pct=True)
-
-
-def test_rolling_rank_matches_legacy_percentile_including_ties() -> None:
+def test_canonical_percentile_matches_independent_midrank_reference() -> None:
     rng = np.random.default_rng(20260821)
-    # Rounded values deliberately introduce ties; equivalence must still hold.
+    # Rounded values deliberately introduce ties; those ties must receive
+    # their probability midpoint instead of being promoted to the upper edge.
     values = np.round(rng.lognormal(mean=-3.0, sigma=0.4, size=600), 4)
     series = pd.Series(values)
-    old = _legacy_percentile(series, 120)
-    new = _optimized_percentile(series, 120)
-    np.testing.assert_allclose(new.to_numpy(), old.to_numpy(), equal_nan=True, rtol=0, atol=0)
+    expected = _midrank_percentile(series, 120)
+    actual = rolling_percentile(series, 120, min_periods=120)
+    np.testing.assert_allclose(
+        actual.to_numpy(), expected.to_numpy(), equal_nan=True, rtol=0, atol=0
+    )

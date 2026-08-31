@@ -36,6 +36,19 @@ python -m pip install -e .
 python -m pip install -e ".[test]"
 ```
 
+### 国内网络：按需使用 PyPI 镜像
+
+以下命令仅为本次安装指定清华 TUNA PyPI 镜像，不会写入 `pip.ini` 或改变用户全局 pip 配置。镜像用法请参阅 [TUNA 官方说明](https://mirrors.tuna.tsinghua.edu.cn/help/pypi/)。
+
+```bash
+python -m pip install --index-url https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple -e .
+python -m pip install --index-url https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple -e ".[test]"
+python -m pip install --index-url https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple -e ".[okx]"
+python -m pip install --index-url https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple -e ".[mt5]"
+```
+
+如果环境设置了 `PIP_NO_INDEX=1`，pip 会处于离线模式，不能访问任何镜像。在已获准联网的 PowerShell 会话中，可先执行 `Remove-Item Env:\PIP_NO_INDEX -ErrorAction SilentlyContinue`，再运行上述命令；该设置只影响当前会话。
+
 可选集成：
 
 ```bash
