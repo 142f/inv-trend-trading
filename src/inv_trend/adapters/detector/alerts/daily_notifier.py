@@ -1,4 +1,4 @@
-"""Notification boundary for persisted daily SignalEvent records."""
+"""Notification boundary for formal outbox events projected as SignalEvent."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ class SignalNotifier(Protocol):
 
 
 class LogNotifier:
-    """Append one structured record per signal ID, safely retrying pending delivery."""
+    """Append one structured record per decision-event ID with retry deduplication."""
 
     def __init__(self, root: str | Path = "logs/signals") -> None:
         self.root = Path(root)

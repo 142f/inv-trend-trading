@@ -27,10 +27,10 @@ from .pipeline import (
 )
 from ..profiles.asset_profiles import infer_asset_fields
 from ..strategy.profiles import turtle_rules
-from ..backtest.runner import TurtleBacktester
+from inv_trend.application.backtest.execution import UnifiedBacktestExecutor
 from ..config import BacktestConfig
 from ..models.domain import AssetSpec
-from inv_trend.observability import write_backtest_report
+from inv_trend.application.backtest.single_artifacts import write_single_backtest_outputs
 
 
 CORE_DATASET_NAME = "metal_tech_core"
@@ -327,13 +327,13 @@ def run_core_backtest_and_compare(
     specs = build_asset_specs(sorted(selected_frames))
     rules = turtle_rules("classic-bars")
 
-    baseline_result = TurtleBacktester(
+    baseline_result = UnifiedBacktestExecutor(
         original_data,
         specs,
         rules,
         config=backtest_config,
     ).run()
-    rebuilt_result = TurtleBacktester(
+    rebuilt_result = UnifiedBacktestExecutor(
         merged_data,
         specs,
         rules,
@@ -374,16 +374,9 @@ def export_backtest_outputs(
     result: object, out_dir: Path, *, strategy_version: str = "corrected-v2",
     html: bool = True,
 ) -> None:
-    out_dir.mkdir(parents=True, exist_ok=True)
-    result.equity_curve.to_csv(out_dir / "equity_curve.csv")
-    result.orders.to_csv(out_dir / "orders.csv", index=False)
-    result.trades.to_csv(out_dir / "trades.csv", index=False)
-    result.trade_details.to_csv(out_dir / "trade_details.csv", index=False)
-    export_json(result.metrics, out_dir / "metrics.json")
-    if html:
-        write_backtest_report(
-            result, out_dir / "report.html", strategy_version=strategy_version
-        )
+    write_single_backtest_outputs(
+        result, out_dir, strategy_version=strategy_version, html=html
+    )
 
 
 def summarize_backtest_result(result: object) -> dict[str, object]:

@@ -9,6 +9,7 @@ from inv_trend.adapters.detector.indicators.daily_strategy_checks import (
 )
 from inv_trend.application.strategy_config import DailyChecksConfig
 from inv_trend.core.math_utils import directional_movement_index
+from inv_trend.core.decision_events import ExecutionDecisionEvent
 from inv_trend.core.resampling import aggregate_completed_sessions
 from inv_trend.core.signals import SignalEvent
 from inv_trend.adapters.detector.storage.daily_signal_repository import (
@@ -116,7 +117,7 @@ def test_daily_check_configuration_rejects_unknown_nested_keys() -> None:
         DailyChecksConfig.from_mapping({"macd": {"fast": 12, "unknown": 1}})
 
 
-def test_only_grade_a_is_enqueued_while_all_events_and_anchor_are_persisted(
+def test_only_execution_decision_is_enqueued_while_all_events_are_persisted(
     tmp_path,
 ) -> None:
     repository = SQLiteDailySignalRepository(tmp_path / "signals.sqlite3")
@@ -130,22 +131,39 @@ def test_only_grade_a_is_enqueued_while_all_events_and_anchor_are_persisted(
     }
     underlying = SignalEvent.create(signal_type="SMA_STACK_BULLISH", **base)
     grade = SignalEvent.create(signal_type="STRATEGY_GRADE_A_LONG", **base)
+    entry = ExecutionDecisionEvent.create(
+        instrument_id="AAA.TEST",
+        symbol="AAA",
+        timeframe="D1",
+        as_of="2024-01-01T00:00:00+00:00",
+        action="ENTER_LONG",
+        decision_hash="decision-1",
+        strategy_version="corrected-v2",
+        dataset_version="dataset-1",
+        detected_at="2024-01-02T00:00:00+00:00",
+        trigger_price=100.0,
+        trigger_signal_ids=(grade.signal_id,),
+    ).to_signal_event()
 
     inserted, duplicates = repository.commit_events_and_cursor(
-        [underlying, grade],
+        [underlying, grade, entry],
         run_id="run-1",
         instrument_id="AAA.TEST",
         timeframe="D1",
         strategy_version="corrected-v2",
         last_signal_time="2024-01-01T00:00:00+00:00",
-        notification_signal_ids={grade.signal_id},
+        notification_signal_ids={entry.signal_id},
     )
 
-    assert {event.signal_id for event in inserted} == {underlying.signal_id, grade.signal_id}
+    assert {event.signal_id for event in inserted} == {
+        underlying.signal_id,
+        grade.signal_id,
+        entry.signal_id,
+    }
     assert duplicates == 0
-    assert repository.signal_count() == 2
+    assert repository.signal_count() == 3
     assert [event.signal_id for event in repository.pending_notifications("run-1")] == [
-        grade.signal_id
+        entry.signal_id
     ]
     assert repository.get_or_create_session_anchor(
         "AAA.TEST", "D1", "2024-01-01T00:00:00+00:00"

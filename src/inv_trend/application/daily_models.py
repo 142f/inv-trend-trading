@@ -76,7 +76,7 @@ class DataUpdateResult:
         return self.data_readiness == "READY" and not self.blocking_reasons
 
     def _business_payload(self) -> dict[str, Any]:
-        return {
+        payload = {
             "stage": "data_update",
             "schema_version": self.schema_version,
             "symbol": self.symbol,
@@ -93,6 +93,7 @@ class DataUpdateResult:
             "blocking_reasons": self.blocking_reasons,
             "observation_only": self.observation_only,
         }
+        return payload
 
     @property
     def result_hash(self) -> str:
@@ -127,6 +128,8 @@ class StrategyScreeningResult:
     turtle_breakouts: tuple[Mapping[str, Any], ...] = ()
     eligibility: Mapping[str, Any] = field(default_factory=dict)
     event_snapshots: tuple[Mapping[str, Any], ...] = ()
+    indicator_analyses: tuple[Mapping[str, Any], ...] = ()
+    indicator_signal_episodes: tuple[Mapping[str, Any], ...] = ()
     # The complete replay/report projection consumed by commit.  It is JSON
     # only (never a DataFrame) and lives in the signed stage result so commit
     # does not depend on a mutable audit-sidecar file.
@@ -135,16 +138,24 @@ class StrategyScreeningResult:
     screening_status: str = "NOT_RUN"
     reason: str | None = None
     observation_only: bool = False
-    schema_version: str = "1"
+    schema_version: str = "2"
 
     def __post_init__(self) -> None:
         for name in ("strategy_checks", "eligibility", "commit_evidence"):
             object.__setattr__(self, name, _freeze(getattr(self, name)))
-        for name in ("conditions", "rules", "raw_events", "turtle_breakouts", "event_snapshots"):
+        for name in (
+            "conditions",
+            "rules",
+            "raw_events",
+            "turtle_breakouts",
+            "event_snapshots",
+            "indicator_analyses",
+            "indicator_signal_episodes",
+        ):
             object.__setattr__(self, name, tuple(_freeze(item) for item in getattr(self, name)))
 
     def _business_payload(self) -> dict[str, Any]:
-        return {
+        payload = {
             "stage": "strategy_screening",
             "schema_version": self.schema_version,
             "symbol": self.symbol,
@@ -170,6 +181,10 @@ class StrategyScreeningResult:
             "reason": self.reason,
             "observation_only": self.observation_only,
         }
+        if self.schema_version != "1":
+            payload["indicator_analyses"] = self.indicator_analyses
+            payload["indicator_signal_episodes"] = self.indicator_signal_episodes
+        return payload
 
     @property
     def result_hash(self) -> str:
@@ -199,7 +214,11 @@ class TrendDecisionResult:
     trend_direction: str
     execution_state: str
     decision: str
+    reason_code: str = ""
+    eligibility_status: str = "UNKNOWN"
     confidence: Mapping[str, Any] = field(default_factory=dict)
+    evidence_chain: tuple[Mapping[str, Any], ...] = ()
+    evidence_summary: Mapping[str, Any] = field(default_factory=dict)
     long_evidence: tuple[str, ...] = ()
     short_evidence: tuple[str, ...] = ()
     reverse_evidence: tuple[str, ...] = ()
@@ -214,10 +233,13 @@ class TrendDecisionResult:
     commit_projection_hash: str | None = None
     conclusion: str = ""
     observation_only: bool = False
-    schema_version: str = "1"
+    schema_version: str = "3"
 
     def __post_init__(self) -> None:
+        object.__setattr__(self, "reason_code", str(self.reason_code))
+        object.__setattr__(self, "eligibility_status", str(self.eligibility_status))
         object.__setattr__(self, "confidence", _freeze(self.confidence))
+        object.__setattr__(self, "evidence_summary", _freeze(self.evidence_summary))
         object.__setattr__(self, "commit_projection", _freeze(self.commit_projection))
         for name in ("long_evidence", "short_evidence", "reverse_evidence", "risk_blocks"):
             object.__setattr__(self, name, tuple(map(str, getattr(self, name))))
@@ -226,9 +248,14 @@ class TrendDecisionResult:
             "event_decisions",
             tuple(_freeze(item) for item in self.event_decisions),
         )
+        object.__setattr__(
+            self,
+            "evidence_chain",
+            tuple(_freeze(item) for item in self.evidence_chain),
+        )
 
     def _business_payload(self) -> dict[str, Any]:
-        return {
+        payload = {
             "stage": "trend_decision",
             "schema_version": self.schema_version,
             "symbol": self.symbol,
@@ -249,6 +276,16 @@ class TrendDecisionResult:
             "conclusion": self.conclusion,
             "observation_only": self.observation_only,
         }
+        # Schema v1 artifacts predate explicit reason/eligibility fields.  The
+        # conditional preserves their historical hashes during staged-run
+        # recovery after an application upgrade.
+        if self.schema_version != "1":
+            payload["reason_code"] = self.reason_code
+            payload["eligibility_status"] = self.eligibility_status
+        if self.schema_version not in {"1", "2"}:
+            payload["evidence_chain"] = self.evidence_chain
+            payload["evidence_summary"] = self.evidence_summary
+        return payload
 
     @property
     def result_hash(self) -> str:
@@ -314,6 +351,78 @@ class BreakoutAssessment:
 
 
 @dataclass(frozen=True)
+class TurtleObservation:
+    """Report-only intraday/close relationship to one prepared Donchian channel."""
+
+    observation_id: str
+    timestamp: str
+    period: int
+    open: float | None
+    high: float | None
+    low: float | None
+    close: float | None
+    channel_high: float | None
+    channel_low: float | None
+    intraday_directions: tuple[str, ...] = ()
+    close_confirmation: str = "none"
+    status: str = "unavailable"
+    upper_excess_pct: float | None = None
+    lower_excess_pct: float | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "observation_id": self.observation_id,
+            "timestamp": self.timestamp,
+            "period": self.period,
+            "open": self.open,
+            "high": self.high,
+            "low": self.low,
+            "close": self.close,
+            "channel_high": self.channel_high,
+            "channel_low": self.channel_low,
+            "intraday_directions": list(self.intraday_directions),
+            "close_confirmation": self.close_confirmation,
+            "status": self.status,
+            "upper_excess_pct": self.upper_excess_pct,
+            "lower_excess_pct": self.lower_excess_pct,
+        }
+
+
+@dataclass(frozen=True)
+class AnomalyEpisode:
+    """Report projection grouping consecutive raw anomaly evidence."""
+
+    episode_id: str
+    anomaly_type: str
+    side: str
+    severity: str
+    start_timestamp: str
+    end_timestamp: str
+    duration_bars: int
+    status: str
+    extreme_actual: float | None
+    reference_value: Any
+    member_anomaly_ids: tuple[str, ...] = ()
+    summary: str = ""
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "episode_id": self.episode_id,
+            "anomaly_type": self.anomaly_type,
+            "side": self.side,
+            "severity": self.severity,
+            "start_timestamp": self.start_timestamp,
+            "end_timestamp": self.end_timestamp,
+            "duration_bars": self.duration_bars,
+            "status": self.status,
+            "extreme_actual": self.extreme_actual,
+            "reference_value": _thaw(_freeze(self.reference_value)),
+            "member_anomaly_ids": list(self.member_anomaly_ids),
+            "summary": self.summary,
+        }
+
+
+@dataclass(frozen=True)
 class MarketAssessment:
     """Latest-bar report conclusion; it neither creates an order nor a signal."""
 
@@ -354,16 +463,21 @@ class InstrumentReportBundle:
     rule_evaluations: tuple[RuleEvaluation, ...]
     market_assessment: MarketAssessment | None = None
     breakout_assessments: tuple[BreakoutAssessment, ...] = ()
+    turtle_observations: tuple[TurtleObservation, ...] = ()
     data_update_result: Mapping[str, Any] = field(default_factory=dict)
     strategy_screening_result: Mapping[str, Any] = field(default_factory=dict)
     trend_decision_result: Mapping[str, Any] = field(default_factory=dict)
     event_decisions: tuple[Mapping[str, Any], ...] = ()
     anomalies: tuple[AnomalyEvent, ...] = ()
+    anomaly_episodes: tuple[AnomalyEpisode, ...] = ()
+    indicator_analyses: tuple[Mapping[str, Any], ...] = ()
+    indicator_signal_episodes: tuple[Mapping[str, Any], ...] = ()
+    decision_evidence_chain: tuple[Mapping[str, Any], ...] = ()
     state_transitions: tuple[StateTransition, ...] = ()
     summary: Mapping[str, Any] = field(default_factory=dict)
     strategy_snapshot: Mapping[str, Any] = field(default_factory=dict)
     change_log: tuple[Mapping[str, Any], ...] = ()
-    schema_version: str = "3"
+    schema_version: str = "5"
 
     def _payload_without_identity(self) -> dict[str, Any]:
         return {
@@ -379,11 +493,20 @@ class InstrumentReportBundle:
             "rule_evaluations": [item.to_dict() for item in self.rule_evaluations],
             "market_assessment": self.market_assessment.to_dict() if self.market_assessment else None,
             "breakout_assessments": [item.to_dict() for item in self.breakout_assessments],
+            "turtle_observations": [item.to_dict() for item in self.turtle_observations],
             "data_update_result": _thaw(self.data_update_result),
             "strategy_screening_result": _thaw(self.strategy_screening_result),
             "trend_decision_result": _thaw(self.trend_decision_result),
             "event_decisions": [_thaw(item) for item in self.event_decisions],
             "anomalies": [item.to_dict() for item in self.anomalies],
+            "anomaly_episodes": [item.to_dict() for item in self.anomaly_episodes],
+            "indicator_analyses": [_thaw(item) for item in self.indicator_analyses],
+            "indicator_signal_episodes": [
+                _thaw(item) for item in self.indicator_signal_episodes
+            ],
+            "decision_evidence_chain": [
+                _thaw(item) for item in self.decision_evidence_chain
+            ],
             "state_transitions": [item.to_dict() for item in self.state_transitions],
             "summary": dict(self.summary),
             "strategy_snapshot": dict(self.strategy_snapshot),
@@ -406,6 +529,24 @@ class InstrumentReportBundle:
 
 
 DEFAULT_CHANGE_LOG: tuple[Mapping[str, str], ...] = (
+    {
+        "module": "core/math_utils.py + core/strategy/daily/analysis.py",
+        "change": "统一 ATR 中位秩百分位，并用前一完整 K 线 ATR 归一化跳空与振幅异常",
+        "reason": "最大名次会把相等值窗口误判为 100%；当前 K 线 ATR 会吸收本次异常并稀释倍数。",
+        "effect": "平稳窗口稳定在 50%；异常证据、阶段摘要和图表统一使用可比较的 ATR 倍数。",
+    },
+    {
+        "module": "application/daily_analysis.py + observability/report_renderer.py",
+        "change": "区分海龟正式收盘突破与盘中越轨观察，并聚合异常阶段",
+        "reason": "K 线影线越过通道但收盘回落时，旧报告无法解释为何没有正式信号；逐日异常也会形成重复噪声。",
+        "effect": "正式策略语义不变；报告增加盘中未确认证据、异常阶段和可展开的逐日明细。",
+    },
+    {
+        "module": "core/decision_events.py + application/daily/trend_decision.py",
+        "change": "正式通知改由确认后的执行决策事件驱动",
+        "reason": "A 级评级事件与 A 级、同向突破、资格通过的最终入场条件不等价。",
+        "effect": "无突破不误报；评级已为 A 后的新突破不漏报；资格未确认仅输出入场候选。",
+    },
     {
         "module": "core/features.py",
         "change": "合并特征请求，并一次性准备 D1 特征",
@@ -440,11 +581,13 @@ DEFAULT_CHANGE_LOG: tuple[Mapping[str, str], ...] = (
 
 
 __all__ = [
+    "AnomalyEpisode",
     "BreakoutAssessment",
     "DataUpdateResult",
     "DEFAULT_CHANGE_LOG",
     "InstrumentReportBundle",
     "MarketAssessment",
     "StrategyScreeningResult",
+    "TurtleObservation",
     "TrendDecisionResult",
 ]

@@ -44,9 +44,9 @@ def test_backtest_service_preserves_backtester_result_and_writes_manifest(tmp_pa
     config = BacktestConfig(initial_equity=100_000, code_version="test")
     direct = TurtleBacktester({"TEST": bars}, specs, rules, config=config).run()
     manifest_path = tmp_path / "manifest.json"
-    run = BacktestService().run(
-        {"TEST": bars}, specs, rules, config=config, manifest_path=manifest_path
-    )
+    with pytest.warns(DeprecationWarning, match="BacktestService"):
+        service = BacktestService()
+    run = service.run({"TEST": bars}, specs, rules, config=config, manifest_path=manifest_path)
     assert run.result.metrics == pytest.approx(direct.metrics, rel=1e-10)
     pd.testing.assert_frame_equal(run.result.orders, direct.orders, check_exact=False)
     assert manifest_path.exists()

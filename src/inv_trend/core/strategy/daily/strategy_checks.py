@@ -15,6 +15,7 @@ import numpy as np
 import pandas as pd
 
 from ...features import FeatureRequest, PreparedBars
+from ...math_utils import rolling_percentile
 from ...resampling import aggregate_completed_sessions
 from ...signals import crossed_above, crossed_below
 
@@ -22,6 +23,7 @@ from ...signals import crossed_above, crossed_below
 class DailyChecksConfigLike(Protocol):
     """Structural contract consumed by pure D1 strategy calculations."""
 
+    turtle_systems: tuple[tuple[int, int], ...]
     sma_periods: tuple[int, ...]
     ema_periods: tuple[int, int]
     macd_fast: int
@@ -36,6 +38,10 @@ class DailyChecksConfigLike(Protocol):
     atr_normal_percentile_high: float
     volume_lookback: int
     volume_confirmation_ratio: float
+    anomaly_gap_atr_multiplier: float
+    anomaly_range_atr_multiplier: float
+    anomaly_atr_percentile_low: float
+    anomaly_atr_percentile_high: float
     rating_a_min_score: float
     rating_b_min_score: float
     rating_a_min_families: int
@@ -60,7 +66,15 @@ def daily_strategy_feature_request(config: DailyChecksConfigLike) -> FeatureRequ
 
     return FeatureRequest(
         atr_period=config.atr_period,
-        donchian_periods=TURTLE_PERIODS,
+        donchian_periods=tuple(
+            sorted(
+                {
+                    period
+                    for system in config.turtle_systems
+                    for period in system
+                }
+            )
+        ),
         sma_lags=tuple((period, 0) for period in config.sma_periods),
         ema_periods=config.ema_periods,
         macd_periods=(config.macd_fast, config.macd_slow, config.macd_signal),
@@ -107,16 +121,27 @@ def prepare_daily_strategy_checks(
         base[f"sma_{period}"] = base[f"sma_{period}_lag_0"]
     close = pd.to_numeric(base["close"], errors="coerce")
     base["atr_pct"] = base["atr"] / close
-    base["atr_percentile"] = base["atr_pct"].rolling(
+    base["atr_percentile"] = rolling_percentile(
+        base["atr_pct"],
         config.atr_percentile_lookback,
         min_periods=config.atr_percentile_lookback,
-    ).rank(method="max", pct=True)
+    )
     volume_average = base[f"volume_sma_{config.volume_lookback}_lag_1"]
     if "volume" in base:
         volume = pd.to_numeric(base["volume"], errors="coerce")
         base["relative_volume"] = (volume / volume_average).where(volume_average > 0.0)
     else:
         base["relative_volume"] = np.nan
+    previous_atr = pd.to_numeric(base["atr"], errors="coerce").shift(1)
+    previous_close = close.shift(1)
+    open_price = pd.to_numeric(base["open"], errors="coerce")
+    high = pd.to_numeric(base["high"], errors="coerce")
+    low = pd.to_numeric(base["low"], errors="coerce")
+    base["previous_atr"] = previous_atr
+    base["gap_abs"] = (open_price - previous_close).abs()
+    base["range_abs"] = high - low
+    base["gap_atr_ratio"] = (base["gap_abs"] / previous_atr).where(previous_atr > 0.0)
+    base["range_atr_ratio"] = (base["range_abs"] / previous_atr).where(previous_atr > 0.0)
 
     macd_frames: dict[str, pd.DataFrame] = {"D1": base}
     for sessions in config.macd_session_periods:
@@ -130,7 +155,9 @@ def prepare_daily_strategy_checks(
         macd_frames[label] = PreparedBars.build(
             aggregated,
             FeatureRequest(
-                macd_periods=(config.macd_fast, config.macd_slow, config.macd_signal)
+                atr_period=config.atr_period,
+                macd_periods=(config.macd_fast, config.macd_slow, config.macd_signal),
+                include_true_range=True,
             ),
         ).frame
     return PreparedDailyStrategyChecks(base, macd_frames, config, anchor)
@@ -530,7 +557,7 @@ def _rating(
         adjustments.append("atr_normal:+1")
     elif volatility.get("state") in {"low", "high"}:
         score -= 1.0
-        adjustments.append("atr_extreme:-1")
+        adjustments.append("atr_outside_normal:-1")
     if volume.get("confirmed"):
         score += 1.0
         adjustments.append("relative_volume_confirmed:+1")

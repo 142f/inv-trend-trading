@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "inv-trend-trading"
-version = "0.2.0"
+version = "0.2.1"
 description = "Multi-asset Turtle trend-following research system"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -38,6 +38,8 @@ turtle-data = "inv_trend.cli.data:main"
 turtle-detect = "inv_trend.cli.detect:main"
 turtle-alert = "inv_trend.cli.alert:main"
 turtle-daily = "inv_trend.cli.daily:main"
+turtle-backtest = "inv_trend.cli.backtest:main"
+strategy-backtest = "inv_trend.cli.backtest:main"
 market-data = "inv_trend.cli.market_data:main"
 
 [tool.setuptools]

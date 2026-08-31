@@ -6,6 +6,7 @@ deliberately left to ``inv_trend.observability`` at the CLI boundary.
 
 from dataclasses import asdict, replace
 from datetime import datetime, timezone
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -30,6 +31,7 @@ from .daily_analysis import (
     build_instrument_report_bundle,
 )
 from .daily.run_contract import BEIJING, DEFAULT_BOOTSTRAP_DAYS, DailyMarketScanResult
+from .daily.trend_decision import build_execution_decision_event
 from .daily_models import BreakoutAssessment, MarketAssessment
 from .daily_stages import (
     DailyDataUpdateService,
@@ -185,7 +187,7 @@ class DailyMarketScanService:
         self.signal_repository.finish_run(run_id, finished_at.isoformat(), summary)
         report_date = started_at.astimezone(BEIJING).date().isoformat()
         snapshot = {
-            "schema_version": "4", "report_schema_version": "3",
+            "schema_version": "4", "report_schema_version": "5",
             "run_id": run_id, "report_date": report_date,
             "started_at": started_at.isoformat(), "finished_at": finished_at.isoformat(),
             "timezone": "Asia/Shanghai", "timeframe": "D1",
@@ -323,6 +325,7 @@ class DailyMarketScanService:
             }
 
             detected: list[SignalEvent] = []
+            execution_decision_events: list[dict[str, Any]] = []
             breakout_assessments: list[BreakoutAssessment] = []
             decisions_by_position = {
                 int(snapshot.get("position", -1)): event_decision
@@ -341,6 +344,19 @@ class DailyMarketScanService:
                     data_stage.refresh_error is not None,
                     strategy_version,
                 )
+                event_decision = decisions_by_position.get(position)
+                if event_decision is not None:
+                    execution_event = build_execution_decision_event(
+                        event_decision,
+                        trigger_events=replay_events,
+                        dataset_version=data_result.dataset_version or "unknown",
+                        detected_at=started_at.isoformat(),
+                        strategy_version=strategy_version,
+                        market=asset.market.value,
+                    )
+                    if execution_event is not None:
+                        execution_decision_events.append(execution_event.to_dict())
+                        replay_events.append(execution_event.to_signal_event())
                 detected.extend(replay_events)
                 signal_ids = {
                     (event.indicator_name, event.signal_time, event.direction.lower()): event.signal_id
@@ -352,7 +368,6 @@ class DailyMarketScanService:
                     position=position,
                     signal_ids=signal_ids,
                 )
-                event_decision = decisions_by_position.get(position)
                 breakout_assessments.extend(
                     _decision_backed_assessment(item, event_decision)
                     for item in assessments
@@ -374,11 +389,32 @@ class DailyMarketScanService:
                 strategy_screening_result=screening.to_dict(),
                 trend_decision_result=decision.to_dict(),
                 event_decisions=event_decision_payloads,
+                indicator_analyses=screening.indicator_analyses,
+                indicator_signal_episodes=screening.indicator_signal_episodes,
+                decision_evidence_chain=decision.evidence_chain,
                 chart_bars=chart_bars,
             )
-            row["report_bundle"] = report_bundle.to_dict()
-            row["result_id"] = report_bundle.result_id
-            row["result_hash"] = report_bundle.result_hash
+            report_payload = {
+                **report_bundle.to_dict(),
+                "execution_decision_events": execution_decision_events,
+            }
+            report_payload.pop("result_id", None)
+            report_payload.pop("result_hash", None)
+            report_digest = hashlib.sha256(
+                json.dumps(
+                    report_payload,
+                    ensure_ascii=False,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                    default=str,
+                ).encode("utf-8")
+            ).hexdigest()
+            report_payload["result_id"] = report_digest[:24]
+            report_payload["result_hash"] = report_digest
+            row["report_bundle"] = report_payload
+            row["execution_decision_events"] = execution_decision_events
+            row["result_id"] = report_payload["result_id"]
+            row["result_hash"] = report_payload["result_hash"]
             _attach_stage_results(
                 row,
                 data_result.to_dict(),
@@ -388,9 +424,13 @@ class DailyMarketScanService:
             )
             if formal_eligible:
                 latest_time = prepared.base.index[-1].isoformat()
-                notification_signal_ids = {
-                    event.signal_id for event in detected
-                    if event.signal_type.startswith("STRATEGY_GRADE_A_")
+                notification_event_ids = {
+                    event.signal_id
+                    for event in detected
+                    if event.signal_type in {
+                        "ENTRY_DECISION_LONG",
+                        "ENTRY_DECISION_SHORT",
+                    }
                 }
                 new, duplicates = self.signal_repository.commit_events_and_cursor(
                     detected,
@@ -400,7 +440,9 @@ class DailyMarketScanService:
                     strategy_version=strategy_version,
                     last_signal_time=latest_time,
                     enqueue_notifications=not backfill_signals,
-                    notification_signal_ids=(notification_signal_ids if not backfill_signals else ()),
+                    notification_event_ids=(
+                        notification_event_ids if not backfill_signals else ()
+                    ),
                 )
                 row["signals_new"], row["signals_duplicate"] = len(new), duplicates
             else:
@@ -508,6 +550,8 @@ def _market_assessment_from_decision(decision: Any) -> MarketAssessment:
     entry = {
         "ENTER_LONG": "做多",
         "ENTER_SHORT": "做空",
+        "ENTRY_CANDIDATE_LONG": "做多候选",
+        "ENTRY_CANDIDATE_SHORT": "做空候选",
     }.get(str(decision.execution_state), "不入场")
     confidence = decision.confidence
     evidence = (
