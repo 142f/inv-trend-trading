@@ -547,16 +547,18 @@ OHLCV DataFrame + AssetConfig + StrategyConfig
 
 ### 6.2 多资产回测与研究
 
-适用于研究和可复现绩效评估，主入口是 `BacktestService` 与 `TurtleBacktester`：
+适用于研究和可复现绩效评估，主入口是 `application.backtest.BacktestBatchService`；
+`TurtleBacktester` 仅作为 adapters 层低级成交执行器：
 
 ```text
 多个 OHLCV DataFrame
   → multi_asset.data：清洗、字段统一、校验、时间对齐
   → AssetSpec + TurtleRules + BacktestConfig
-  → MultiAssetTurtleStrategy / TurtleBacktester
-  → orders、trades、equity_curve、metrics
-  → StrategyRunManifest（配置与数据指纹）
-  → JSON / CSV / HTML 回测制品
+  → StrategySignalAdapter（预计算策略证据）
+  → UnifiedBacktestExecutor / TurtleBacktester
+  → BacktestBatchResult v2 + execution_result_hash
+  → BacktestReportModel v1
+  → 统一 JSON / CSV / Parquet / HTML 回测制品
 ```
 
 `AssetSpec` 描述可交易属性和精度，`TurtleRules` 描述海龟规则，`BacktestConfig` 描述初始权益、费用、报告等运行参数。风险预算、挂单过期、成交保护和仓位 sizing 位于 `adapters/multi_asset/risk` 与 `strategy` 中。回测输出不能替代日线正式通知：两者是不同用例。

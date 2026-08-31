@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 
 from inv_trend.core.features import FeatureCache, FeatureRequest, PreparedBars
-from inv_trend.adapters.detector.backtest.engine import DetectorBacktester
+from inv_trend.adapters.detector.backtest.engine import ChronologicalSignalValidator
 from inv_trend.adapters.detector.models import AssetConfig, Market, StrategyConfig
 
 
@@ -52,5 +52,5 @@ def test_detector_backtest_uses_one_feature_preparation(monkeypatch) -> None:
         timeframes=("D1",), adjustment="none",
     )
     config = StrategyConfig(volatility_lookback=20, long_trend_ma_period=20)
-    DetectorBacktester(config).run(_bars(), asset, "D1")
+    ChronologicalSignalValidator(config).run(_bars(), asset, "D1")
     assert calls == 1

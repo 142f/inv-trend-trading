@@ -9,7 +9,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from inv_trend.adapters.detector.backtest.engine import DetectorBacktester
+from inv_trend.adapters.detector.backtest.engine import ChronologicalSignalValidator
 from inv_trend.adapters.detector.engine.scanner import TurtleScanner
 from inv_trend.adapters.detector.models import (
     AssetConfig,
@@ -312,7 +312,7 @@ def test_backtest_equity_curve_positive_trend() -> None:
         system2_exit=20,
         confirmation_mode="close",
     )
-    backtester = DetectorBacktester(config, initial_equity=100_000, cost_bps=0)
+    backtester = ChronologicalSignalValidator(config, initial_equity=100_000, cost_bps=0)
 
     result = backtester.run(bars, _asset(), "D1")
 
@@ -330,7 +330,7 @@ def test_backtest_deterministic() -> None:
     """相同输入的回测结果必须完全一致。"""
     bars = _random_walk(300, seed=42)
     config = _config()
-    backtester = DetectorBacktester(config)
+    backtester = ChronologicalSignalValidator(config)
 
     result1 = backtester.run(bars, _asset(), "D1")
     result2 = backtester.run(bars, _asset(), "D1")
@@ -465,7 +465,7 @@ def _generate_stability_report(output_path: Path) -> None:
     scanner = TurtleScanner(config)
     signals = _count_signals(scanner, bars)
 
-    backtester = DetectorBacktester(config, initial_equity=100_000, cost_bps=5)
+    backtester = ChronologicalSignalValidator(config, initial_equity=100_000, cost_bps=5)
     bt_result = backtester.run(bars, _asset(), "D1")
 
     report = {

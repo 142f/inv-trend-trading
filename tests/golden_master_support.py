@@ -18,7 +18,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from inv_trend.adapters.detector.backtest.engine import DetectorBacktester
+from inv_trend.adapters.detector.backtest.engine import ChronologicalSignalValidator
 from inv_trend.adapters.detector.indicators.daily_signals import analyze_daily_signals
 from inv_trend.adapters.detector.models import AssetConfig, Market, StrategyConfig
 from inv_trend.adapters.multi_asset import AssetSpec, TurtleBacktester, TurtleRules
@@ -164,7 +164,7 @@ def build_current_snapshot(bars: pd.DataFrame | None = None) -> dict[str, Any]:
             sma_lags=((10, 0), (20, 0)),
         ),
     ).frame
-    detector = DetectorBacktester(
+    detector = ChronologicalSignalValidator(
         detector_config(), initial_equity=100_000, cost_bps=5
     ).run(bars, detector_asset(), "D1")
     multi = TurtleBacktester(
