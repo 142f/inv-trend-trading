@@ -106,8 +106,11 @@ _DETECTOR_KEYS = {
     "trend_filter",
     "max_gap_atr",
 }
-_DAILY_SCREENING_KEYS = {"sma", "ema", "macd", "dmi", "atr", "volume", "rating"}
+_DAILY_SCREENING_KEYS = {
+    "turtle", "sma", "ema", "macd", "dmi", "atr", "volume", "anomaly", "rating"
+}
 _DAILY_SCREENING_SECTION_KEYS = {
+    "turtle": {"systems"},
     "sma": {"periods"},
     "ema": {"periods"},
     "macd": {"fast", "slow", "signal", "session_periods"},
@@ -119,6 +122,12 @@ _DAILY_SCREENING_SECTION_KEYS = {
         "normal_percentile_high",
     },
     "volume": {"lookback", "confirmation_ratio"},
+    "anomaly": {
+        "gap_atr_multiplier",
+        "range_atr_multiplier",
+        "atr_percentile_low",
+        "atr_percentile_high",
+    },
     "rating": {"a_min_score", "b_min_score", "a_min_families", "b_min_families"},
 }
 _TREND_DECISION_KEYS = {"execution_grade", "eligibility_gate_enabled"}
@@ -163,6 +172,15 @@ def canonical_to_application_mapping(raw: Mapping[str, Any]) -> dict[str, Any]:
     turtle = _mapping(canonical["turtle"], "turtle")
     risk = _mapping(canonical["risk"], "risk")
     turtle_rules = _mapping(turtle["rules"], "turtle.rules")
+    daily_checks = _copy_mapping(
+        canonical["daily_screening"], "daily_screening"
+    )
+    daily_checks["turtle"] = {
+        "systems": [
+            [turtle_rules["fast_entry"], turtle_rules["fast_exit"]],
+            [turtle_rules["slow_entry"], turtle_rules["slow_exit"]],
+        ]
+    }
     return {
         "profile": turtle["profile"],
         # The legacy application contract owns only these seven Turtle rule
@@ -178,9 +196,7 @@ def canonical_to_application_mapping(raw: Mapping[str, Any]) -> dict[str, Any]:
             if key in risk
         },
         "contracts": _copy_mapping(risk.get("contracts", {}), "risk.contracts"),
-        "daily_checks": _copy_mapping(
-            canonical["daily_screening"], "daily_screening"
-        ),
+        "daily_checks": daily_checks,
         "trend_decision": _copy_mapping(
             canonical["trend_decision"], "trend_decision"
         ),

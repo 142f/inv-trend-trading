@@ -343,6 +343,49 @@ class DailyRunArtifactWriter:
                 "reference_value", "member_anomaly_ids", "summary",
             ),
         )
+        indicator_analyses_path = exports / "指标当前状态_v5.csv"
+        _write_csv(
+            indicator_analyses_path,
+            _rows(canonical_complete.get("indicator_analyses")),
+            (
+                "indicator_id", "indicator_name", "timeframe", "role", "availability",
+                "direction", "lifecycle_state", "active", "decision_weight", "strength",
+                "strength_delta", "strength_trend", "first_trigger_timestamp",
+                "first_trigger_price", "duration_periods", "duration_d1_bars",
+                "elapsed_days", "peak_strength", "average_strength",
+                "last_reinforcement_timestamp", "reinforcement_count",
+                "invalidation_timestamp", "invalidation_reason", "support_effect",
+                "explanation", "current_values", "trigger_conditions",
+                "invalidation_conditions",
+            ),
+        )
+        indicator_episodes_path = exports / "指标信号生命周期_v5.csv"
+        _write_csv(
+            indicator_episodes_path,
+            _rows(canonical_complete.get("indicator_signal_episodes")),
+            (
+                "episode_id", "indicator_id", "indicator_name", "timeframe", "role",
+                "direction", "state_key", "start_timestamp", "start_price",
+                "end_timestamp", "end_price", "status", "lifecycle_state",
+                "duration_periods", "duration_d1_bars", "elapsed_days",
+                "current_strength", "peak_strength", "average_strength",
+                "strength_delta", "strength_trend", "rule_ids",
+                "last_reinforcement_timestamp", "reinforcement_count",
+                "invalidation_timestamp", "invalidation_price", "invalidation_reason",
+                "invalidation_conditions", "trigger_conditions", "metadata",
+            ),
+        )
+        decision_evidence_path = exports / "最终决策证据链_v5.csv"
+        _write_csv(
+            decision_evidence_path,
+            _rows(canonical_complete.get("decision_evidence_chain")),
+            (
+                "indicator_id", "indicator_name", "timeframe", "role", "direction",
+                "active", "strength", "weight", "contribution", "contribution_type",
+                "first_trigger_timestamp", "duration_periods", "duration_d1_bars",
+                "explanation", "episode_id", "metadata",
+            ),
+        )
         transitions_path = exports / "state_transitions.csv"
         _write_csv(
             transitions_path,
@@ -355,6 +398,9 @@ class DailyRunArtifactWriter:
             ("anomalies", anomalies_path),
             ("turtle_observations", turtle_observations_path),
             ("anomaly_episodes", anomaly_episodes_path),
+            ("indicator_analyses", indicator_analyses_path),
+            ("indicator_signal_episodes", indicator_episodes_path),
+            ("decision_evidence_chain", decision_evidence_path),
             ("state_transitions", transitions_path),
         ):
             named_paths[key] = exports / names[key]
@@ -478,7 +524,7 @@ class DailyRunArtifactWriter:
                     "timeframe": row.get("timeframe", "D1"),
                     "report_date": snapshot.get("report_date"),
                     "run_id": snapshot.get("run_id"),
-                    "report_schema_version": snapshot.get("report_schema_version", "4"),
+                    "report_schema_version": snapshot.get("report_schema_version", "5"),
                     "complete_analysis": "complete_analysis_result.json",
                     "html_report": "trend_analysis_report.html" if render_html else None,
                     "archived_result": str(complete_path),
@@ -673,7 +719,7 @@ def _complete_result(snapshot: Mapping[str, Any], row: Mapping[str, Any]) -> dic
     )
     return {
         "schema_version": str(snapshot.get("schema_version", "4")),
-        "report_schema_version": str(snapshot.get("report_schema_version", "4")),
+        "report_schema_version": str(snapshot.get("report_schema_version", "5")),
         "metadata": {
             "symbol": row.get("symbol"),
             "instrument_id": row.get("instrument_id"),
@@ -693,6 +739,13 @@ def _complete_result(snapshot: Mapping[str, Any], row: Mapping[str, Any]) -> dic
         "anomalies": _rows(report_bundle.get("anomalies")),
         "turtle_observations": _rows(report_bundle.get("turtle_observations")),
         "anomaly_episodes": _rows(report_bundle.get("anomaly_episodes")),
+        "indicator_analyses": _rows(report_bundle.get("indicator_analyses"))
+        or _rows(screening.get("indicator_analyses")),
+        "indicator_signal_episodes": _rows(
+            report_bundle.get("indicator_signal_episodes")
+        ) or _rows(screening.get("indicator_signal_episodes")),
+        "decision_evidence_chain": _rows(report_bundle.get("decision_evidence_chain"))
+        or _rows(decision.get("evidence_chain")),
         "state_transitions": _rows(report_bundle.get("state_transitions")),
         "report_bundle": report_bundle,
         "hashes": hashes,
@@ -807,7 +860,7 @@ def _artifact_names(
     report_date = _filename_segment(snapshot.get("report_date"), fallback="未知日期")
     run_id = _filename_segment(snapshot.get("run_id"), fallback="未知批次", max_length=52)
     version = _filename_segment(
-        snapshot.get("report_schema_version", "4"), fallback="4", max_length=16
+        snapshot.get("report_schema_version", "5"), fallback="5", max_length=16
     )
     prefix = f"{symbol}_{timeframe}_{report_date}_{run_id}"
     return {
@@ -821,6 +874,9 @@ def _artifact_names(
         "anomalies": f"{prefix}_异常_v{version}.csv",
         "turtle_observations": f"{prefix}_海龟观察_v{version}.csv",
         "anomaly_episodes": f"{prefix}_异常阶段_v{version}.csv",
+        "indicator_analyses": f"{prefix}_指标当前状态_v{version}.csv",
+        "indicator_signal_episodes": f"{prefix}_指标信号生命周期_v{version}.csv",
+        "decision_evidence_chain": f"{prefix}_最终决策证据链_v{version}.csv",
         "state_transitions": f"{prefix}_状态变更_v{version}.csv",
         "run_manifest": f"{prefix}_运行清单_v{version}.json",
         "configuration_snapshot": f"{prefix}_配置快照_v{version}.json",
@@ -836,7 +892,7 @@ def _summary_paths(
     report_date = _filename_segment(snapshot.get("report_date"), fallback="未知日期")
     run_id = _filename_segment(snapshot.get("run_id"), fallback="未知批次", max_length=52)
     version = _filename_segment(
-        snapshot.get("report_schema_version", "4"), fallback="4", max_length=16
+        snapshot.get("report_schema_version", "5"), fallback="5", max_length=16
     )
     directory = artifact_root / SUMMARY_DIR / report_date / run_id
     stem = f"全标的_多周期_{report_date}_{run_id}_汇总报告_v{version}"
@@ -856,7 +912,7 @@ def _write_symbol_index(
         "timeframe": row.get("timeframe", "D1"),
         "report_date": snapshot.get("report_date"),
         "run_id": snapshot.get("run_id"),
-        "report_schema_version": snapshot.get("report_schema_version", "4"),
+        "report_schema_version": snapshot.get("report_schema_version", "5"),
         "result_types": {
             key: value.relative_to(root).as_posix()
             for key, value in named_paths.items()
@@ -903,7 +959,7 @@ def _write_batch_index(
             "report_date": snapshot.get("report_date"),
             "started_at": snapshot.get("started_at"),
             "finished_at": snapshot.get("finished_at"),
-            "report_schema_version": snapshot.get("report_schema_version", "4"),
+            "report_schema_version": snapshot.get("report_schema_version", "5"),
             "symbols": symbols,
         },
     )

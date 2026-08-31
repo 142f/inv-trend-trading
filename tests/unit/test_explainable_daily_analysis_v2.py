@@ -85,7 +85,7 @@ def test_report_bundle_hash_is_stable_and_json_safe() -> None:
     encoded = json.dumps(first.to_dict(), ensure_ascii=False, allow_nan=False)
     assert "rule_evaluations" in encoded
     assert "change_log" in encoded
-    assert first.schema_version == "4"
+    assert first.schema_version == "5"
     assert "turtle_observations" in encoded
     assert "anomaly_episodes" in encoded
 

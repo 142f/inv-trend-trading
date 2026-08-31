@@ -18,6 +18,7 @@ from inv_trend.config import (
 class DailyChecksConfig:
     """Validated settings for the report-only daily strategy dimensions."""
 
+    turtle_systems: tuple[tuple[int, int], ...] = ((20, 10), (55, 20))
     sma_periods: tuple[int, ...] = (5, 10, 20, 55, 120)
     ema_periods: tuple[int, int] = (144, 169)
     macd_fast: int = 12
@@ -32,12 +33,25 @@ class DailyChecksConfig:
     atr_normal_percentile_high: float = 0.90
     volume_lookback: int = 20
     volume_confirmation_ratio: float = 1.5
+    anomaly_gap_atr_multiplier: float = 2.0
+    anomaly_range_atr_multiplier: float = 3.0
+    anomaly_atr_percentile_low: float = 0.02
+    anomaly_atr_percentile_high: float = 0.98
     rating_a_min_score: float = 6.0
     rating_b_min_score: float = 4.0
     rating_a_min_families: int = 3
     rating_b_min_families: int = 2
 
     def __post_init__(self) -> None:
+        if not self.turtle_systems or any(
+            len(system) != 2 or not 1 < system[1] < system[0]
+            for system in self.turtle_systems
+        ):
+            raise ValueError(
+                "daily_checks.turtle.systems must contain increasing entry/exit pairs"
+            )
+        if len({entry for entry, _ in self.turtle_systems}) != len(self.turtle_systems):
+            raise ValueError("daily_checks.turtle entry periods must be unique")
         if len(self.sma_periods) < 2 or any(period < 2 for period in self.sma_periods):
             raise ValueError("daily_checks.sma.periods must contain periods >= 2")
         if tuple(sorted(set(self.sma_periods))) != self.sma_periods:
@@ -60,6 +74,10 @@ class DailyChecksConfig:
             raise ValueError("daily_checks.atr normal percentiles must be within [0, 1]")
         if self.adx_threshold <= 0.0 or self.volume_confirmation_ratio <= 0.0:
             raise ValueError("daily_checks thresholds must be positive")
+        if self.anomaly_gap_atr_multiplier <= 0.0 or self.anomaly_range_atr_multiplier <= 0.0:
+            raise ValueError("daily_checks.anomaly ATR multipliers must be positive")
+        if not 0.0 <= self.anomaly_atr_percentile_low < self.anomaly_atr_percentile_high <= 1.0:
+            raise ValueError("daily_checks.anomaly ATR percentiles must be within [0, 1]")
         if self.rating_b_min_score > self.rating_a_min_score:
             raise ValueError("daily_checks.rating B score cannot exceed A score")
         if not 1 <= self.rating_b_min_families <= self.rating_a_min_families <= 4:
@@ -69,7 +87,9 @@ class DailyChecksConfig:
     def from_mapping(cls, raw: Mapping[str, Any]) -> "DailyChecksConfig":
         if not isinstance(raw, Mapping):
             raise ValueError("daily_checks must be a mapping")
-        allowed = {"sma", "ema", "macd", "dmi", "atr", "volume", "rating"}
+        allowed = {
+            "turtle", "sma", "ema", "macd", "dmi", "atr", "volume", "anomaly", "rating"
+        }
         unknown = set(raw) - allowed
         if unknown:
             raise ValueError(f"unsupported daily_checks keys: {sorted(unknown)}")
@@ -85,15 +105,29 @@ class DailyChecksConfig:
                 )
             return value
 
+        turtle = section("turtle", {"systems"})
         sma = section("sma", {"periods"})
         ema = section("ema", {"periods"})
         macd = section("macd", {"fast", "slow", "signal", "session_periods"})
         dmi = section("dmi", {"period", "adx_threshold"})
         atr = section("atr", {"period", "percentile_lookback", "normal_percentile_low", "normal_percentile_high"})
         volume = section("volume", {"lookback", "confirmation_ratio"})
+        anomaly = section(
+            "anomaly",
+            {
+                "gap_atr_multiplier",
+                "range_atr_multiplier",
+                "atr_percentile_low",
+                "atr_percentile_high",
+            },
+        )
         rating = section("rating", {"a_min_score", "b_min_score", "a_min_families", "b_min_families"})
         defaults = cls()
         return cls(
+            turtle_systems=tuple(
+                (int(value[0]), int(value[1]))
+                for value in turtle.get("systems", defaults.turtle_systems)
+            ),
             sma_periods=tuple(int(value) for value in sma.get("periods", defaults.sma_periods)),
             ema_periods=tuple(int(value) for value in ema.get("periods", defaults.ema_periods)),
             macd_fast=int(macd.get("fast", defaults.macd_fast)),
@@ -108,6 +142,10 @@ class DailyChecksConfig:
             atr_normal_percentile_high=float(atr.get("normal_percentile_high", defaults.atr_normal_percentile_high)),
             volume_lookback=int(volume.get("lookback", defaults.volume_lookback)),
             volume_confirmation_ratio=float(volume.get("confirmation_ratio", defaults.volume_confirmation_ratio)),
+            anomaly_gap_atr_multiplier=float(anomaly.get("gap_atr_multiplier", defaults.anomaly_gap_atr_multiplier)),
+            anomaly_range_atr_multiplier=float(anomaly.get("range_atr_multiplier", defaults.anomaly_range_atr_multiplier)),
+            anomaly_atr_percentile_low=float(anomaly.get("atr_percentile_low", defaults.anomaly_atr_percentile_low)),
+            anomaly_atr_percentile_high=float(anomaly.get("atr_percentile_high", defaults.anomaly_atr_percentile_high)),
             rating_a_min_score=float(rating.get("a_min_score", defaults.rating_a_min_score)),
             rating_b_min_score=float(rating.get("b_min_score", defaults.rating_b_min_score)),
             rating_a_min_families=int(rating.get("a_min_families", defaults.rating_a_min_families)),
@@ -199,6 +237,20 @@ def load_resolved_run_config(path: str | Path | None = None) -> ResolvedRunConfi
     raw = load_strategy_mapping(path)
     if is_canonical_strategy_mapping(raw):
         raw = canonical_to_application_mapping(raw)
+    else:
+        raw = dict(raw)
+        rules = dict(raw.get("rules") or {})
+        daily_checks = dict(raw.get("daily_checks") or {})
+        if "turtle" not in daily_checks and all(
+            key in rules for key in ("fast_entry", "fast_exit", "slow_entry", "slow_exit")
+        ):
+            daily_checks["turtle"] = {
+                "systems": [
+                    [rules["fast_entry"], rules["fast_exit"]],
+                    [rules["slow_entry"], rules["slow_exit"]],
+                ]
+            }
+            raw["daily_checks"] = daily_checks
     allowed = set(ResolvedRunConfig.__dataclass_fields__)
     unknown = set(raw) - allowed
     if unknown:

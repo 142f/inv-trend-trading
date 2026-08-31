@@ -74,7 +74,20 @@ def test_decision_truth_table_uses_screening_evidence_only() -> None:
     data = _data()
     service = TrendDecisionService()
 
-    entered = service.decide(data, _screen(data, grade="A", direction="long"))
+    entered = service.decide(
+        data,
+        _screen(
+            data,
+            grade="A",
+            direction="long",
+            eligibility={
+                "status": "PASSED",
+                "evaluated": True,
+                "passed": True,
+                "results": [],
+            },
+        ),
+    )
     assert (entered.trend_direction, entered.decision, entered.execution_state) == (
         "LONG", "LONG", "ENTER_LONG"
     )

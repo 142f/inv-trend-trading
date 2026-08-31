@@ -313,10 +313,20 @@ def build_instrument_report_bundle(
     strategy_screening_result: Mapping[str, Any] | None = None,
     trend_decision_result: Mapping[str, Any] | None = None,
     event_decisions: Iterable[Mapping[str, Any]] | None = None,
+    indicator_analyses: Iterable[Mapping[str, Any]] | None = None,
+    indicator_signal_episodes: Iterable[Mapping[str, Any]] | None = None,
+    decision_evidence_chain: Iterable[Mapping[str, Any]] | None = None,
     chart_bars: int = 180,
 ) -> InstrumentReportBundle:
     if chart_bars < 1:
         raise ValueError("chart_bars must be positive")
+    indicator_analysis_rows = tuple(dict(item) for item in (indicator_analyses or ()))
+    indicator_episode_rows = tuple(
+        dict(item) for item in (indicator_signal_episodes or ())
+    )
+    decision_evidence_rows = tuple(
+        dict(item) for item in (decision_evidence_chain or ())
+    )
     current = dict(analysis or analyze_prepared_daily_analysis(prepared))
     rules = tuple(
         build_rule_evaluations(prepared, current)
@@ -329,6 +339,15 @@ def build_instrument_report_bundle(
     if assessment_times:
         for position, timestamp in enumerate(prepared.base.index):
             if timestamp.isoformat() in assessment_times:
+                series_start = min(series_start, position)
+    lifecycle_times = {
+        str(item.get("first_trigger_timestamp"))
+        for item in indicator_analysis_rows
+        if item.get("first_trigger_timestamp")
+    }
+    if lifecycle_times:
+        for position, timestamp in enumerate(prepared.base.index):
+            if timestamp.isoformat() in lifecycle_times:
                 series_start = min(series_start, position)
     start_position = max(1, series_start)
     anomalies = detect_anomalies(prepared, start_position=start_position)
@@ -381,6 +400,9 @@ def build_instrument_report_bundle(
         event_decisions=tuple(dict(item) for item in (event_decisions or ())),
         anomalies=anomalies,
         anomaly_episodes=anomaly_episodes,
+        indicator_analyses=indicator_analysis_rows,
+        indicator_signal_episodes=indicator_episode_rows,
+        decision_evidence_chain=decision_evidence_rows,
         state_transitions=transitions,
         summary=summary,
         strategy_snapshot={
@@ -389,6 +411,7 @@ def build_instrument_report_bundle(
             "resonance": current.get("resonance", {}),
             "status": current.get("status", {}),
             "feature_request": repr(prepared.feature_request),
+            "parameters": _analysis_parameters(prepared.strategy.config),
         },
         change_log=DEFAULT_CHANGE_LOG,
     )
@@ -586,6 +609,11 @@ def _series_payload(frame: pd.DataFrame) -> list[dict[str, Any]]:
         "atr_pct",
         "atr_percentile",
         "relative_volume",
+        "previous_atr",
+        "gap_abs",
+        "range_abs",
+        "gap_atr_ratio",
+        "range_atr_ratio",
     )
     rows: list[dict[str, Any]] = []
     for timestamp, values in frame.iterrows():
@@ -594,6 +622,57 @@ def _series_payload(frame: pd.DataFrame) -> list[dict[str, Any]]:
             row[column] = _number(values.get(column))
         rows.append(row)
     return rows
+
+
+def _analysis_parameters(config: Any) -> dict[str, Any]:
+    """Serialize the exact calculation contract consumed by report charts."""
+
+    return {
+        "calculation_revision": "daily-indicators-v3-lifecycle-v5",
+        "turtle": {
+            "periods": [entry for entry, _ in config.turtle_systems],
+            "systems": [
+                {"entry_period": entry, "exit_period": exit_period}
+                for entry, exit_period in config.turtle_systems
+            ],
+            "source": "prior_complete_bars",
+            "trigger": "close_strict",
+            "exit_trigger": "close_strict_reverse_channel",
+        },
+        "sma": {"periods": list(config.sma_periods)},
+        "ema": {"periods": list(config.ema_periods), "adjust": False},
+        "macd": {
+            "fast": config.macd_fast,
+            "slow": config.macd_slow,
+            "signal": config.macd_signal,
+            "adjust": False,
+            "session_periods": list(config.macd_session_periods),
+        },
+        "dmi": {"period": config.dmi_period, "adx_threshold": config.adx_threshold},
+        "atr": {
+            "period": config.atr_period,
+            "percentile_lookback": config.atr_percentile_lookback,
+            "percentile_method": "trailing_midrank_current_included",
+            "normal_percentile": [
+                config.atr_normal_percentile_low,
+                config.atr_normal_percentile_high,
+            ],
+        },
+        "volume": {
+            "lookback": config.volume_lookback,
+            "baseline_lag": 1,
+            "confirmation_ratio": config.volume_confirmation_ratio,
+        },
+        "anomaly": {
+            "atr_reference": "previous_complete_bar",
+            "gap_atr_multiplier": config.anomaly_gap_atr_multiplier,
+            "range_atr_multiplier": config.anomaly_range_atr_multiplier,
+            "atr_percentile_extreme": [
+                config.anomaly_atr_percentile_low,
+                config.anomaly_atr_percentile_high,
+            ],
+        },
+    }
 
 
 def _number(value: Any) -> float | None:

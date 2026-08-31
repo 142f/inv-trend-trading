@@ -157,9 +157,198 @@ class StateTransition:
         }
 
 
+@dataclass(frozen=True)
+class IndicatorSignalEpisode:
+    """One causally evaluated interval of an indicator state."""
+
+    episode_id: str
+    indicator_id: str
+    indicator_name: str
+    timeframe: str
+    role: str
+    direction: str
+    state_key: str
+    start_timestamp: str
+    start_price: float | None
+    end_timestamp: str
+    end_price: float | None
+    status: str
+    lifecycle_state: str
+    duration_periods: int
+    duration_d1_bars: int
+    elapsed_days: int
+    current_strength: float
+    peak_strength: float
+    average_strength: float
+    strength_delta: float
+    strength_trend: str
+    trigger_conditions: tuple[Mapping[str, Any], ...] = ()
+    rule_ids: tuple[str, ...] = ()
+    last_reinforcement_timestamp: str | None = None
+    reinforcement_count: int = 0
+    invalidation_timestamp: str | None = None
+    invalidation_price: float | None = None
+    invalidation_reason: str | None = None
+    invalidation_conditions: tuple[str, ...] = ()
+    metadata: Mapping[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "episode_id": self.episode_id,
+            "indicator_id": self.indicator_id,
+            "indicator_name": self.indicator_name,
+            "timeframe": self.timeframe,
+            "role": self.role,
+            "direction": self.direction,
+            "state_key": self.state_key,
+            "start_timestamp": self.start_timestamp,
+            "start_price": self.start_price,
+            "end_timestamp": self.end_timestamp,
+            "end_price": self.end_price,
+            "status": self.status,
+            "lifecycle_state": self.lifecycle_state,
+            "duration_periods": self.duration_periods,
+            "duration_d1_bars": self.duration_d1_bars,
+            "elapsed_days": self.elapsed_days,
+            "current_strength": float(self.current_strength),
+            "peak_strength": float(self.peak_strength),
+            "average_strength": float(self.average_strength),
+            "strength_delta": float(self.strength_delta),
+            "strength_trend": self.strength_trend,
+            "trigger_conditions": [_json_value(item) for item in self.trigger_conditions],
+            "rule_ids": list(self.rule_ids),
+            "last_reinforcement_timestamp": self.last_reinforcement_timestamp,
+            "reinforcement_count": int(self.reinforcement_count),
+            "invalidation_timestamp": self.invalidation_timestamp,
+            "invalidation_price": self.invalidation_price,
+            "invalidation_reason": self.invalidation_reason,
+            "invalidation_conditions": list(self.invalidation_conditions),
+            "metadata": _json_value(self.metadata),
+        }
+
+
+@dataclass(frozen=True)
+class IndicatorSignalAnalysis:
+    """Latest indicator interpretation backed by one lifecycle history."""
+
+    indicator_id: str
+    indicator_name: str
+    timeframe: str
+    role: str
+    availability: str
+    direction: str
+    lifecycle_state: str
+    active: bool
+    decision_weight: float
+    strength: float
+    strength_meaning: str
+    strength_delta: float
+    strength_trend: str
+    first_trigger_timestamp: str | None = None
+    first_trigger_price: float | None = None
+    duration_periods: int = 0
+    duration_d1_bars: int = 0
+    elapsed_days: int = 0
+    peak_strength: float = 0.0
+    average_strength: float = 0.0
+    current_episode_id: str | None = None
+    last_episode_id: str | None = None
+    last_reinforcement_timestamp: str | None = None
+    reinforcement_count: int = 0
+    invalidation_timestamp: str | None = None
+    invalidation_reason: str | None = None
+    support_effect: str = "neutral"
+    explanation: str = ""
+    current_values: Mapping[str, Any] = field(default_factory=dict)
+    trigger_conditions: tuple[Mapping[str, Any], ...] = ()
+    invalidation_conditions: tuple[str, ...] = ()
+    metadata: Mapping[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "indicator_id": self.indicator_id,
+            "indicator_name": self.indicator_name,
+            "timeframe": self.timeframe,
+            "role": self.role,
+            "availability": self.availability,
+            "direction": self.direction,
+            "lifecycle_state": self.lifecycle_state,
+            "active": bool(self.active),
+            "decision_weight": float(self.decision_weight),
+            "strength": float(self.strength),
+            "strength_meaning": self.strength_meaning,
+            "strength_delta": float(self.strength_delta),
+            "strength_trend": self.strength_trend,
+            "first_trigger_timestamp": self.first_trigger_timestamp,
+            "first_trigger_price": self.first_trigger_price,
+            "duration_periods": int(self.duration_periods),
+            "duration_d1_bars": int(self.duration_d1_bars),
+            "elapsed_days": int(self.elapsed_days),
+            "peak_strength": float(self.peak_strength),
+            "average_strength": float(self.average_strength),
+            "current_episode_id": self.current_episode_id,
+            "last_episode_id": self.last_episode_id,
+            "last_reinforcement_timestamp": self.last_reinforcement_timestamp,
+            "reinforcement_count": int(self.reinforcement_count),
+            "invalidation_timestamp": self.invalidation_timestamp,
+            "invalidation_reason": self.invalidation_reason,
+            "support_effect": self.support_effect,
+            "explanation": self.explanation,
+            "current_values": _json_value(self.current_values),
+            "trigger_conditions": [_json_value(item) for item in self.trigger_conditions],
+            "invalidation_conditions": list(self.invalidation_conditions),
+            "metadata": _json_value(self.metadata),
+        }
+
+
+@dataclass(frozen=True)
+class DecisionEvidenceItem:
+    """One auditable contribution to a report-only confidence explanation."""
+
+    indicator_id: str
+    indicator_name: str
+    timeframe: str
+    role: str
+    direction: str
+    active: bool
+    strength: float
+    weight: float
+    contribution: float
+    contribution_type: str
+    first_trigger_timestamp: str | None
+    duration_periods: int
+    duration_d1_bars: int
+    explanation: str
+    episode_id: str | None = None
+    metadata: Mapping[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "indicator_id": self.indicator_id,
+            "indicator_name": self.indicator_name,
+            "timeframe": self.timeframe,
+            "role": self.role,
+            "direction": self.direction,
+            "active": bool(self.active),
+            "strength": float(self.strength),
+            "weight": float(self.weight),
+            "contribution": float(self.contribution),
+            "contribution_type": self.contribution_type,
+            "first_trigger_timestamp": self.first_trigger_timestamp,
+            "duration_periods": int(self.duration_periods),
+            "duration_d1_bars": int(self.duration_d1_bars),
+            "explanation": self.explanation,
+            "episode_id": self.episode_id,
+            "metadata": _json_value(self.metadata),
+        }
+
+
 __all__ = [
     "AnomalyEvent",
     "ConditionEvaluation",
+    "DecisionEvidenceItem",
+    "IndicatorSignalAnalysis",
+    "IndicatorSignalEpisode",
     "RuleEvaluation",
     "StateTransition",
 ]

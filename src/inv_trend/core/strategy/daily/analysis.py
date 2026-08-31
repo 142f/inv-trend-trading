@@ -512,22 +512,36 @@ def detect_anomalies(
         return ()
     result: list[AnomalyEvent] = []
     start = max(1, start_position)
+    config = prepared.strategy.config
     for position in range(start, len(frame)):
-        row, previous = frame.iloc[position], frame.iloc[position - 1]
+        row = frame.iloc[position]
         timestamp = frame.index[position].isoformat()
+        previous_timestamp = frame.index[position - 1].isoformat()
         price = _number(row.get("close"))
-        atr = _number(row.get("atr"))
-        if atr is not None and atr > 0:
-            gap = abs(float(row.get("open")) - float(previous.get("close")))
+        previous_atr = _number(row.get("previous_atr"))
+        gap = _number(row.get("gap_abs"))
+        gap_ratio = _number(row.get("gap_atr_ratio"))
+        range_value = _number(row.get("range_abs"))
+        range_ratio = _number(row.get("range_atr_ratio"))
+        if previous_atr is not None and previous_atr > 0:
             gap_condition = evaluate_condition(
                 condition_id="anomaly.gap_vs_atr",
-                name="开盘跳空绝对值 > 2×ATR",
-                actual=gap,
+                name=(
+                    "开盘跳空 / 前一完整 K 线 ATR "
+                    f"> {config.anomaly_gap_atr_multiplier:g}"
+                ),
+                actual=gap_ratio,
                 operator=">",
-                reference=2.0 * atr,
+                reference=config.anomaly_gap_atr_multiplier,
                 timestamp=timestamp,
                 price=price,
                 impact="report_only",
+                metadata={
+                    "absolute_move": gap,
+                    "atr_reference": previous_atr,
+                    "atr_reference_timestamp": previous_timestamp,
+                    "unit": "ATR_multiple",
+                },
             )
             if gap_condition.passed:
                 result.append(
@@ -537,19 +551,27 @@ def detect_anomalies(
                         price,
                         gap_condition,
                         "high",
-                        "开盘相对前收出现超过 2×ATR 的跳空",
+                        "开盘相对前收的跳空超过前一完整 K 线 ATR 阈值",
                     )
                 )
-            bar_range = float(row.get("high")) - float(row.get("low"))
             range_condition = evaluate_condition(
                 condition_id="anomaly.range_vs_atr",
-                name="单日振幅 > 3×ATR",
-                actual=bar_range,
+                name=(
+                    "单日振幅 / 前一完整 K 线 ATR "
+                    f"> {config.anomaly_range_atr_multiplier:g}"
+                ),
+                actual=range_ratio,
                 operator=">",
-                reference=3.0 * atr,
+                reference=config.anomaly_range_atr_multiplier,
                 timestamp=timestamp,
                 price=price,
                 impact="report_only",
+                metadata={
+                    "absolute_move": range_value,
+                    "atr_reference": previous_atr,
+                    "atr_reference_timestamp": previous_timestamp,
+                    "unit": "ATR_multiple",
+                },
             )
             if range_condition.passed:
                 result.append(
@@ -559,7 +581,7 @@ def detect_anomalies(
                         price,
                         range_condition,
                         "medium",
-                        "单日高低价振幅超过 3×ATR",
+                        "单日高低价振幅超过前一完整 K 线 ATR 阈值",
                     )
                 )
         percentile = _number(row.get("atr_percentile"))
@@ -568,10 +590,17 @@ def detect_anomalies(
             name="ATR 分位位于极端区间",
             actual=percentile,
             operator="outside",
-            reference=(0.02, 0.98),
+            reference=(
+                config.anomaly_atr_percentile_low,
+                config.anomaly_atr_percentile_high,
+            ),
             timestamp=timestamp,
             price=price,
             impact="report_only",
+            metadata={
+                "lookback": config.atr_percentile_lookback,
+                "method": "trailing_midrank_current_included",
+            },
         )
         if percentile_condition.passed:
             result.append(
@@ -581,7 +610,7 @@ def detect_anomalies(
                     price,
                     percentile_condition,
                     "medium",
-                    "ATR 百分位进入上下 2% 极端区间",
+                    "ATR 百分位进入配置的极端区间",
                 )
             )
     return tuple(result)

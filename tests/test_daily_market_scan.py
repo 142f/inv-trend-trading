@@ -14,6 +14,7 @@ from inv_trend.data.models import InstrumentConfig, ProviderResult
 from inv_trend.adapters.detector.alerts.daily_notifier import LogNotifier
 from inv_trend.cli.daily import main as daily_main
 from inv_trend.core.signals import SignalEvent
+from inv_trend.core.decision_events import ExecutionDecisionEvent
 from inv_trend.application import DailyMarketScanService
 from inv_trend.application.strategy_config import DailyChecksConfig, TrendDecisionConfig
 from inv_trend.application.daily.workflow import DailyWorkflow
@@ -95,7 +96,7 @@ def test_bootstrap_is_idempotent_in_sqlite_and_log(tmp_path: Path) -> None:
     first = scanner.run(bootstrap_days=80)
     assert first.exit_code == 0
     assert first.snapshot["schema_version"] == "4"
-    assert first.snapshot["report_schema_version"] == "4"
+    assert first.snapshot["report_schema_version"] == "5"
     assert first.snapshot["configuration"]["daily_checks"]["sma_periods"] == (5, 10, 20, 55, 120)
     assert "strategy_checks" in first.snapshot["symbols"][0]["scan"]
     assert first.snapshot["summary"]["signals_new"] >= 4
@@ -143,7 +144,7 @@ def test_run_artifacts_are_authoritative_and_keep_flat_compatibility(tmp_path: P
 
     complete_path = canonical / "complete_analysis_result.json"
     complete = json.loads(complete_path.read_text(encoding="utf-8"))
-    assert set(("metadata", "data_update", "strategy_screening", "trend_decision", "signals", "anomalies", "turtle_observations", "anomaly_episodes", "state_transitions", "report_bundle", "hashes")) <= set(complete)
+    assert set(("metadata", "data_update", "strategy_screening", "trend_decision", "signals", "anomalies", "turtle_observations", "anomaly_episodes", "indicator_analyses", "indicator_signal_episodes", "decision_evidence_chain", "state_transitions", "report_bundle", "hashes")) <= set(complete)
     assert complete["hashes"]["hash_chain_valid"] is True
     assert complete["trend_decision"]["input_screening_hash"] == complete["strategy_screening"]["result_hash"]
     assert complete["strategy_screening"]["input_data_hash"] == complete["data_update"]["result_hash"]
@@ -998,14 +999,28 @@ def test_delivery_retry_only_consumes_outbox_and_keeps_publication_immutable(
         dataset_version="test-v1",
         indicator_name="strategy_grade",
     )
+    entry = ExecutionDecisionEvent.create(
+        instrument_id=grade_a.instrument_id,
+        symbol=grade_a.symbol,
+        timeframe=grade_a.timeframe,
+        as_of=grade_a.signal_time,
+        action="ENTER_LONG",
+        decision_hash="delivery-retry-decision",
+        strategy_version="corrected-v2",
+        dataset_version="test-v1",
+        detected_at="2024-04-19T12:00:00+00:00",
+        trigger_price=111.0,
+        reference_value=110.0,
+        trigger_signal_ids=(grade_a.signal_id,),
+    ).to_signal_event()
     repository.commit_events_and_cursor(
-        [grade_a],
+        [grade_a, entry],
         run_id=run_id,
         instrument_id=grade_a.instrument_id,
         timeframe="D1",
         strategy_version="corrected-v2",
         last_signal_time=grade_a.signal_time,
-        notification_signal_ids={grade_a.signal_id},
+        notification_signal_ids={entry.signal_id},
     )
     assert repository.pending_notifications(run_id)
     publication = workflow.publish(run_id=run_id, report_date=report_date, render_html=False)

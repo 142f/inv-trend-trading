@@ -13,7 +13,7 @@ from inv_trend.observability.daily import render_complete_analysis
 def _snapshot() -> dict[str, object]:
     return {
         "schema_version": "4",
-        "report_schema_version": "4",
+        "report_schema_version": "5",
         "report_date": "2026-08-20",
         "run_id": "artifact-retry-1",
         "configuration": {},
@@ -162,10 +162,10 @@ def test_publication_adds_self_identifying_names_and_navigation_indexes(
     named_report = symbol_root / result_index["result_types"]["report"]
     named_complete = symbol_root / result_index["result_types"]["complete_analysis"]
     assert named_report.name == (
-        "BTC_D1_2026-08-20_artifact-retry-1_趋势分析报告_v4.html"
+            "BTC_D1_2026-08-20_artifact-retry-1_趋势分析报告_v5.html"
     )
     assert named_complete.name == (
-        "BTC_D1_2026-08-20_artifact-retry-1_完整分析_v4.json"
+            "BTC_D1_2026-08-20_artifact-retry-1_完整分析_v5.json"
     )
     assert named_report.read_bytes() == (
         symbol_root / "02_report" / "trend_analysis_report.html"
@@ -173,10 +173,17 @@ def test_publication_adds_self_identifying_names_and_navigation_indexes(
     assert named_complete.read_bytes() == (
         symbol_root / "01_canonical" / "complete_analysis_result.json"
     ).read_bytes()
+    for key, filename in {
+        "indicator_analyses": "指标当前状态_v5.csv",
+        "indicator_signal_episodes": "指标信号生命周期_v5.csv",
+        "decision_evidence_chain": "最终决策证据链_v5.csv",
+    }.items():
+        assert (symbol_root / "03_exports" / filename).is_file()
+        assert (symbol_root / result_index["result_types"][key]).is_file()
 
     summary_reports = list(
         (tmp_path / "artifacts" / "汇总结果" / "2026-08-20" / "artifact-retry-1").glob(
-            "*_汇总报告_v4.html"
+            "*_汇总报告_v5.html"
         )
     )
     assert len(summary_reports) == 1

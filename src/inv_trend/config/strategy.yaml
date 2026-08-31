@@ -75,6 +75,11 @@ daily_screening:
   volume:
     lookback: 20
     confirmation_ratio: 1.5
+  anomaly:
+    gap_atr_multiplier: 2.0
+    range_atr_multiplier: 3.0
+    atr_percentile_low: 0.02
+    atr_percentile_high: 0.98
   rating:
     a_min_score: 6.0
     b_min_score: 4.0

@@ -80,6 +80,65 @@ def _bundle() -> InstrumentReportBundle:
                 lower_excess_pct=0.0,
             ),
         ),
+        indicator_analyses=(
+            {
+                "indicator_id": "ema_trend",
+                "indicator_name": "EMA144/169 长周期趋势",
+                "timeframe": "D1",
+                "role": "directional",
+                "availability": "ready",
+                "direction": "long",
+                "lifecycle_state": "continuing",
+                "active": True,
+                "decision_weight": 1.0,
+                "strength": 62.0,
+                "strength_meaning": "均线间距经 ATR 归一化",
+                "strength_delta": 3.0,
+                "strength_trend": "strengthening",
+                "first_trigger_timestamp": "2026-08-20T00:00:00+00:00",
+                "duration_periods": 3,
+                "duration_d1_bars": 3,
+                "elapsed_days": 3,
+                "invalidation_conditions": ["快慢线相等或反向"],
+                "explanation": "当前支持做多。",
+            },
+        ),
+        indicator_signal_episodes=(
+            {
+                "episode_id": "episode-1",
+                "indicator_id": "ema_trend",
+                "indicator_name": "EMA144/169 长周期趋势",
+                "timeframe": "D1",
+                "direction": "long",
+                "start_timestamp": "2026-08-20T00:00:00+00:00",
+                "end_timestamp": "2026-08-20T00:00:00+00:00",
+                "status": "active",
+                "lifecycle_state": "continuing",
+                "duration_periods": 3,
+                "duration_d1_bars": 3,
+                "current_strength": 62.0,
+                "peak_strength": 70.0,
+                "average_strength": 58.0,
+            },
+        ),
+        decision_evidence_chain=(
+            {
+                "indicator_id": "ema_trend",
+                "indicator_name": "EMA144/169 长周期趋势",
+                "timeframe": "D1",
+                "role": "directional",
+                "direction": "long",
+                "active": True,
+                "strength": 62.0,
+                "weight": 1.0,
+                "contribution": 0.62,
+                "contribution_type": "long_support",
+                "first_trigger_timestamp": "2026-08-20T00:00:00+00:00",
+                "duration_periods": 3,
+                "duration_d1_bars": 3,
+                "explanation": "EMA 提供多头支持。",
+            },
+        ),
         summary={"signals": 1, "rules": 0, "anomalies": 0},
     )
 
@@ -98,9 +157,14 @@ def test_renderer_is_chinese_and_uses_structured_breakout_data() -> None:
         "市场状态",
         "趋势判断",
         "正式收盘确认突破",
+        "最终决策证据链",
+        "指标多空证据矩阵",
         "盘中越轨观察",
         "可视窗口",
         "显示全部盘中观察",
+        "MACD 动量与柱体",
+        "ATR 波动分位",
+        "价格异常强度",
         "入场方向",
         "触发依据",
         "未满足条件",
@@ -111,6 +175,8 @@ def test_renderer_is_chinese_and_uses_structured_breakout_data() -> None:
     assert "Strategy checks" not in html
     assert '<script src="http' not in html
     assert bundle.result_hash in html
+    assert "function focusIndicator" in html
+    assert "function drawLifecycleBands" in html
 
 
 def test_v3_bundle_without_additive_report_fields_remains_renderable() -> None:
@@ -234,6 +300,20 @@ def test_price_chart_is_candlestick_first_and_limits_observation_noise() -> None
     assert "showAllObservations||item.observation_id===activeObservationId" in _JS
     assert "if(active){" in _JS
     assert "data-series" in _JS
+
+
+def test_indicator_charts_use_bundle_values_and_bundle_thresholds() -> None:
+    assert "keys:['histogram','dif','dea']" in _JS
+    assert "barKeys:['histogram']" in _JS
+    assert "id:'atrChart'" in _JS
+    assert "id:'volumeChart'" in _JS
+    assert "id:'anomalyChart'" in _JS
+    assert "keys:['gap_atr_ratio','range_atr_ratio']" in _JS
+    assert "strategy_snapshot?.parameters" in _JS
+    assert "parameters.dmi?.adx_threshold" in _JS
+    assert "parameters.volume?.confirmation_ratio" in _JS
+    assert "gap_abs/" not in _JS
+    assert "range_abs/" not in _JS
 
 
 def test_turtle_rules_explain_close_confirmation_without_recalculation() -> None:

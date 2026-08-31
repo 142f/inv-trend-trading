@@ -187,7 +187,7 @@ class DailyMarketScanService:
         self.signal_repository.finish_run(run_id, finished_at.isoformat(), summary)
         report_date = started_at.astimezone(BEIJING).date().isoformat()
         snapshot = {
-            "schema_version": "4", "report_schema_version": "4",
+            "schema_version": "4", "report_schema_version": "5",
             "run_id": run_id, "report_date": report_date,
             "started_at": started_at.isoformat(), "finished_at": finished_at.isoformat(),
             "timezone": "Asia/Shanghai", "timeframe": "D1",
@@ -389,6 +389,9 @@ class DailyMarketScanService:
                 strategy_screening_result=screening.to_dict(),
                 trend_decision_result=decision.to_dict(),
                 event_decisions=event_decision_payloads,
+                indicator_analyses=screening.indicator_analyses,
+                indicator_signal_episodes=screening.indicator_signal_episodes,
+                decision_evidence_chain=decision.evidence_chain,
                 chart_bars=chart_bars,
             )
             report_payload = {

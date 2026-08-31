@@ -76,7 +76,7 @@ class DataUpdateResult:
         return self.data_readiness == "READY" and not self.blocking_reasons
 
     def _business_payload(self) -> dict[str, Any]:
-        return {
+        payload = {
             "stage": "data_update",
             "schema_version": self.schema_version,
             "symbol": self.symbol,
@@ -93,6 +93,7 @@ class DataUpdateResult:
             "blocking_reasons": self.blocking_reasons,
             "observation_only": self.observation_only,
         }
+        return payload
 
     @property
     def result_hash(self) -> str:
@@ -127,6 +128,8 @@ class StrategyScreeningResult:
     turtle_breakouts: tuple[Mapping[str, Any], ...] = ()
     eligibility: Mapping[str, Any] = field(default_factory=dict)
     event_snapshots: tuple[Mapping[str, Any], ...] = ()
+    indicator_analyses: tuple[Mapping[str, Any], ...] = ()
+    indicator_signal_episodes: tuple[Mapping[str, Any], ...] = ()
     # The complete replay/report projection consumed by commit.  It is JSON
     # only (never a DataFrame) and lives in the signed stage result so commit
     # does not depend on a mutable audit-sidecar file.
@@ -135,16 +138,24 @@ class StrategyScreeningResult:
     screening_status: str = "NOT_RUN"
     reason: str | None = None
     observation_only: bool = False
-    schema_version: str = "1"
+    schema_version: str = "2"
 
     def __post_init__(self) -> None:
         for name in ("strategy_checks", "eligibility", "commit_evidence"):
             object.__setattr__(self, name, _freeze(getattr(self, name)))
-        for name in ("conditions", "rules", "raw_events", "turtle_breakouts", "event_snapshots"):
+        for name in (
+            "conditions",
+            "rules",
+            "raw_events",
+            "turtle_breakouts",
+            "event_snapshots",
+            "indicator_analyses",
+            "indicator_signal_episodes",
+        ):
             object.__setattr__(self, name, tuple(_freeze(item) for item in getattr(self, name)))
 
     def _business_payload(self) -> dict[str, Any]:
-        return {
+        payload = {
             "stage": "strategy_screening",
             "schema_version": self.schema_version,
             "symbol": self.symbol,
@@ -170,6 +181,10 @@ class StrategyScreeningResult:
             "reason": self.reason,
             "observation_only": self.observation_only,
         }
+        if self.schema_version != "1":
+            payload["indicator_analyses"] = self.indicator_analyses
+            payload["indicator_signal_episodes"] = self.indicator_signal_episodes
+        return payload
 
     @property
     def result_hash(self) -> str:
@@ -202,6 +217,8 @@ class TrendDecisionResult:
     reason_code: str = ""
     eligibility_status: str = "UNKNOWN"
     confidence: Mapping[str, Any] = field(default_factory=dict)
+    evidence_chain: tuple[Mapping[str, Any], ...] = ()
+    evidence_summary: Mapping[str, Any] = field(default_factory=dict)
     long_evidence: tuple[str, ...] = ()
     short_evidence: tuple[str, ...] = ()
     reverse_evidence: tuple[str, ...] = ()
@@ -216,12 +233,13 @@ class TrendDecisionResult:
     commit_projection_hash: str | None = None
     conclusion: str = ""
     observation_only: bool = False
-    schema_version: str = "2"
+    schema_version: str = "3"
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "reason_code", str(self.reason_code))
         object.__setattr__(self, "eligibility_status", str(self.eligibility_status))
         object.__setattr__(self, "confidence", _freeze(self.confidence))
+        object.__setattr__(self, "evidence_summary", _freeze(self.evidence_summary))
         object.__setattr__(self, "commit_projection", _freeze(self.commit_projection))
         for name in ("long_evidence", "short_evidence", "reverse_evidence", "risk_blocks"):
             object.__setattr__(self, name, tuple(map(str, getattr(self, name))))
@@ -229,6 +247,11 @@ class TrendDecisionResult:
             self,
             "event_decisions",
             tuple(_freeze(item) for item in self.event_decisions),
+        )
+        object.__setattr__(
+            self,
+            "evidence_chain",
+            tuple(_freeze(item) for item in self.evidence_chain),
         )
 
     def _business_payload(self) -> dict[str, Any]:
@@ -259,6 +282,9 @@ class TrendDecisionResult:
         if self.schema_version != "1":
             payload["reason_code"] = self.reason_code
             payload["eligibility_status"] = self.eligibility_status
+        if self.schema_version not in {"1", "2"}:
+            payload["evidence_chain"] = self.evidence_chain
+            payload["evidence_summary"] = self.evidence_summary
         return payload
 
     @property
@@ -444,11 +470,14 @@ class InstrumentReportBundle:
     event_decisions: tuple[Mapping[str, Any], ...] = ()
     anomalies: tuple[AnomalyEvent, ...] = ()
     anomaly_episodes: tuple[AnomalyEpisode, ...] = ()
+    indicator_analyses: tuple[Mapping[str, Any], ...] = ()
+    indicator_signal_episodes: tuple[Mapping[str, Any], ...] = ()
+    decision_evidence_chain: tuple[Mapping[str, Any], ...] = ()
     state_transitions: tuple[StateTransition, ...] = ()
     summary: Mapping[str, Any] = field(default_factory=dict)
     strategy_snapshot: Mapping[str, Any] = field(default_factory=dict)
     change_log: tuple[Mapping[str, Any], ...] = ()
-    schema_version: str = "4"
+    schema_version: str = "5"
 
     def _payload_without_identity(self) -> dict[str, Any]:
         return {
@@ -471,6 +500,13 @@ class InstrumentReportBundle:
             "event_decisions": [_thaw(item) for item in self.event_decisions],
             "anomalies": [item.to_dict() for item in self.anomalies],
             "anomaly_episodes": [item.to_dict() for item in self.anomaly_episodes],
+            "indicator_analyses": [_thaw(item) for item in self.indicator_analyses],
+            "indicator_signal_episodes": [
+                _thaw(item) for item in self.indicator_signal_episodes
+            ],
+            "decision_evidence_chain": [
+                _thaw(item) for item in self.decision_evidence_chain
+            ],
             "state_transitions": [item.to_dict() for item in self.state_transitions],
             "summary": dict(self.summary),
             "strategy_snapshot": dict(self.strategy_snapshot),
@@ -493,6 +529,12 @@ class InstrumentReportBundle:
 
 
 DEFAULT_CHANGE_LOG: tuple[Mapping[str, str], ...] = (
+    {
+        "module": "core/math_utils.py + core/strategy/daily/analysis.py",
+        "change": "统一 ATR 中位秩百分位，并用前一完整 K 线 ATR 归一化跳空与振幅异常",
+        "reason": "最大名次会把相等值窗口误判为 100%；当前 K 线 ATR 会吸收本次异常并稀释倍数。",
+        "effect": "平稳窗口稳定在 50%；异常证据、阶段摘要和图表统一使用可比较的 ATR 倍数。",
+    },
     {
         "module": "application/daily_analysis.py + observability/report_renderer.py",
         "change": "区分海龟正式收盘突破与盘中越轨观察，并聚合异常阶段",
