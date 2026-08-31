@@ -33,6 +33,11 @@ daily_checks:
   volume:
     lookback: 20
     confirmation_ratio: 1.5
+  anomaly:
+    gap_atr_multiplier: 2.0
+    range_atr_multiplier: 3.0
+    atr_percentile_low: 0.02
+    atr_percentile_high: 0.98
   rating:
     a_min_score: 6.0
     b_min_score: 4.0
@@ -40,4 +45,5 @@ daily_checks:
     b_min_families: 2
 trend_decision:
   execution_grade: A
+  # false 或未注入执行上下文时仅输出 ENTRY_CANDIDATE，不生成正式入场通知。
   eligibility_gate_enabled: false

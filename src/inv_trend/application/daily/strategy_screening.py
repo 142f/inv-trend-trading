@@ -13,6 +13,7 @@ import pandas as pd
 from inv_trend.core.strategy.daily import (
     PreparedDailyAnalysis,
     analyze_prepared_daily_analysis,
+    build_indicator_lifecycles,
     prepare_daily_analysis,
 )
 
@@ -93,6 +94,7 @@ class StrategyScreeningService:
             stage_bars, self.daily_checks_config, session_anchor=anchor
         )
         latest = analyze_prepared_daily_analysis(prepared)
+        lifecycle = build_indicator_lifecycles(prepared)
         positions = (
             tuple(replay_positions)
             if replay_positions is not None
@@ -145,8 +147,13 @@ class StrategyScreeningService:
             turtle_breakouts=latest_candidates,
             eligibility=latest_eligibility,
             event_snapshots=tuple(event_snapshots),
+            indicator_analyses=tuple(item.to_dict() for item in lifecycle.analyses),
+            indicator_signal_episodes=tuple(
+                item.to_dict() for item in lifecycle.episodes
+            ),
             screening_status="OBSERVATION_ONLY" if data_result.observation_only else "READY",
             observation_only=data_result.observation_only,
+            schema_version="2",
         )
         return StrategyScreeningStage(result, prepared, latest, replay_analyses)
 
@@ -257,6 +264,8 @@ class StrategyScreeningEvidenceBuilder:
             generated_at=data_result.latest_complete_d1 or "",
             analysis=stage.analysis,
             signals=(),
+            indicator_analyses=stage.result.indicator_analyses,
+            indicator_signal_episodes=stage.result.indicator_signal_episodes,
             chart_bars=chart_bars,
         )
         return json_safe(

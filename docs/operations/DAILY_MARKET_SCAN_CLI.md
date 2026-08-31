@@ -153,12 +153,17 @@ JSON/HTML/CSV；`deliver` 只投递或重试已有 outbox。重复执行 `commit
 
 ```text
 <output-dir>/
-├─ runs/YYYY-MM-DD/<run_id>/<symbol>/
-│  ├─ 01_canonical/                 # 三阶段 JSON + complete_analysis_result.json
-│  ├─ 02_report/trend_analysis_report.html
-│  ├─ 03_exports/                   # conditions/signals/anomalies/state transitions CSV
-│  └─ 04_audit/                     # manifest、配置、血缘与 artifact SHA-256
-├─ latest/<symbol>/                 # 最近一次成功发布的完整 JSON / HTML 快捷入口
+├─ 输出索引.json                       # 当前批次与各类快捷入口
+├─ runs/YYYY-MM-DD/<run_id>/
+│  ├─ 批次索引.json
+│  └─ <symbol>/
+│     ├─ 结果索引.json
+│     ├─ 01_canonical/              # 三阶段 JSON + complete analysis JSON
+│     ├─ 02_report/                 # HTML；图表资源内嵌，不依赖外部文件
+│     ├─ 03_exports/                # 条件、信号、海龟观察、异常/异常阶段、状态变更 CSV
+│     └─ 04_audit/                  # manifest、配置、血缘与 artifact SHA-256
+├─ 汇总结果/YYYY-MM-DD/<run_id>/    # 带批次、周期和版本的汇总 JSON / HTML
+├─ latest/<symbol>/                 # 最近一次成功发布的完整 JSON / HTML / 结果索引
 ├─ state/signals.sqlite3            # 信号、cursor、DailyRun、outbox
 └─ YYYY-MM-DD.{json,html}           # 旧路径兼容副本
 ```
@@ -167,6 +172,11 @@ JSON/HTML/CSV；`deliver` 只投递或重试已有 outbox。重复执行 `commit
   `run_id`，不会覆盖已发布运行。
 - `complete_analysis_result.json` 是业务基准。HTML 与 CSV 只从它派生，不重新计算
   指标或交易决策。
+- 每个类型目录另有
+  `<标的>_<周期>_<日期>_<run_id>_<结果类型>_v<报告版本>.<扩展名>` 描述性入口；
+  固定英文文件名继续作为程序集成兼容契约。
+- 查找制品时先读根目录 `输出索引.json`，再读 `批次索引.json` 和标的下的
+  `结果索引.json`，无需遍历整个输出目录。
 - `latest/<symbol>/` 只指向最近一次成功发布的完整 JSON 与 HTML，不承担归档职责。
 - `YYYY-MM-DD.json` 与 `YYYY-MM-DD.html` 是给旧脚本的平铺兼容副本；同日重跑可覆盖，
   不能替代 `runs/` 中的权威制品。

@@ -10,6 +10,11 @@ from .analysis import (
     prepare_daily_analysis,
     state_transitions,
 )
+from .lifecycle import (
+    IndicatorLifecycleProjection,
+    STRENGTH_CHANGE_EPSILON,
+    build_indicator_lifecycles,
+)
 from .signals import build_daily_signal_events
 
 __all__ = [
@@ -19,5 +24,8 @@ __all__ = [
     "build_rule_evaluations",
     "detect_anomalies",
     "prepare_daily_analysis",
+    "IndicatorLifecycleProjection",
+    "STRENGTH_CHANGE_EPSILON",
+    "build_indicator_lifecycles",
     "state_transitions",
 ]

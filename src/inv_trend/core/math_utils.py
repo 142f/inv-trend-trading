@@ -192,12 +192,33 @@ def wilder_atr(
     return result
 
 
-def rolling_percentile(values: pd.Series, lookback: int) -> pd.Series:
-    """Causal percentile rank of each value within its trailing window."""
+def rolling_percentile(
+    values: pd.Series,
+    lookback: int,
+    *,
+    min_periods: int | None = None,
+) -> pd.Series:
+    """Causal trailing percentile using an empirical mid-rank.
+
+    The current observation is included because the indicator is evaluated at
+    the completed-bar boundary.  Exact ties receive half of their probability
+    mass, so a constant window ranks at 50% instead of being misclassified as
+    the 100th percentile.  Callers choose the explicit warm-up length.
+    """
     _numeric_series(values, "values")
     if lookback < 2:
         raise ValueError("lookback must be >= 2")
-    minimum = min(lookback, max(2, lookback // 4))
-    return values.rolling(lookback, min_periods=minimum).apply(
-        lambda window: float((window <= window.iloc[-1]).mean()), raw=False
-    )
+    minimum = min(lookback, max(2, lookback // 4)) if min_periods is None else min_periods
+    if not 2 <= minimum <= lookback:
+        raise ValueError("min_periods must be between 2 and lookback")
+
+    def midrank(window: pd.Series) -> float:
+        clean = window.dropna()
+        if clean.empty or pd.isna(window.iloc[-1]):
+            return np.nan
+        current = float(window.iloc[-1])
+        less = int((clean < current).sum())
+        equal = int((clean == current).sum())
+        return float((less + 0.5 * equal) / len(clean))
+
+    return values.rolling(lookback, min_periods=minimum).apply(midrank, raw=False)

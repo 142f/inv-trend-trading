@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import warnings
 
 import pandas as pd
 
@@ -18,7 +19,7 @@ from .metrics import compute_metrics
 
 
 @dataclass(frozen=True)
-class DetectorBacktestResult:
+class SignalValidationResult:
     symbol: str
     timeframe: str
     signals: pd.DataFrame
@@ -27,7 +28,7 @@ class DetectorBacktestResult:
     metrics: dict[str, float]
 
 
-class DetectorBacktester:
+class ChronologicalSignalValidator:
     """Validates transitions in time order; it never randomly splits observations."""
 
     def __init__(
@@ -47,7 +48,7 @@ class DetectorBacktester:
         bars: pd.DataFrame,
         asset: AssetConfig,
         timeframe: str,
-    ) -> DetectorBacktestResult:
+    ) -> SignalValidationResult:
         scanner = TurtleScanner(self.config)
         prepared = scanner.prepare(bars, asset, timeframe)
         state = DetectorState(asset.symbol, timeframe.upper())
@@ -141,7 +142,7 @@ class DetectorBacktester:
             if not signal_frame.empty
             else 0
         )
-        return DetectorBacktestResult(
+        return SignalValidationResult(
             symbol=asset.symbol,
             timeframe=timeframe.upper(),
             signals=signal_frame,
@@ -154,3 +155,19 @@ class DetectorBacktester:
                 false_count,
             ),
         )
+
+
+DetectorBacktestResult = SignalValidationResult
+
+
+class DetectorBacktester(ChronologicalSignalValidator):
+    """Deprecated compatibility name for the chronological signal validator."""
+
+    def __init__(self, *args: object, **kwargs: object) -> None:
+        warnings.warn(
+            "DetectorBacktester is a signal validator; use "
+            "ChronologicalSignalValidator",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        super().__init__(*args, **kwargs)
