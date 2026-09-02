@@ -83,6 +83,7 @@ class BacktestPlan:
     initial_equity: float = 100_000.0
     cash_model: str = "derivative"
     liquidate_at_end: bool = True
+    window_boundary_policy: str = "mark_to_market"
     max_combinations: int = 1_000
     validation: ValidationPolicy = field(default_factory=ValidationPolicy)
     ranking: RankingPolicy = field(default_factory=RankingPolicy)
@@ -97,6 +98,8 @@ class BacktestPlan:
             raise ValueError("initial_equity must be positive")
         if self.cash_model not in {"cash", "derivative"}:
             raise ValueError("cash_model must be 'cash' or 'derivative'")
+        if self.window_boundary_policy != "mark_to_market":
+            raise ValueError("window_boundary_policy must be 'mark_to_market'")
         if self.max_combinations < 1:
             raise ValueError("max_combinations must be positive")
         if self.schema_version != SCHEMA_VERSION:
@@ -115,7 +118,8 @@ class BacktestPlan:
         allowed = {
             "schema_version", "symbols", "parameter_space", "constraints",
             "initial_equity", "cash_model", "liquidate_at_end", "max_combinations",
-            "validation", "ranking", "strategy_config_path", "strategy_id",
+            "window_boundary_policy", "validation", "ranking",
+            "strategy_config_path", "strategy_id",
         }
         unknown = set(raw) - allowed
         if unknown:
@@ -141,6 +145,9 @@ class BacktestPlan:
             initial_equity=float(raw.get("initial_equity", 100_000.0)),
             cash_model=str(raw.get("cash_model", "derivative")),
             liquidate_at_end=bool(raw.get("liquidate_at_end", True)),
+            window_boundary_policy=str(
+                raw.get("window_boundary_policy", "mark_to_market")
+            ),
             max_combinations=int(raw.get("max_combinations", 1_000)),
             validation=ValidationPolicy(**dict(validation_raw)),
             ranking=RankingPolicy(**dict(ranking_raw)),

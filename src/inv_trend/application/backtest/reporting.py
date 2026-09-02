@@ -123,6 +123,9 @@ def build_report_model(
         "initial_equity": plan.get("initial_equity"),
         "cash_model": plan.get("cash_model"),
         "liquidate_at_end": plan.get("liquidate_at_end"),
+        "window_boundary_policy": plan.get(
+            "window_boundary_policy", "mark_to_market"
+        ),
         "parameter_space": plan.get("parameter_space", {}),
         "constraints": plan.get("constraints", []),
         "validation": plan.get("validation", {}),

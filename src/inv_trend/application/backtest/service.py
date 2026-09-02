@@ -79,6 +79,8 @@ class BacktestBatchService:
             "ranking": plan.ranking,
             "fill_model": "signal close; next available bar open",
             "cost_model": "fixed AssetSpec cost_bps + slippage_bps",
+            "slippage_model": "cash_cost_equivalent",
+            "window_boundary_policy": plan.window_boundary_policy,
         }
         conclusion = _batch_conclusion(ranked, validation_status, best_id, stable_ids)
         return BacktestBatchResult(
@@ -129,23 +131,19 @@ class BacktestBatchService:
             ).run()
 
         full = execute()
-        metrics, unavailable = performance_metrics(full.equity_curve, full.trades, full.orders)
+        metrics, unavailable = _result_metrics(full)
         fold_results: list[FoldResult] = []
         for window in windows:
             train = execute(window.train_start, window.train_end)
             validation = execute(window.validation_start, window.validation_end)
-            train_metrics, _ = performance_metrics(train.equity_curve, train.trades, train.orders)
-            validation_metrics, _ = performance_metrics(
-                validation.equity_curve, validation.trades, validation.orders
-            )
+            train_metrics, _ = _result_metrics(train)
+            validation_metrics, _ = _result_metrics(validation)
             fold_results.append(FoldResult(window, train_metrics, validation_metrics))
         validation_metrics = _aggregate_fold_metrics(fold_results, "validation_metrics")
         holdout_metrics: Mapping[str, Any] = {}
         if holdout is not None:
             holdout_result = execute(*holdout)
-            holdout_metrics, _ = performance_metrics(
-                holdout_result.equity_curve, holdout_result.trades, holdout_result.orders
-            )
+            holdout_metrics, _ = _result_metrics(holdout_result)
         trades = _records(full.trades)
         orders = _records(full.orders)
         return BacktestCombinationResult(
@@ -170,6 +168,17 @@ class BacktestBatchService:
         )
 
 
+def _result_metrics(result: Any) -> tuple[dict[str, Any], dict[str, str]]:
+    return performance_metrics(
+        result.equity_curve,
+        result.trades,
+        result.orders,
+        open_position_count=int(getattr(result, "open_position_count", 0)),
+        unrealized_pnl=float(getattr(result, "unrealized_pnl", 0.0)),
+        pending_intent_count=int(getattr(result, "pending_intent_count", 0)),
+    )
+
+
 def _aggregate_fold_metrics(
     folds: list[FoldResult], attribute: str
 ) -> dict[str, Any]:
@@ -181,6 +190,18 @@ def _aggregate_fold_metrics(
     aggregate: dict[str, Any] = {
         "fold_count": len(folds),
         "trade_count": int(sum(int(row.get("trade_count") or 0) for row in rows)),
+        "closed_trade_count": int(
+            sum(int(row.get("closed_trade_count") or 0) for row in rows)
+        ),
+        "open_position_count": int(
+            sum(int(row.get("open_position_count") or 0) for row in rows)
+        ),
+        "unrealized_pnl": float(
+            sum(float(row.get("unrealized_pnl") or 0.0) for row in rows)
+        ),
+        "pending_intent_count": int(
+            sum(int(row.get("pending_intent_count") or 0) for row in rows)
+        ),
         "total_return": (
             float(np.prod([1 + value for value in valid_returns]) - 1)
             if valid_returns else None
@@ -226,7 +247,7 @@ def _rank_results(
     for result in results:
         values = result.validation_metrics
         drawdown = _number(values.get("max_drawdown"))
-        trades = int(values.get("trade_count") or 0)
+        trades = int(values.get("closed_trade_count") or 0)
         if (
             result.status == "COMPLETED"
             and not bool(result.metrics.get("bankrupt"))

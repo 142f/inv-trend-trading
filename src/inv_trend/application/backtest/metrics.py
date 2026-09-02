@@ -8,11 +8,17 @@ from typing import Any, Iterable
 import numpy as np
 import pandas as pd
 
+from inv_trend.core.performance import equity_metric_kernel
+
 
 def performance_metrics(
     equity: pd.Series,
     trades: pd.DataFrame,
     orders: pd.DataFrame | None = None,
+    *,
+    open_position_count: int = 0,
+    unrealized_pnl: float = 0.0,
+    pending_intent_count: int = 0,
 ) -> tuple[dict[str, Any], dict[str, str]]:
     unavailable: dict[str, str] = {}
     if equity.empty:
@@ -22,20 +28,14 @@ def performance_metrics(
     if start <= 0:
         raise ValueError("equity must start above zero")
     returns = curve.pct_change().replace([np.inf, -np.inf], np.nan).dropna()
-    years = max((curve.index[-1] - curve.index[0]).days / 365.25, 1 / 365.25)
-    periods_per_year = len(returns) / years if years > 0 else 0.0
-    total_return = end / start - 1.0
-    cagr = -1.0 if end <= 0 else (end / start) ** (1.0 / years) - 1.0
-    volatility = _finite_or_none(
-        returns.std(ddof=0) * math.sqrt(periods_per_year) if periods_per_year else None
-    )
-    sharpe = _ratio(
-        returns.mean() * periods_per_year if periods_per_year else None,
-        volatility,
-        "sharpe_ratio",
-        unavailable,
-        "收益波动率为零",
-    )
+    shared = equity_metric_kernel(curve)
+    periods_per_year = float(shared["periods_per_year"])
+    total_return = float(shared["total_return"])
+    cagr = float(shared["annualized_return"])
+    volatility = _finite_or_none(shared["volatility"])
+    sharpe = _finite_or_none(shared["sharpe_ratio"])
+    if sharpe is None:
+        unavailable["sharpe_ratio"] = "收益波动率为零"
     downside = returns[returns < 0]
     downside_deviation = (
         float(np.sqrt(np.mean(np.square(downside))) * math.sqrt(periods_per_year))
@@ -49,7 +49,7 @@ def performance_metrics(
         "没有可用的下行波动",
     )
     drawdown = curve / curve.cummax() - 1.0
-    max_drawdown = float(drawdown.min()) if len(drawdown) else 0.0
+    max_drawdown = float(shared["max_drawdown"])
     mar = _ratio(
         cagr, abs(max_drawdown), "mar_ratio", unavailable, "最大回撤为零"
     )
@@ -110,7 +110,11 @@ def performance_metrics(
         "max_drawdown_recovery_bars": dd_recovery, "volatility": volatility,
         "sharpe_ratio": sharpe, "sortino_ratio": sortino, "mar_ratio": mar,
         "periods_per_year": float(periods_per_year), "ending_equity": end,
-        "trade_count": trade_count, "win_rate": win_rate,
+        "trade_count": trade_count, "closed_trade_count": trade_count,
+        "open_position_count": int(open_position_count),
+        "unrealized_pnl": float(unrealized_pnl),
+        "pending_intent_count": int(pending_intent_count),
+        "win_rate": win_rate,
         "average_win": average_win, "average_loss": average_loss,
         "payoff_ratio": payoff, "profit_factor": profit_factor,
         "expectancy": expectancy, "average_holding_bars": average_holding,

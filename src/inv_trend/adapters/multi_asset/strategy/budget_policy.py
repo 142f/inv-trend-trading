@@ -65,7 +65,11 @@ class PortfolioBudgetPolicy:
         # deliberately never used: that was the source of prior scaling errors.
         quantity = min(requested_qty, risk_capacity / risk_per_qty, leverage_capacity / notional_per_qty)
         quantity = math.floor(quantity / spec.qty_step) * spec.qty_step
-        if quantity < spec.min_qty or quantity * price * spec.point_value < spec.min_notional:
+        if (
+            quantity <= 0
+            or quantity < spec.min_qty
+            or quantity * price * spec.point_value < spec.min_notional
+        ):
             return BudgetDecision(False, 0.0, "minimum_size_not_met")
         return BudgetDecision(True, quantity, "scaled" if quantity < requested_qty else "approved")
 
