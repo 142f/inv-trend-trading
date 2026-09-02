@@ -6,6 +6,7 @@ symbols: [BTC, ETH]
 initial_equity: 100000.0
 cash_model: derivative
 liquidate_at_end: true
+window_boundary_policy: mark_to_market
 max_combinations: 1000
 
 parameter_space:

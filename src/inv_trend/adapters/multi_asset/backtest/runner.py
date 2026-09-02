@@ -37,6 +37,9 @@ class BacktestResult:
     trade_details: pd.DataFrame
     orders: pd.DataFrame
     metrics: dict[str, float]
+    open_position_count: int = 0
+    unrealized_pnl: float = 0.0
+    pending_intent_count: int = 0
 
 
 def _resolve_rules(
@@ -165,6 +168,11 @@ class TurtleBacktester:
                 )
             equity = self._mark_equity(date, cash, state)
             equity_points.append((date, equity))
+            # A signal created on the final evaluation bar has no eligible
+            # future open inside this run.  Do not leave invisible reservations
+            # behind; terminal equity already contains the complete close.
+            if date == dates[-1]:
+                continue
             dated_generator = getattr(self.strategy, "generate_orders_for_date", None)
             if callable(dated_generator):
                 new_orders = dated_generator(
@@ -216,6 +224,9 @@ class TurtleBacktester:
             trade_details=trade_details,
             orders=orders,
             metrics=compute_backtest_metrics(equity_curve, trades),
+            open_position_count=len(state.positions),
+            unrealized_pnl=self._terminal_unrealized_pnl(dates[-1], state),
+            pending_intent_count=len(reservations.intents),
         )
     def _execute_pending_intents(
         self,
@@ -230,12 +241,7 @@ class TurtleBacktester:
         trade_detail_rows: list[dict],
     ) -> float:
         """Fill at this bar's open, using no current-bar close for risk checks."""
-        prices_at_open = {
-            symbol: float(row["open"])
-            for symbol in self.specs
-            if (row := self.market_data.row_at_date(symbol, date)) is not None
-            and np.isfinite(float(row["open"])) and float(row["open"]) > 0
-        }
+        prices_at_open = self._causal_prices_at_open(date)
         equity_at_open = self._mark_equity_at_open(cash, state, prices_at_open)
         for intent_id, intent in list(reservations.intents.items()):
             row = self.market_data.row_at_date(intent.order.symbol, date)
@@ -308,6 +314,28 @@ class TurtleBacktester:
             else:
                 equity += position.unrealized_pnl(price, spec.point_value)
         return float(equity)
+
+    def _causal_prices_at_open(self, date: pd.Timestamp) -> dict[str, float]:
+        """Price every asset causally for fill-time portfolio risk checks.
+
+        A symbol trading on ``date`` uses its opening price.  A closed market
+        uses the last completed close strictly before ``date`` so an existing
+        position cannot disappear from portfolio risk and leverage totals.
+        """
+
+        prices: dict[str, float] = {}
+        for symbol in self.specs:
+            current = self.market_data.row_at_date(symbol, date)
+            if current is not None:
+                price = float(current["open"])
+            else:
+                previous = self.market_data.row_at_previous(symbol, date)
+                if previous is None:
+                    continue
+                price = float(previous["close"])
+            if np.isfinite(price) and price > 0:
+                prices[symbol] = price
+        return prices
 
     def _execute_orders(
         self,
@@ -720,6 +748,21 @@ class TurtleBacktester:
             else:
                 equity += position.unrealized_pnl(price, spec.point_value)
         return float(equity)
+
+    def _terminal_unrealized_pnl(
+        self,
+        date: pd.Timestamp,
+        state: PortfolioState,
+    ) -> float:
+        total = 0.0
+        for symbol, position in state.positions.items():
+            spec = self.specs[symbol]
+            try:
+                price = self.market_data.last_price_on_or_before(date, symbol, "close")
+            except KeyError:
+                continue
+            total += position.unrealized_pnl(price, spec.point_value)
+        return float(total)
 
     def _end_of_data_exit_orders(
         self,

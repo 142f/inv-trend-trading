@@ -25,6 +25,7 @@ from inv_trend.application.backtest.reporting import build_report_model
 from inv_trend.application.backtest.validation import build_walk_forward_windows
 from inv_trend.config import load_strategy_mapping
 from inv_trend.cli.backtest import load_plan
+from inv_trend.core.performance import equity_metric_kernel
 
 
 def _bars(count: int = 520) -> pd.DataFrame:
@@ -92,6 +93,22 @@ def test_v1_plan_is_normalized_to_v2() -> None:
     plan = BacktestPlan.from_mapping({"schema_version": "1", "symbols": ["test"]})
     assert plan.schema_version == "2"
     assert plan.strategy_id == "turtle"
+    assert plan.window_boundary_policy == "mark_to_market"
+
+
+def test_window_boundary_policy_is_explicit_and_fails_closed() -> None:
+    plan = BacktestPlan.from_mapping({
+        "schema_version": "2",
+        "symbols": ["TEST"],
+        "window_boundary_policy": "mark_to_market",
+    })
+    assert plan.to_dict()["window_boundary_policy"] == "mark_to_market"
+    with pytest.raises(ValueError, match="window_boundary_policy"):
+        BacktestPlan.from_mapping({
+            "schema_version": "2",
+            "symbols": ["TEST"],
+            "window_boundary_policy": "force_liquidation",
+        })
 
 
 def test_grid_limit_fails_before_execution() -> None:
@@ -167,6 +184,20 @@ def test_undefined_trade_metrics_are_null_with_reason() -> None:
     assert unavailable["win_rate"] == "没有已完成交易"
 
 
+def test_backtest_equity_metrics_share_the_core_math_kernel() -> None:
+    equity = pd.Series(
+        [100.0, 103.0, 101.0, 108.0, 106.0],
+        index=pd.date_range("2024-01-01", periods=5, freq="D", tz="UTC"),
+    )
+    metrics, _ = performance_metrics(equity, pd.DataFrame())
+    shared = equity_metric_kernel(equity)
+    for name in (
+        "total_return", "annualized_return", "max_drawdown", "volatility",
+        "sharpe_ratio", "periods_per_year", "ending_equity",
+    ):
+        assert metrics[name] == shared[name]
+
+
 def test_projector_reuses_signal_preparation_for_execution_only_change() -> None:
     projector = StrategyReplayProjector(_source())
     first_bundle, first_store, first_rules = projector.project(
@@ -202,10 +233,16 @@ def test_batch_is_deterministic_and_html_only_embeds_results() -> None:
     assert 'id="reportData"' in html
     assert "compute_turtle_indicators" not in html
     assert first.schema_version == "2"
+    assert first.combinations[0].metrics["closed_trade_count"] == (
+        first.combinations[0].metrics["trade_count"]
+    )
+    assert first.combinations[0].metrics["pending_intent_count"] == 0
+    assert "open_position_count" in first.combinations[0].validation_metrics
     assert len(first.combinations[0].execution_result_hash) == 64
     report = build_report_model(first)
     assert report.schema_version == "1"
     assert report.basic_information["strategy_id"] == "turtle"
+    assert report.assumptions["window_boundary_policy"] == "mark_to_market"
     assert report.charts["trade_distribution"]["trade_count"] >= 0
 
 
