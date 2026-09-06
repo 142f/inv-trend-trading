@@ -1,0 +1,40 @@
+{
+  "bugs": {
+    "empty_dmi": {
+      "before_passed": false,
+      "after_passed": true
+    },
+    "cache_auxiliary": {
+      "before_passed": false,
+      "after_passed": true
+    },
+    "cache_metadata": {
+      "before_passed": false,
+      "after_passed": true
+    },
+    "cache_timezone": {
+      "before_passed": false,
+      "after_passed": true
+    },
+    "deeper_drawdown_recovered": {
+      "before_passed": false,
+      "after_passed": true
+    },
+    "deeper_drawdown_unrecovered": {
+      "before_passed": false,
+      "after_passed": true
+    }
+  },
+  "feature_operation_counts": {
+    "before": {
+      "validation": 3,
+      "sma": 11,
+      "ema": 6
+    },
+    "after": {
+      "validation": 1,
+      "sma": 4,
+      "ema": 4
+    }
+  }
+}
