@@ -26,6 +26,7 @@ from ..risk.expiry import ExpiryPolicy
 from ..risk.fill_guard import FillRiskGuard
 from ..strategy.budget_policy import PortfolioBudgetPolicy
 from ..strategy.engine import MultiAssetTurtleStrategy
+from ..strategy.sizing import _round_down
 from .metrics import compute_backtest_metrics
 from ..config import BacktestConfig
 
@@ -89,7 +90,7 @@ class TurtleBacktester:
         self.strategy = strategy or MultiAssetTurtleStrategy(self.specs, self.rules)
         resolved_initial_equity = self.config.initial_equity if initial_equity is None else initial_equity
         self.initial_equity = float(resolved_initial_equity)
-        if self.initial_equity <= 0:
+        if not np.isfinite(self.initial_equity) or self.initial_equity <= 0:
             raise ValueError("initial_equity must be positive")
         self.liquidate_at_end = (
             self.config.liquidate_at_end if liquidate_at_end is None else liquidate_at_end
@@ -135,6 +136,11 @@ class TurtleBacktester:
         trade_detail_rows: list[dict] = []
 
         for date, snapshots, tradable_symbols in self.market_data.timeline(dates):
+            # Existing protective orders have priority when the opening quote
+            # has already crossed their stop. Do not inspect this bar's range yet.
+            cash = self._process_intraday_stops(
+                date, cash, state, order_rows, trade_rows, trade_detail_rows, open_only=True,
+            )
             cash = self._execute_pending_intents(
                 date,
                 cash,
@@ -242,13 +248,21 @@ class TurtleBacktester:
     ) -> float:
         """Fill at this bar's open, using no current-bar close for risk checks."""
         prices_at_open = self._causal_prices_at_open(date)
-        equity_at_open = self._mark_equity_at_open(cash, state, prices_at_open)
         for intent_id, intent in list(reservations.intents.items()):
             row = self.market_data.row_at_date(intent.order.symbol, date)
             if row is None:
                 continue
             fill_price = float(row["open"])
             if not np.isfinite(fill_price) or fill_price <= 0:
+                continue
+            position = state.positions.get(intent.order.symbol)
+            if intent.order.action in {"add", "exit"} and position is None:
+                order_rows.append({
+                    **self._order_row(date, intent.order, fill_price, 0.0, self.specs[intent.order.symbol]),
+                    "status": "cancelled", "resolution": "position no longer exists",
+                    "intent_id": intent.intent_id,
+                })
+                reservations.release(intent_id)
                 continue
             expiry_result = expiry.check_before_fill(
                 intent, self.market_data.row_at_previous(intent.order.symbol, date), fill_price
@@ -268,7 +282,8 @@ class TurtleBacktester:
             order = intent.order
             if order.action in {"open", "add"}:
                 decision = fill_guard.validate(
-                    intent, fill_price, state, reservations, equity_at_open, prices_at_open
+                    intent, fill_price, state, reservations,
+                    self._mark_equity_at_open(cash, state, prices_at_open), prices_at_open,
                 )
                 if not decision.allowed:
                     intent.status = "rejected"
@@ -353,7 +368,11 @@ class TurtleBacktester:
             if order.symbol not in self.specs:
                 continue
             try:
-                fill_price = self.market_data.price(date, order.symbol, price_column)
+                fill_price = (
+                    float(order.forced_fill_price)
+                    if order.action == "exit" and order.forced_fill_price is not None
+                    else self.market_data.price(date, order.symbol, price_column)
+                )
             except KeyError:
                 unfilled.append(order)
                 continue
@@ -361,6 +380,27 @@ class TurtleBacktester:
                 unfilled.append(order)
                 continue
             spec = self.specs[order.symbol]
+            if order.action == "exit":
+                position = state.positions.get(order.symbol)
+                if position is None:
+                    continue
+                order = replace(order, qty=position.total_qty, side=position.side, system=position.system)
+            elif order.action in {"open", "add"}:
+                position = state.positions.get(order.symbol)
+                if (order.action == "add" and position is None) or (
+                    position is not None and (order.action == "open" or position.side != order.side)
+                ):
+                    raise ValueError("entry action does not match current position")
+                if self.cash_model == "cash" and order.side == LONG:
+                    unit_cost = fill_price * spec.point_value * (1 + (spec.cost_bps + spec.slippage_bps) / 10000)
+                    qty = min(order.qty, _round_down(max(cash, 0.) / unit_cost, spec.qty_step))
+                    if qty <= 0 or qty < spec.min_qty or qty * fill_price * spec.point_value < spec.min_notional:
+                        order_rows.append({
+                            **self._order_row(date, order, fill_price, 0., spec),
+                            "status": "rejected", "resolution": "insufficient cash including costs",
+                        })
+                        continue
+                    order = replace(order, qty=qty)
             cost = _trade_cost(order.qty, fill_price, spec)
             if order.action in {"open", "add"}:
                 if self.cash_model == "cash":
@@ -378,7 +418,7 @@ class TurtleBacktester:
                     cash += pnl
                 cash -= cost
                 if position.system == "fast":
-                    state.last_fast_trade_won[order.symbol] = pnl - position.entry_cost - cost > 0
+                    state.last_fast_trade_won[order.symbol] = pnl - position.entry_cost - cost - position.carry_cost > 0
                 del state.positions[order.symbol]
                 self._record_completed_trade(
                     date,
@@ -446,6 +486,8 @@ class TurtleBacktester:
         order_rows: list[dict],
         trade_rows: list[dict],
         trade_detail_rows: list[dict],
+        *,
+        open_only: bool = False,
     ) -> float:
         stop_orders: list[Order] = []
         for symbol, position in list(state.positions.items()):
@@ -453,9 +495,9 @@ class TurtleBacktester:
             if row is None:
                 continue
             open_price = float(row["open"])
-            if position.side == LONG and float(row["low"]) <= position.stop_price:
+            if position.side == LONG and (open_price if open_only else float(row["low"])) <= position.stop_price:
                 stop_price = min(open_price, position.stop_price) if open_price < position.stop_price else position.stop_price
-            elif position.side == SHORT and float(row["high"]) >= position.stop_price:
+            elif position.side == SHORT and (open_price if open_only else float(row["high"])) >= position.stop_price:
                 stop_price = max(open_price, position.stop_price) if open_price > position.stop_price else position.stop_price
             else:
                 continue
@@ -474,7 +516,7 @@ class TurtleBacktester:
             )
         if not stop_orders:
             return cash
-        return self._execute_stop_orders(
+        return self._execute_orders(
             date,
             stop_orders,
             cash,
@@ -482,62 +524,7 @@ class TurtleBacktester:
             order_rows,
             trade_rows,
             trade_detail_rows,
-        )
-
-    def _execute_stop_orders(
-        self,
-        date: pd.Timestamp,
-        orders: list[Order],
-        cash: float,
-        state: PortfolioState,
-        order_rows: list[dict],
-        trade_rows: list[dict],
-        trade_detail_rows: list[dict],
-    ) -> float:
-        for order in orders:
-            spec = self.specs[order.symbol]
-            position = state.positions.get(order.symbol)
-            if position is None:
-                continue
-            fill_price = (
-                float(order.forced_fill_price)
-                if order.forced_fill_price is not None
-                else float(order.signal_price)
-            )
-            cost = _trade_cost(position.total_qty, fill_price, spec)
-            pnl = position.unrealized_pnl(fill_price, spec.point_value)
-            if self.cash_model == "cash":
-                cash += position.side * position.total_qty * fill_price * spec.point_value
-            else:
-                cash += pnl
-            cash -= cost
-            if position.system == "fast":
-                state.last_fast_trade_won[order.symbol] = pnl - position.entry_cost - cost > 0
-            del state.positions[order.symbol]
-            order_rows.append(
-                self._order_row(
-                    date,
-                    order,
-                    fill_price,
-                    cost,
-                    spec,
-                    side=position.side,
-                    qty=position.total_qty,
-                    system=position.system,
-                )
-            )
-            self._record_completed_trade(
-                date,
-                order,
-                position,
-                fill_price,
-                cost,
-                pnl,
-                spec,
-                trade_rows,
-                trade_detail_rows,
-            )
-        return cash
+        )[0]
 
     def _order_row(
         self,
@@ -616,7 +603,7 @@ class TurtleBacktester:
         spec: AssetSpec,
     ) -> dict:
         entry_cost = position.entry_cost
-        net_pnl = gross_pnl - entry_cost - exit_cost
+        net_pnl = gross_pnl - entry_cost - exit_cost - position.carry_cost
         entry_time = pd.Timestamp(position.first_entry_time)
         holding_bars = self.market_data.holding_bars(
             position.symbol,
@@ -647,7 +634,8 @@ class TurtleBacktester:
             "last_n": position.units[-1].n_at_entry if position.units else 0.0,
             "entry_cost": entry_cost,
             "exit_cost": exit_cost,
-            "total_cost": entry_cost + exit_cost,
+            "total_cost": entry_cost + exit_cost + position.carry_cost,
+            **({"carry_cost": position.carry_cost} if position.carry_cost else {}),
             "gross_pnl": gross_pnl,
             "pnl": net_pnl,
             "notional_at_exit": abs(position.total_qty * exit_price * spec.point_value),
@@ -664,7 +652,7 @@ class TurtleBacktester:
         gross_pnl: float,
         spec: AssetSpec,
     ) -> list[dict]:
-        trade_net = gross_pnl - position.entry_cost - exit_cost
+        trade_net = gross_pnl - position.entry_cost - exit_cost - position.carry_cost
         rows: list[dict] = []
         total_qty = position.total_qty
         for idx, unit in enumerate(position.units, start=1):
@@ -675,6 +663,7 @@ class TurtleBacktester:
                 * spec.point_value
             )
             unit_exit_cost = exit_cost * (unit.qty / total_qty) if total_qty else 0.0
+            unit_carry_cost = unit.carry_cost
             rows.append(
                 {
                     "entry_time": unit.entry_time,
@@ -697,7 +686,8 @@ class TurtleBacktester:
                     "entry_cost": unit.entry_cost,
                     "allocated_exit_cost": unit_exit_cost,
                     "gross_pnl": unit_gross,
-                    "pnl": unit_gross - unit.entry_cost - unit_exit_cost,
+                    "pnl": unit_gross - unit.entry_cost - unit_exit_cost - unit_carry_cost,
+                    **({"allocated_carry_cost": unit_carry_cost} if unit_carry_cost else {}),
                     "whole_trade_pnl": trade_net,
                 }
             )
@@ -720,6 +710,8 @@ class TurtleBacktester:
                 rate = float(row[spec.funding_rate_column])
                 if np.isfinite(rate):
                     cash -= position.side * notional * rate
+                    for unit in position.units:
+                        unit.carry_cost += position.side * unit.qty * price * spec.point_value * rate
             if (
                 position.side == SHORT
                 and spec.borrow_rate_column
@@ -728,6 +720,8 @@ class TurtleBacktester:
                 rate = float(row[spec.borrow_rate_column])
                 if np.isfinite(rate):
                     cash -= notional * rate
+                    for unit in position.units:
+                        unit.carry_cost += unit.qty * price * spec.point_value * rate
         return cash
 
     def _mark_equity(
@@ -773,7 +767,10 @@ class TurtleBacktester:
         for symbol, position in list(state.positions.items()):
             symbol_data = self.market_data.by_symbol.get(symbol)
             index = None if symbol_data is None else symbol_data.index
-            if index is None or date != index[-1]:
+            if index is None:
+                continue
+            end_position = len(index) - 1 if self.evaluation_end is None else index.searchsorted(self.evaluation_end, side="right") - 1
+            if end_position < 0 or date != index[end_position]:
                 continue
             orders.append(
                 Order(
@@ -827,7 +824,3 @@ def _exit_type(reason: str) -> str:
     if reason == "end_of_test":
         return "end_of_test"
     return "other"
-
-
-def _metrics(equity_curve: pd.Series, trades: pd.DataFrame) -> dict[str, float]:
-    return compute_backtest_metrics(equity_curve, trades)

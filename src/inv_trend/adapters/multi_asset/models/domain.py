@@ -160,6 +160,7 @@ class PositionUnit:
     reason: str = ""
     stop_price_at_entry: float = 0.0
     entry_cost: float = 0.0
+    carry_cost: float = 0.0
 
 
 @dataclass
@@ -219,6 +220,10 @@ class Position:
     @property
     def entry_cost(self) -> float:
         return float(sum(unit.entry_cost for unit in self.units))
+
+    @property
+    def carry_cost(self) -> float:
+        return float(sum(unit.carry_cost for unit in self.units))
 
 
 @dataclass

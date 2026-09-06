@@ -14,7 +14,7 @@ def build_walk_forward_windows(
     index = pd.DatetimeIndex(sorted(set(pd.Timestamp(item) for item in calendar)))
     required = (
         policy.train_bars
-        + policy.validation_bars * policy.min_folds
+        + policy.validation_bars + policy.step_bars * (policy.min_folds - 1)
         + policy.holdout_bars
     )
     if len(index) < required:

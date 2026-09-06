@@ -6,6 +6,7 @@ from dataclasses import asdict, dataclass
 from html import escape
 import json
 import math
+from importlib.resources import files
 from typing import Any, Mapping, Sequence
 
 from .models import BacktestBatchResult
@@ -53,6 +54,20 @@ def build_report_model(
         selected[0] if selected else None,
     )
     charts = {
+        "signal_series": {
+            bundle.get("signal_parameter_hash"): [
+                {key: event.get(key) for key in (
+                    "signal_time", "symbol", "system", "direction", "signal_type",
+                    "channel_value", "trigger_price", "n",
+                )} for event in bundle.get("events", [])
+            ] for bundle in raw.get("signal_bundles", [])
+        },
+        "detail_series": [
+            {"combination_id": item.get("combination_id"),
+             "trades": item.get("trades", []), "orders": item.get("orders", []),
+             "signal_parameter_hash": item.get("signal_parameter_hash")}
+            for item in selected
+        ],
         "equity_series": [
             {
                 "combination_id": item.get("combination_id"),
@@ -131,6 +146,9 @@ def build_report_model(
         "validation": plan.get("validation", {}),
         "ranking": plan.get("ranking", {}),
         "comparison_assumptions_hash": raw.get("comparison_assumptions_hash"),
+        "execution": "收盘形成信号 → 下一可交易开盘执行；开盘穿越保护止损优先",
+        "costs": "手续费与滑点按名义金额计入现金成本；不重复调整成交价",
+        "holdout": "候选与邻域仅由验证集选择，最终留出仅作确认，不用于换选参数",
     }
     conclusion = dict(raw.get("conclusion") or _legacy_conclusion(raw, best))
     return BacktestReportModel(
@@ -162,31 +180,40 @@ def render_backtest_html(
     ) or "<li><span>未发现额外关键问题。</span></li>"
     return f"""<!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>统一策略回测报告</title><style>{_CSS}</style></head><body><main>
+<title>统一策略回测报告</title><style>{_CSS}</style></head><body>
+<nav aria-label="报告导航"><b>趋势研究 / 回测审计</b><a href="#overview">概览</a><a href="#performance">曲线</a><a href="#comparison">参数对比</a><a href="#ledger">交易与信号</a><a href="#methodology">方法与证据</a></nav><main>
 <header><div><span class="eyebrow">STRATEGY BACKTEST · V2</span><h1>统一策略回测与参数比较报告</h1>
-<p>指标、排名、稳定区间、风险和结论均由服务端同一份批次结果生成；浏览器只负责展示。</p></div>
+<p>先看样本外风险，再看收益。排名依据验证集，最终留出不参与调参。</p></div>
 <div class="status"><b>{escape(str(model.conclusion.get('status', 'UNKNOWN')))}</b>
 <span>候选：{escape(str(model.best_combination_id or '未确认'))}</span></div></header>
-<section><h2>回测基本信息</h2><div class="cards" id="summary"></div><div class="panel"><dl id="lineage"></dl></div></section>
-<section><h2>策略、参数与交易假设</h2><div class="grid"><div class="panel"><h3>参数空间</h3><pre id="parameters"></pre></div>
-<div class="panel"><h3>验证与固定假设</h3><pre id="assumptions"></pre></div></div></section>
-<section><div class="section-title"><div><span>组合对比</span><h2>收益、回撤与稳定性</h2></div>
+<section id="overview"><h2>回测基本信息</h2><div class="cards" id="summary"></div>
+<div class="toolbar"><label>分析组合 <select id="activeSelect"></select></label><span id="activeStatus" role="status"></span></div>
+<div class="cards" id="metricCards"></div><p>指标卡分别标明全样本、验证集与留出集；下方资金及回撤曲线展示全样本。</p></section>
+<section id="performance"><div class="section-title"><div><span>组合对比</span><h2>收益、回撤与稳定性</h2></div>
 <label>叠加组合 <select id="curveSelect" multiple size="1"></select></label></div>
-<div class="grid"><div class="panel wide"><h3>收益曲线</h3><canvas id="equityChart"></canvas></div>
+<div class="toolbar"><label>开始 <input id="startDate" type="date"></label><label>结束 <input id="endDate" type="date"></label><button id="resetRange">全部历史</button><span id="rangeStatus" role="status"></span></div>
+<div id="chartLegend" class="legend"></div><div class="grid"><div class="panel wide"><h3>收益曲线 · 账户权益</h3><canvas id="equityChart" aria-label="全样本权益时间序列"></canvas></div>
 <div class="panel"><h3>回撤曲线</h3><canvas id="drawdownChart"></canvas></div>
 <div class="panel"><h3>样本外风险收益</h3><canvas id="scatterChart"></canvas></div>
 <div class="panel"><h3>参数热力图</h3><canvas id="heatmapChart"></canvas></div>
 <div class="panel"><h3>分折稳定性</h3><canvas id="foldChart"></canvas></div></div></section>
-<section><h2>核心指标与超参数横向比较</h2><div class="table-wrap"><table><thead><tr>
+<section id="comparison"><h2>核心指标与超参数横向比较</h2><p>排名来自验证集综合分；总收益、年化、回撤、Sharpe、胜率和交易数为全样本指标。点击组合联动交易记录。</p><div class="table-wrap"><table><thead><tr>
 <th>排名</th><th>组合</th><th>状态</th><th>综合分</th><th>总收益</th><th>年化收益</th><th>最大回撤</th>
 <th>Sharpe</th><th>胜率</th><th>盈亏比</th><th>交易数</th><th>留出收益</th><th>风险</th></tr></thead><tbody>{rows}</tbody></table></div></section>
 <section><h2>多空表现与交易分布</h2><div class="grid"><div class="panel"><h3>多头 / 空头贡献</h3><canvas id="sideChart"></canvas></div>
 <div class="panel"><h3>交易盈亏分布</h3><canvas id="tradeChart"></canvas></div></div></section>
+<section id="ledger"><h2>交易记录与信号执行</h2><div class="panel">
+<div class="toolbar"><button data-ledger="trades" aria-pressed="true">已平仓交易</button><button data-ledger="orders" aria-pressed="false">执行订单</button><button data-ledger="signals" aria-pressed="false">策略信号</button>
+<label>筛选 <input id="ledgerSearch" type="search" placeholder="品种、方向、原因或状态"></label><button id="exportLedger">导出筛选 CSV</button></div>
+<p id="ledgerDescription"></p><div class="table-wrap"><table><thead id="ledgerHead"></thead><tbody id="ledgerBody"></tbody></table></div>
+<div class="toolbar"><button id="prevPage">上一页</button><span id="pageStatus" aria-live="polite"></span><button id="nextPage">下一页</button></div></div></section>
 <section><h2>最终回测结论和关键问题</h2><div class="grid"><div class="panel conclusion"><p>{escape(str(model.conclusion.get('summary', '暂无结论。')))}</p>
 <p>稳定组合：{escape(', '.join(model.stable_combination_ids) or '未形成稳定区间')}</p></div>
 <div class="panel"><ul class="issues">{issue_html}</ul></div></div></section>
-<section><h2>组合完整证据</h2><div class="panel"><pre id="details">点击排名表中的组合查看参数、指标、分折和不可用原因。</pre></div></section>
-</main><script id="reportData" type="application/json">{data}</script><script>{_JS}</script></body></html>"""
+<section id="methodology"><h2>方法、假设与完整证据</h2><div class="panel"><dl id="lineage"></dl></div>
+<div class="grid"><details class="panel"><summary>参数空间</summary><pre id="parameters"></pre></details><details class="panel"><summary>验证与固定假设</summary><pre id="assumptions"></pre></details></div>
+<details class="panel"><summary>当前组合完整证据</summary><pre id="details"></pre></details></section>
+</main><div id="chartTooltip" role="status" hidden></div><script id="reportData" type="application/json">{data}</script><script>{_JS}</script></body></html>"""
 
 
 def _ranking_row(item: Mapping[str, Any]) -> Mapping[str, Any]:
@@ -351,14 +378,8 @@ def _pct(value: Any) -> str:
     return "不可用" if number is None else f"{number * 100:.2f}%"
 
 
-_CSS = """
-:root{color-scheme:dark;--bg:#07111d;--panel:#0d1b2a;--line:#20364b;--text:#e5edf7;--muted:#91a5b8;--cyan:#38d5e8;--green:#45d483;--red:#ff647c;--amber:#f5b942}*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 8% 0,#10304d 0,transparent 35%),var(--bg);color:var(--text);font:14px/1.55 Inter,"Segoe UI",sans-serif}main{max-width:1540px;margin:auto;padding:28px}header,.section-title{display:flex;justify-content:space-between;gap:24px;align-items:end}h1{font-size:34px;margin:6px 0}h2{font-size:23px;margin:28px 0 13px}h3{margin:0 0 10px}.eyebrow,.section-title span{color:var(--cyan);font-weight:700;letter-spacing:.12em}.status{display:grid;gap:5px;padding:14px 18px;border:1px solid var(--line);border-radius:12px;background:#0b1826}.status span,p{color:var(--muted)}.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(165px,1fr));gap:12px;margin:12px 0}.card,.panel{background:linear-gradient(145deg,#0f2031,#0a1724);border:1px solid var(--line);border-radius:13px;padding:15px}.card b{display:block;font-size:23px}.card span,dt{color:var(--muted)}dl{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:8px;margin:0}dd{margin:0;overflow-wrap:anywhere}.grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}.wide{grid-column:1/-1}canvas{width:100%;height:300px;display:block}.table-wrap{overflow:auto;border:1px solid var(--line);border-radius:12px}table{width:100%;border-collapse:collapse;background:#0a1724}th,td{padding:10px 12px;text-align:right;border-bottom:1px solid var(--line);white-space:nowrap}th:nth-child(2),td:nth-child(2){text-align:left}tr:hover{background:#10253a}tr.best{box-shadow:inset 3px 0 var(--green)}pre{white-space:pre-wrap;max-height:430px;overflow:auto;color:#c5d5e7}select{background:#0b1826;color:var(--text);border:1px solid var(--line);padding:7px}.issues{display:grid;gap:9px;padding-left:18px}.issues li span{display:block;color:var(--muted)}.conclusion p:first-child{font-size:18px;color:var(--text)}@media(max-width:850px){main{padding:16px}.grid{grid-template-columns:1fr}header,.section-title{display:block}.wide{grid-column:auto}}
-"""
-
-
-_JS = r"""
-(()=>{'use strict';const m=JSON.parse(document.getElementById('reportData').textContent),rank=m.ranking,charts=m.charts,best=m.best_combination_id,colors=['#38d5e8','#45d483','#f5b942','#ff647c','#9f7aea','#60a5fa','#fb923c','#f472b6','#a3e635','#c084fc'];const q=id=>document.getElementById(id),fmt=(v,p=false)=>v==null?'不可用':p?(Number(v)*100).toFixed(2)+'%':String(v),cards=[['组合数',m.basic_information.combination_count],['验证状态',m.basic_information.validation_status],['候选最优',best||'未确认'],['稳定组合',m.stable_combination_ids.length],['结果哈希',String(m.basic_information.result_hash||'').slice(0,12)]];q('summary').innerHTML=cards.map(x=>`<div class="card"><span>${x[0]}</span><b>${x[1]}</b></div>`).join('');q('lineage').innerHTML=Object.entries(m.basic_information).filter(([k])=>!['combination_count','validation_status'].includes(k)).map(([k,v])=>`<div><dt>${k}</dt><dd>${typeof v==='object'?JSON.stringify(v):v??'不可用'}</dd></div>`).join('');q('parameters').textContent=JSON.stringify(m.assumptions.parameter_space,null,2);q('assumptions').textContent=JSON.stringify({...m.assumptions,parameter_space:undefined},null,2);const select=q('curveSelect');charts.equity_series.forEach((s,i)=>{const o=document.createElement('option');o.value=s.combination_id;o.textContent=s.combination_id;o.selected=i<3;select.appendChild(o)});function chosen(){const ids=new Set([...select.selectedOptions].map(o=>o.value));return ids.size?ids:new Set(charts.equity_series.slice(0,1).map(x=>x.combination_id))}function setup(c){const r=c.getBoundingClientRect(),d=devicePixelRatio||1;if(r.width<2||r.height<2)return null;c.width=Math.round(r.width*d);c.height=Math.round(r.height*d);const x=c.getContext('2d');x.setTransform(d,0,0,d,0,0);x.clearRect(0,0,r.width,r.height);return{x,w:r.width,h:r.height}}function grid(s){const{x,w,h}=s;x.strokeStyle='#20364b';x.lineWidth=1;for(let i=1;i<5;i++){x.beginPath();x.moveTo(42,i*h/5);x.lineTo(w-10,i*h/5);x.stroke()}}function lineChart(id,series,key){const s=setup(q(id));if(!s)return;grid(s);const rows=series.filter(z=>chosen().has(z.combination_id)&&z.points.length),vals=rows.flatMap(z=>z.points.map(p=>Number(p[key])).filter(Number.isFinite));if(!vals.length)return;const lo=Math.min(...vals),hi=Math.max(...vals),span=hi-lo||1;rows.forEach((row,j)=>{s.x.strokeStyle=colors[j%colors.length];s.x.lineWidth=1.7;s.x.beginPath();row.points.forEach((p,i)=>{const px=44+i*(s.w-58)/Math.max(1,row.points.length-1),py=10+(hi-Number(p[key]))*(s.h-28)/span;i?s.x.lineTo(px,py):s.x.moveTo(px,py)});s.x.stroke()})}function bars(id,rows,valueKey,labelKey){const s=setup(q(id));if(!s||!rows.length)return;grid(s);const vals=rows.map(r=>Number(r[valueKey])||0),mx=Math.max(...vals.map(Math.abs),1),bw=(s.w-50)/rows.length;rows.forEach((r,i)=>{const v=vals[i],bh=Math.abs(v)*(s.h-55)/mx,px=42+i*bw;s.x.fillStyle=v>=0?'#45d483':'#ff647c';s.x.fillRect(px,v>=0?s.h/2-bh:s.h/2,Math.max(2,bw-3),bh);s.x.fillStyle='#91a5b8';if(rows.length<15)s.x.fillText(String(r[labelKey]??i),px,s.h-10)})}function scatter(){const s=setup(q('scatterChart')),rows=charts.risk_return.filter(r=>r.max_drawdown!=null&&r.annualized_return!=null);if(!s||!rows.length)return;grid(s);const mx=Math.max(...rows.map(r=>Math.abs(r.max_drawdown)),.01),ys=rows.map(r=>r.annualized_return),lo=Math.min(...ys,0),hi=Math.max(...ys,.01);rows.forEach(r=>{const px=35+Math.abs(r.max_drawdown)*(s.w-55)/mx,py=10+(hi-r.annualized_return)*(s.h-35)/(hi-lo||1);s.x.fillStyle=r.combination_id===best?'#45d483':r.qualified?'#38d5e8':'#66788a';s.x.beginPath();s.x.arc(px,py,r.combination_id===best?6:4,0,Math.PI*2);s.x.fill()})}function heat(){const s=setup(q('heatmapChart')),h=charts.parameter_heatmap,c=h.cells;if(!s||!c.length){if(s){s.x.fillStyle='#91a5b8';s.x.fillText('至少需要两个变化参数',20,30)}return}const xs=[...new Set(c.map(x=>JSON.stringify(x.x)))],ys=[...new Set(c.map(x=>JSON.stringify(x.y)))],mx=Math.max(...c.map(x=>Number(x.score)||0),1),cw=(s.w-70)/xs.length,ch=(s.h-45)/ys.length;c.forEach(v=>{const xi=xs.indexOf(JSON.stringify(v.x)),yi=ys.indexOf(JSON.stringify(v.y));s.x.fillStyle=`rgba(56,213,232,${.12+.82*(Number(v.score)||0)/mx})`;s.x.fillRect(55+xi*cw,10+yi*ch,cw-2,ch-2)});s.x.fillStyle='#91a5b8';s.x.fillText(h.x_parameter,55,s.h-8);s.x.save();s.x.translate(12,s.h-30);s.x.rotate(-Math.PI/2);s.x.fillText(h.y_parameter,0,0);s.x.restore()}function fold(){const row=charts.fold_stability.find(x=>x.combination_id===best)||charts.fold_stability[0],rows=row?row.folds:[];bars('foldChart',rows,'annualized_return','fold')}function side(){bars('sideChart',charts.side_contribution,'pnl','side')}function trades(){bars('tradeChart',charts.trade_distribution.pnl,'count','start')}function draw(){lineChart('equityChart',charts.equity_series,'equity');lineChart('drawdownChart',charts.drawdown_series,'drawdown');scatter();heat();fold();side();trades()}select.addEventListener('change',draw);document.querySelectorAll('tbody tr').forEach(tr=>tr.addEventListener('click',()=>{const c=rank.find(x=>x.combination_id===tr.dataset.id);q('details').textContent=JSON.stringify(c,null,2)}));let raf=0,retries=0;function schedule(){cancelAnimationFrame(raf);raf=requestAnimationFrame(()=>{draw();if(q('equityChart').getBoundingClientRect().width<2&&retries++<8)setTimeout(schedule,80)})}new ResizeObserver(schedule).observe(document.querySelector('main'));document.addEventListener('visibilitychange',()=>{if(!document.hidden)schedule()},{passive:true});window.addEventListener('pageshow',schedule,{passive:true});schedule()})();
-"""
+_CSS = files(__package__).joinpath("报告样式.css").read_text(encoding="utf-8")
+_JS = files(__package__).joinpath("报告交互.js").read_text(encoding="utf-8")
 
 
 __all__ = [

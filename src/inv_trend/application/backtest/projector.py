@@ -10,7 +10,8 @@ from typing import Any, Mapping
 import pandas as pd
 
 from inv_trend.adapters.multi_asset.backtest.data_store import BacktestDataStore
-from inv_trend.adapters.multi_asset.models.domain import LONG, SHORT, AssetSpec, TurtleRules
+from inv_trend.adapters.multi_asset.models.domain import LONG, AssetSpec, TurtleRules
+from inv_trend.core.突破规则 import breakout_direction
 from inv_trend.adapters.multi_asset.profiles.asset_profiles import build_asset_specs
 from inv_trend.adapters.multi_asset.strategy.engine import MultiAssetTurtleStrategy
 from inv_trend.config import canonical_to_backtest_mapping
@@ -86,7 +87,8 @@ class StrategyReplayProjector:
                 if n is None or n <= 0:
                     continue
                 for system, period in (("fast", rules.fast_entry), ("slow", rules.slow_entry)):
-                    direction = _breakout_direction(row, period, n, rules)
+                    direction = breakout_direction(row, period, n, buffer_n=rules.breakout_buffer_n,
+                                                   trigger_mode=rules.trigger_mode)
                     if direction is None:
                         continue
                     events.append({
@@ -179,30 +181,6 @@ def execution_settings(parameters: Mapping[str, Any], defaults: Mapping[str, Any
         if name.startswith("execution."):
             result[name.removeprefix("execution.")] = value
     return result
-
-
-def _breakout_direction(
-    row: Mapping[str, Any], period: int, n: float, rules: TurtleRules
-) -> int | None:
-    high_level = _number(row.get(f"high_{period}"))
-    low_level = _number(row.get(f"low_{period}"))
-    if high_level is None or low_level is None:
-        return None
-    upper = high_level + rules.breakout_buffer_n * n
-    lower = low_level - rules.breakout_buffer_n * n
-    if rules.trigger_mode == "intraday":
-        high, low = _number(row.get("high")), _number(row.get("low"))
-        long_hit = high is not None and high > upper
-        short_hit = low is not None and low < lower
-        if long_hit == short_hit:
-            return None
-        return LONG if long_hit else SHORT
-    close = _number(row.get("close"))
-    if close is not None and close > upper:
-        return LONG
-    if close is not None and close < lower:
-        return SHORT
-    return None
 
 
 def _screening_hash(source: BacktestSourceBundle, symbol: str) -> str:

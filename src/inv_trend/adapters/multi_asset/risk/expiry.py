@@ -27,6 +27,9 @@ class ExpiryPolicy:
         previous_bar: Mapping[str, Any] | None,
         open_price: float | None,
     ) -> ExpiryResult:
+        # Entry gap/channel filters must never cancel a risk-reducing exit.
+        if intent.order.action == "exit":
+            return ExpiryResult("pending")
         if intent.fill_attempts_completed >= self.max_fill_attempts:
             return ExpiryResult("expired", "maximum completed fill attempts")
         if previous_bar is not None:

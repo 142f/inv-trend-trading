@@ -43,7 +43,8 @@ outputs/*
 outputs/us_trend_alerts/*
 !outputs/us_trend_alerts/README.md
 logs/
-
+重构验证/
+重构验证 忽略/
 # Research source and analysis documents are versioned; generated backtest
 # result trees are not release inputs.
 /research/**/outputs/

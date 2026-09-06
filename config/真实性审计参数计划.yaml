@@ -1,0 +1,34 @@
+schema_version: "2"
+strategy_id: turtle
+symbols: [BTC, ETH]
+initial_equity: 100000.0
+# 本地来源为现货 OHLCV：不把它冒充有资金费数据的永续合约。
+cash_model: cash
+liquidate_at_end: true
+window_boundary_policy: mark_to_market
+max_combinations: 6
+parameter_space:
+  turtle.rules.fast_entry: [20]
+  turtle.rules.slow_entry: [55]
+  turtle.rules.stop_n: [1.5, 2.0, 2.5]
+  turtle.rules.pyramid_step_n: [0.5, 1.0]
+  turtle.rules.allow_short: [false]
+  assets.BTC.can_short: [false]
+  assets.ETH.can_short: [false]
+  assets.BTC.unit_1n_risk_pct: [0.003]
+  assets.ETH.unit_1n_risk_pct: [0.003]
+constraints:
+  - "rules.fast_entry < rules.slow_entry"
+validation:
+  train_bars: 1460
+  validation_bars: 365
+  step_bars: 365
+  holdout_bars: 365
+  min_folds: 3
+ranking:
+  min_oos_trades: 10
+  max_drawdown: 0.40
+  sharpe_weight: 0.35
+  mar_weight: 0.25
+  cagr_weight: 0.20
+  stability_weight: 0.20
