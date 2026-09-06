@@ -123,7 +123,7 @@ class BacktestBatchService:
                 data, specs, rules,
                 initial_equity=float(settings["initial_equity"]),
                 cash_model=str(settings["cash_model"]),
-                liquidate_at_end=bool(settings["liquidate_at_end"]),
+                liquidate_at_end=bool(settings["liquidate_at_end"]) if end is None else False,
                 evaluation_start=start,
                 evaluation_end=end,
                 market_data=store,
@@ -189,6 +189,7 @@ def _aggregate_fold_metrics(
     valid_returns = [value for value in returns if value is not None]
     aggregate: dict[str, Any] = {
         "fold_count": len(folds),
+        "bankrupt": any(bool(row.get("bankrupt")) for row in rows),
         "trade_count": int(sum(int(row.get("trade_count") or 0) for row in rows)),
         "closed_trade_count": int(
             sum(int(row.get("closed_trade_count") or 0) for row in rows)
@@ -250,7 +251,7 @@ def _rank_results(
         trades = int(values.get("closed_trade_count") or 0)
         if (
             result.status == "COMPLETED"
-            and not bool(result.metrics.get("bankrupt"))
+            and not bool(values.get("bankrupt"))
             and trades >= plan.ranking.min_oos_trades
             and drawdown is not None
             and abs(drawdown) <= plan.ranking.max_drawdown
@@ -288,8 +289,8 @@ def _rank_results(
     holdout_order = sorted(
         [item for item in ordered if item.qualified],
         key=lambda item: (
-            _number(item.holdout_metrics.get("sharpe_ratio")) or -math.inf,
-            _number(item.holdout_metrics.get("annualized_return")) or -math.inf,
+            _sort_number(item.holdout_metrics.get("sharpe_ratio")),
+            _sort_number(item.holdout_metrics.get("annualized_return")),
         ), reverse=True,
     )
     holdout_rank = {item.combination_id: pos + 1 for pos, item in enumerate(holdout_order)}
@@ -304,14 +305,17 @@ def _rank_results(
         ranked.append(replace(item, rank=rank, overfit_risk=risk))
     ranked = _add_neighbor_risk(ranked, plan)
     candidate = next((item for item in ranked if item.rank == 1), None)
+    # Freeze the neighborhood using development validation alone. The final
+    # holdout may reject that candidate, never pick a replacement or a neighbor.
+    stable = _stable_region(ranked, plan, candidate)
+    holdout_return = _number(candidate.holdout_metrics.get("total_return")) if candidate else None
     passed_holdout = bool(
         candidate is not None
         and has_holdout
-        and (_number(candidate.holdout_metrics.get("total_return")) or 0.0) >= 0
+        and holdout_return is not None and holdout_return >= 0
     )
     best_id = candidate.combination_id if passed_holdout else None
-    stable = _stable_region(ranked, plan, candidate) if passed_holdout else ()
-    return ranked, best_id, stable
+    return ranked, best_id, stable if passed_holdout else ()
 
 
 def _add_neighbor_risk(
@@ -349,8 +353,15 @@ def _percentiles(
     finite = sorted((value, name) for name, value in pairs if value is not None)
     if not finite:
         return {name: 0.0 for name, _ in pairs}
-    denominator = max(len(finite) - 1, 1)
-    return {name: 100.0 * position / denominator for position, (_, name) in enumerate(finite)}
+    scores = {name: 0.0 for name, _ in pairs}
+    if len(finite) == 1:
+        scores[finite[0][1]] = 50.0
+        return scores
+    # Equal statistics get equal scores; IDs must not break financial ties.
+    ranks = pd.Series([value for value, _ in finite]).rank(method="average")
+    scores.update({name: 100.0 * (float(rank) - 1) / (len(finite) - 1)
+                   for (_, name), rank in zip(finite, ranks)})
+    return scores
 
 
 def _overfit_risk(
@@ -402,7 +413,6 @@ def _stable_region(
         and item.score is not None
         and item.score >= candidate.score * 0.90
         and float(item.validation_metrics.get("positive_fold_ratio") or 0.0) >= 2 / 3
-        and (_number(item.holdout_metrics.get("total_return")) or -math.inf) >= 0
     }
     visited: set[str] = set()
     pending = [candidate.combination_id]
@@ -500,6 +510,11 @@ def _number(value: Any) -> float | None:
     except (TypeError, ValueError):
         return None
     return number if math.isfinite(number) else None
+
+
+def _sort_number(value: Any) -> float:
+    number = _number(value)
+    return -math.inf if number is None else number
 
 
 def _batch_conclusion(

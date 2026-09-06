@@ -7,6 +7,8 @@ from typing import Any, Mapping
 import numpy as np
 import pandas as pd
 
+from inv_trend.core.突破规则 import breakout_direction
+
 from ..models.domain import (
     LONG,
     SHORT,
@@ -536,30 +538,8 @@ class MultiAssetTurtleStrategy:
         return resolved
 
     def _breakout_signal(self, row: Mapping[str, Any], period: int, n: float) -> int | None:
-        high_level = _finite_float(row.get(f"high_{period}"))
-        low_level = _finite_float(row.get(f"low_{period}"))
-        if high_level is None or low_level is None:
-            return None
-        high_threshold = high_level + self.rules.breakout_buffer_n * n
-        low_threshold = low_level - self.rules.breakout_buffer_n * n
-        if self.rules.trigger_mode == "intraday":
-            high = _finite_float(row.get("high"))
-            low = _finite_float(row.get("low"))
-            long_hit = high is not None and high > high_threshold
-            short_hit = low is not None and low < low_threshold
-            if long_hit and short_hit:
-                return None
-            if long_hit:
-                return LONG
-            if short_hit:
-                return SHORT
-        else:
-            close = _finite_float(row.get("close"))
-            if close is not None and close > high_threshold:
-                return LONG
-            if close is not None and close < low_threshold:
-                return SHORT
-        return None
+        return breakout_direction(row, period, n, buffer_n=self.rules.breakout_buffer_n,
+                                  trigger_mode=self.rules.trigger_mode)
 
     def _trend_filter_allows(self, row: Mapping[str, Any], side: int, signal_price: float) -> bool:
         period = self.rules.entry_ma_period

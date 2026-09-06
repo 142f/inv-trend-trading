@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field, is_dataclass
 import hashlib
 import json
+import math
 from typing import Any, Mapping, Sequence
 
 
@@ -44,8 +45,11 @@ class ValidationPolicy:
         for name in (
             "train_bars", "validation_bars", "step_bars", "holdout_bars", "min_folds"
         ):
-            if int(getattr(self, name)) < 1:
-                raise ValueError(f"validation.{name} must be positive")
+            value = getattr(self, name)
+            if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+                raise ValueError(f"validation.{name} must be a positive integer")
+        if self.step_bars < self.validation_bars:
+            raise ValueError("validation windows must not overlap: step_bars >= validation_bars")
 
 
 @dataclass(frozen=True)
@@ -68,7 +72,7 @@ class RankingPolicy:
             self.cagr_weight,
             self.stability_weight,
         )
-        if any(value < 0 for value in weights) or abs(sum(weights) - 1.0) > 1e-9:
+        if any(not math.isfinite(value) or value < 0 for value in weights) or abs(sum(weights) - 1.0) > 1e-9:
             raise ValueError("ranking weights must be non-negative and sum to 1")
 
 
@@ -94,7 +98,7 @@ class BacktestPlan:
         normalized_symbols = tuple(dict.fromkeys(str(item).upper() for item in self.symbols))
         if not normalized_symbols:
             raise ValueError("symbols must not be empty")
-        if self.initial_equity <= 0:
+        if not math.isfinite(self.initial_equity) or self.initial_equity <= 0:
             raise ValueError("initial_equity must be positive")
         if self.cash_model not in {"cash", "derivative"}:
             raise ValueError("cash_model must be 'cash' or 'derivative'")
