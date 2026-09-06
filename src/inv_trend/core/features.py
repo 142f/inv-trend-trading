@@ -8,6 +8,7 @@ feature calculation into an implicit data read or use data from a different run.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from copy import deepcopy
 import hashlib
 from typing import Iterable
 
@@ -15,14 +16,26 @@ import numpy as np
 import pandas as pd
 
 from .math_utils import (
+    _macd_from_averages,
     directional_movement_index,
     donchian_channels,
     exponential_moving_average,
-    macd,
     simple_moving_average,
     true_range,
     wilder_average,
 )
+from .行情校验 import validate_bar_index
+
+
+def _moving_averages(values: pd.Series, specs: tuple[tuple[int, int], ...], prefix: str):
+    averages: dict[int, pd.Series] = {}
+    columns: dict[str, pd.Series] = {}
+    for period, lag in specs:
+        if period not in averages:
+            averages[period] = simple_moving_average(values, period)
+        average = averages[period]
+        columns[f"{prefix}_{period}_lag_{lag}"] = average.shift(lag) if lag else average
+    return columns
 
 
 @dataclass(frozen=True)
@@ -145,42 +158,56 @@ class PreparedBars:
 
     @classmethod
     def build(cls, bars: pd.DataFrame, request: FeatureRequest) -> "PreparedBars":
-        _validate_ohlcv(bars)
-        out = bars.copy()
-        fingerprint = ohlcv_fingerprint(out)
-        high, low, close = out["high"], out["low"], out["close"]
+        return cls._build_validated(bars, request, ohlcv_fingerprint(bars))
+
+    @classmethod
+    def _build_validated(
+        cls, bars: pd.DataFrame, request: FeatureRequest, fingerprint: str
+    ) -> "PreparedBars":
+        """Internal path: the caller has validated and fingerprinted this snapshot."""
+        generated: dict[str, pd.Series | float] = {}
+        high, low, close = bars["high"], bars["low"], bars["close"]
 
         if request.include_true_range or request.atr_period is not None:
-            out["tr"] = true_range(high, low, close)
+            generated["tr"] = true_range(high, low, close)
         if request.atr_period is not None:
-            out["atr"] = wilder_average(out["tr"], request.atr_period)
+            generated["atr"] = wilder_average(generated["tr"], request.atr_period)
         if request.donchian_periods:
             channels = donchian_channels(high, low, request.donchian_periods)
             for column in channels:
-                out[column] = channels[column]
-        for period, lag in request.sma_lags:
-            out[f"sma_{period}_lag_{lag}"] = simple_moving_average(close, period, lag=lag)
-        for period in request.ema_periods:
-            out[f"ema_{period}"] = exponential_moving_average(close, period)
+                generated[column] = channels[column]
+        generated.update(_moving_averages(close, request.sma_lags, "sma"))
+        ema_periods = dict.fromkeys(request.ema_periods)
+        if request.macd_periods is not None:
+            ema_periods.update(dict.fromkeys(request.macd_periods[:2]))
+        for period in ema_periods:
+            generated[f"ema_{period}"] = exponential_moving_average(close, period)
         if request.macd_periods is not None:
             fast, slow, signal = request.macd_periods
-            values = macd(close, fast, slow, signal)
+            values = _macd_from_averages(
+                generated[f"ema_{fast}"], generated[f"ema_{slow}"], fast, slow, signal
+            )
             for column in values:
-                out[column] = values[column]
+                generated[column] = values[column]
         if request.dmi_period is not None:
             values = directional_movement_index(high, low, close, request.dmi_period)
             for column in values:
-                out[column] = values[column]
+                generated[column] = values[column]
         if request.volume_sma_lags:
-            if "volume" not in out:
+            if "volume" not in bars:
                 for period, lag in request.volume_sma_lags:
-                    out[f"volume_sma_{period}_lag_{lag}"] = np.nan
+                    generated[f"volume_sma_{period}_lag_{lag}"] = np.nan
             else:
-                volume = pd.to_numeric(out["volume"], errors="coerce")
-                for period, lag in request.volume_sma_lags:
-                    out[f"volume_sma_{period}_lag_{lag}"] = simple_moving_average(
-                        volume, period, lag=lag
-                    )
+                volume = pd.to_numeric(bars["volume"], errors="coerce")
+                generated.update(_moving_averages(volume, request.volume_sma_lags, "volume_sma"))
+        # Build one feature block, preserving both original column positions
+        # and the old overwrite semantics for pre-existing generated columns.
+        columns = list(dict.fromkeys((*bars.columns, *generated)))
+        out = pd.concat(
+            [bars.drop(columns=[name for name in generated if name in bars]),
+             pd.DataFrame(generated, index=bars.index, copy=False)], axis=1,
+        ).reindex(columns=columns)
+        out.attrs = deepcopy(bars.attrs)
         out.attrs["_feature_request"] = request
         out.attrs["_ohlcv_fingerprint"] = fingerprint
         return cls(frame=out, request=request, input_fingerprint=fingerprint)
@@ -198,14 +225,19 @@ class FeatureCache:
     """
 
     def __init__(self) -> None:
-        self._prepared: dict[tuple[str, FeatureRequest], PreparedBars] = {}
+        self._prepared: dict[tuple, PreparedBars] = {}
 
     def prepare(self, bars: pd.DataFrame, request: FeatureRequest) -> PreparedBars:
         fingerprint = ohlcv_fingerprint(bars)
-        key = (fingerprint, request)
+        # The public OHLC fingerprint intentionally excludes auxiliary columns
+        # and attrs. Do not reuse their pass-through payload across snapshots.
+        if bars.attrs or any(column not in _FINGERPRINT_COLUMNS for column in bars):
+            return PreparedBars._build_validated(bars, request, fingerprint)
+        key = (fingerprint, request, tuple(bars.columns), tuple(map(str, bars.dtypes)),
+               str(bars.index.dtype), bars.index.name, bars.index.freqstr)
         prepared = self._prepared.get(key)
         if prepared is None:
-            prepared = PreparedBars.build(bars, request)
+            prepared = PreparedBars._build_validated(bars, request, fingerprint)
             self._prepared[key] = prepared
         return prepared
 
@@ -213,11 +245,14 @@ class FeatureCache:
         self._prepared.clear()
 
 
+_FINGERPRINT_COLUMNS = ("open", "high", "low", "close", "volume", "is_complete")
+
+
 def ohlcv_fingerprint(bars: pd.DataFrame) -> str:
     """Return a stable in-memory fingerprint for cache isolation and manifests."""
 
     _validate_ohlcv(bars)
-    columns = [column for column in ("open", "high", "low", "close", "volume", "is_complete") if column in bars]
+    columns = [column for column in _FINGERPRINT_COLUMNS if column in bars]
     hashed = pd.util.hash_pandas_object(bars.loc[:, columns], index=True).values
     digest = hashlib.sha256()
     digest.update(str(tuple(columns)).encode())
@@ -226,16 +261,9 @@ def ohlcv_fingerprint(bars: pd.DataFrame) -> str:
 
 
 def _validate_ohlcv(bars: pd.DataFrame) -> None:
-    if not isinstance(bars, pd.DataFrame):
-        raise TypeError("bars must be a pandas DataFrame")
-    required = {"open", "high", "low", "close"}
-    missing = sorted(required - set(bars.columns))
-    if missing:
-        raise ValueError(f"bars require OHLC columns: {missing}")
-    if not isinstance(bars.index, pd.DatetimeIndex):
-        raise ValueError("bars require a DatetimeIndex at the feature boundary")
-    if bars.index.has_duplicates or not bars.index.is_monotonic_increasing:
-        raise ValueError("bars require unique, increasing timestamps")
-    values = bars[["open", "high", "low", "close"]].apply(pd.to_numeric, errors="coerce")
+    validate_bar_index(bars)
+    values = bars[["open", "high", "low", "close"]]
+    if not all(pd.api.types.is_numeric_dtype(dtype) for dtype in values.dtypes):
+        raise ValueError("OHLC columns must have numeric dtypes")
     if not np.isfinite(values.to_numpy(dtype=float)).all():
         raise ValueError("bars contain non-finite OHLC values")

@@ -8,7 +8,7 @@ from typing import Any, Iterable
 import numpy as np
 import pandas as pd
 
-from inv_trend.core.performance import equity_metric_kernel
+from inv_trend.core.performance import analyze_equity, drawdown_duration as _drawdown_duration
 
 
 def performance_metrics(
@@ -23,12 +23,9 @@ def performance_metrics(
     unavailable: dict[str, str] = {}
     if equity.empty:
         return {}, {"all": "权益曲线为空"}
-    curve = equity.astype(float).sort_index()
-    start, end = float(curve.iloc[0]), float(curve.iloc[-1])
-    if start <= 0:
-        raise ValueError("equity must start above zero")
-    returns = curve.pct_change().replace([np.inf, -np.inf], np.nan).dropna()
-    shared = equity_metric_kernel(curve)
+    analysis = analyze_equity(equity)
+    curve, returns, shared = analysis.curve, analysis.returns, analysis.metrics
+    end = float(shared["ending_equity"])
     periods_per_year = float(shared["periods_per_year"])
     total_return = float(shared["total_return"])
     cagr = float(shared["annualized_return"])
@@ -48,14 +45,13 @@ def performance_metrics(
         unavailable,
         "没有可用的下行波动",
     )
-    drawdown = curve / curve.cummax() - 1.0
     max_drawdown = float(shared["max_drawdown"])
     mar = _ratio(
         cagr, abs(max_drawdown), "mar_ratio", unavailable, "最大回撤为零"
     )
-    dd_duration, dd_recovery = _drawdown_duration(drawdown)
+    dd_duration, dd_recovery = _drawdown_duration(analysis.drawdown)
 
-    frame = trades.copy() if not trades.empty else pd.DataFrame()
+    frame = trades
     pnls = pd.to_numeric(frame.get("pnl", pd.Series(dtype=float)), errors="coerce").dropna()
     wins = pnls[pnls > 0]
     losses = pnls[pnls < 0]
@@ -165,29 +161,12 @@ def curve_rows(equity: pd.Series) -> tuple[dict[str, Any], ...]:
 
 
 def drawdown_rows(equity: pd.Series) -> tuple[dict[str, Any], ...]:
-    drawdown = equity.astype(float) / equity.astype(float).cummax() - 1.0
+    curve = equity.astype(float)
+    drawdown = curve / curve.cummax() - 1.0
     return tuple(
         {"time": pd.Timestamp(time).isoformat(), "drawdown": float(value)}
         for time, value in drawdown.items()
     )
-
-
-def _drawdown_duration(drawdown: pd.Series) -> tuple[int, int | None]:
-    longest = current = 0
-    trough_position: int | None = None
-    recovery: int | None = None
-    trough = float("inf")
-    for position, value in enumerate(drawdown.tolist()):
-        if value < 0:
-            current += 1
-            longest = max(longest, current)
-            if value < trough:
-                trough, trough_position = value, position
-        else:
-            if trough_position is not None and recovery is None:
-                recovery = position - trough_position
-            current = 0
-    return int(longest), recovery
 
 
 def _ratio(

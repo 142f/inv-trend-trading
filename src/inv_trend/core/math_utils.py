@@ -13,13 +13,26 @@ def _numeric_series(value: pd.Series, name: str) -> None:
         raise ValueError(f"{name} must have a numeric dtype")
 
 
-def true_range(high: pd.Series, low: pd.Series, close: pd.Series) -> pd.Series:
+def _ohlc_series(high: pd.Series, low: pd.Series, close: pd.Series) -> None:
+    """Validate aligned numeric inputs at the shared indicator boundary."""
     for name, value in (("high", high), ("low", low), ("close", close)):
         _numeric_series(value, name)
     if not high.index.equals(low.index) or not high.index.equals(close.index):
         raise ValueError("high, low, close indexes must match")
+
+
+def true_range(high: pd.Series, low: pd.Series, close: pd.Series) -> pd.Series:
+    _ohlc_series(high, low, close)
     previous = close.shift(1)
-    return pd.concat((high - low, (high - previous).abs(), (low - previous).abs()), axis=1).max(axis=1)
+    ranges = (high - low, (high - previous).abs(), (low - previous).abs())
+    if high.empty or any(
+        isinstance(value.dtype, pd.api.extensions.ExtensionDtype) for value in ranges
+    ):
+        # Preserve pandas nullable dtype semantics on the uncommon extension path.
+        return pd.concat(ranges, axis=1).max(axis=1)
+    # fmax skips NaN just like DataFrame.max; maximum would poison the first bar.
+    result = np.fmax(np.fmax(ranges[0].to_numpy(), ranges[1].to_numpy()), ranges[2].to_numpy())
+    return pd.Series(result, index=high.index)
 
 
 def wilder_average(values: pd.Series, period: int) -> pd.Series:
@@ -91,16 +104,24 @@ def macd(
         raise ValueError("MACD periods require 1 < fast < slow and signal >= 2")
     ema_fast = exponential_moving_average(values, fast)
     ema_slow = exponential_moving_average(values, slow)
+    return _macd_from_averages(ema_fast, ema_slow, fast, slow, signal)
+
+
+def _macd_from_averages(
+    ema_fast: pd.Series, ema_slow: pd.Series, fast: int, slow: int, signal: int
+) -> pd.DataFrame:
+    """Assemble MACD from already computed EMAs within the core layer."""
     dif = ema_fast - ema_slow
     dea = exponential_moving_average(dif, signal)
+    histogram = dif - dea
     return pd.DataFrame(
         {
             f"ema_{fast}": ema_fast,
             f"ema_{slow}": ema_slow,
             "dif": dif,
             "dea": dea,
-            "histogram": dif - dea,
-            "macd_bar": 2.0 * (dif - dea),
+            "histogram": histogram,
+            "macd_bar": 2.0 * histogram,
         }
     )
 
@@ -117,10 +138,7 @@ def directional_movement_index(
     historical scans.
     """
 
-    for name, value in (("high", high), ("low", low), ("close", close)):
-        _numeric_series(value, name)
-    if not high.index.equals(low.index) or not high.index.equals(close.index):
-        raise ValueError("high, low, close indexes must match")
+    _ohlc_series(high, low, close)
     if period < 2:
         raise ValueError("period must be >= 2")
 
@@ -140,8 +158,8 @@ def directional_movement_index(
     )
     # The first directional move has no previous bar, so it contributes zero
     # to the first Wilder seed (matching the true-range treatment of bar 0).
-    plus_dm.iloc[0] = 0.0
-    minus_dm.iloc[0] = 0.0
+    # np.where already emits zero for the initial NaN differences, including
+    # an empty series; positional writes here used to crash on empty input.
 
     atr = wilder_atr(high, low, close, period)
     plus_smoothed = wilder_average(plus_dm, period)
@@ -212,13 +230,10 @@ def rolling_percentile(
     if not 2 <= minimum <= lookback:
         raise ValueError("min_periods must be between 2 and lookback")
 
-    def midrank(window: pd.Series) -> float:
-        clean = window.dropna()
-        if clean.empty or pd.isna(window.iloc[-1]):
-            return np.nan
-        current = float(window.iloc[-1])
-        less = int((clean < current).sum())
-        equal = int((clean == current).sum())
-        return float((less + 0.5 * equal) / len(clean))
-
-    return values.rolling(lookback, min_periods=minimum).apply(midrank, raw=False)
+    # Rolling.apply treats infinities as missing.  Count the same finite
+    # observations so the compiled rank kernel preserves that convention.
+    finite = values.replace([np.inf, -np.inf], np.nan)
+    window = finite.rolling(lookback, min_periods=minimum)
+    # Average rank is less + (equal + 1) / 2; subtracting half a rank
+    # reproduces the empirical midpoint, including ties and partial windows.
+    return (window.rank(method="average") - 0.5) / window.count()
