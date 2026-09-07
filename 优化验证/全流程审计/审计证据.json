@@ -1,0 +1,789 @@
+{
+  "schema_version": "1",
+  "generated_at": "2026-09-07T06:13:23.594906+00:00",
+  "python": "3.12.6 (tags/v3.12.6:a4a2d2b, Sep  6 2024, 20:11:23) [MSC v.1940 64 bit (AMD64)]",
+  "platform": "Windows-11-10.0.26200-SP0",
+  "pandas": "3.0.1",
+  "numpy": "2.4.3",
+  "git_head": "9df8e955154b6308c1c42426b0e804634fdd2c05",
+  "git_status": " D \"\\346\\240\\270\\345\\277\\203\\344\\273\\243\\347\\240\\201\\344\\270\\216\\346\\265\\213\\350\\257\\225\\346\\225\\260\\346\\215\\256_20260906.zip\"\n D \"\\351\\241\\271\\347\\233\\256\\344\\273\\243\\347\\240\\201\\344\\277\\256\\346\\224\\271\\350\\257\\264\\346\\230\\216_v1.md\"\n?? \"\\344\\274\\230\\345\\214\\226\\351\\252\\214\\350\\257\\201/\\345\\205\\250\\346\\265\\201\\347\\250\\213\\345\\256\\241\\350\\256\\241/\"\n?? \"\\346\\240\\270\\345\\277\\203\\344\\273\\243\\347\\240\\201\\344\\270\\216\\350\\256\\255\\347\\273\\203\\351\\252\\214\\350\\257\\201\\346\\265\\213\\350\\257\\225\\346\\225\\260\\346\\215\\256_20260907.zip\"\n",
+  "production_test_config_files_unchanged": true,
+  "file_hashes": {
+    "config/永续策略审计计划.yaml": "089ca363a610c0b20fd4e5f82441a8959315e1238200867e8d2c21cf7e8a36a8",
+    "config/真实性审计参数计划.yaml": "250496080405193605a5eb135cc56d776a0bed9c532f956346e64deb78a980b0",
+    "config/策略回测计划_BTC_ETH_v1.yaml": "f26d15efcf1164b6f7d42c26e25aeda85da5fd5d0633c125e2501d36b382bebf",
+    "config/策略回测计划_BTC_ETH_v2.yaml": "a807e10a1edc1dc6fe4cbf6ffeaefb642aa61090d5f48b23e6a56749dd7e0ca6",
+    "src/inv_trend/__init__.py": "b63294e45229e486fc296bf2113c8dc3172fc7691f83843161b11bf2c60cf451",
+    "src/inv_trend/adapters/__init__.py": "94d0de291e34e65821157a2a019f72b56e6ef86317748f85dc256d8eeee19773",
+    "src/inv_trend/adapters/daily/__init__.py": "68e4ba30b1c8e8f50fbee215fa323e3540032fa9689943174e7f3ebf140f1f7e",
+    "src/inv_trend/adapters/daily/artifact_publisher.py": "0e60298edd25a121daf79ae849ef515250c5ec415da6ca4073ff335ca558548e",
+    "src/inv_trend/adapters/daily/composition.py": "162cdae3d40e309f70e5d0b8aee85c07a9cc1182d2ebc02b71208cc144375b20",
+    "src/inv_trend/adapters/daily/data_lineage.py": "5f180f4145a5337d42fe16de9c931d608171bd9c882c3df1d5ebeb189f1d9790",
+    "src/inv_trend/adapters/daily/stage_runtime_adapters.py": "3f548f60e03149e35f5c5ee8dacc079a775bb682be5b25abfd1ba470290d14f2",
+    "src/inv_trend/adapters/detector/__init__.py": "9fd4968f1f45349c6df00f801ff62180908549e707667d9b4c826234cb3bfec1",
+    "src/inv_trend/adapters/detector/alerts/__init__.py": "b2e8035d04fedc89026799a26a0de8639dd128c71a6ea275b8433fa2cd2f61af",
+    "src/inv_trend/adapters/detector/alerts/breakout.py": "11c8814186e98072e370034e40ca9bb1926a0f65bd7cf233f2c051333ba6a81d",
+    "src/inv_trend/adapters/detector/alerts/daily_notifier.py": "90c4de77c2554cbcc4d09dfd492cf7ed8811923d87cd1e637a2ef959a454cdcc",
+    "src/inv_trend/adapters/detector/alerts/notifier.py": "997486d1558cd87bb18ddfcf6010fd63f27c149b1719e9829c1412aa97b667ac",
+    "src/inv_trend/adapters/detector/alerts/report.py": "85789364f696b533ab62fee28dd1a5abb25d288c6086639b7895da98eae910a9",
+    "src/inv_trend/adapters/detector/backtest/__init__.py": "c6e634c23fa8c6f503530440c775318f27568e7e3ddd7f81993ca39bbcf3ddf5",
+    "src/inv_trend/adapters/detector/backtest/engine.py": "f61e41445d27951ca086033261f2fa3d19b992bba0ab710ac864163650c854aa",
+    "src/inv_trend/adapters/detector/backtest/metrics.py": "a0df828c9b3fd763132e5f49af2762de21d6ce61428a0ace4e1b9a230f43e65b",
+    "src/inv_trend/adapters/detector/config/__init__.py": "750273c8c142657eba2878ebbfa683f7d77888e67a77e0fc62eb2204c5cef5c2",
+    "src/inv_trend/adapters/detector/config/loader.py": "c8a89b3984fba3741283fce2d016073e10fe3190620dd1fd928468c6c256c376",
+    "src/inv_trend/adapters/detector/config/strategy.yaml": "10659ab25e390f277e2a8a07408a0c0d83c82183a327a9d9e3436889802a0c0e",
+    "src/inv_trend/adapters/detector/data/__init__.py": "61b2e4166d9ec35f29b795907fb1d8c4dfd5177693c9c5754c18a6a7582d441c",
+    "src/inv_trend/adapters/detector/data/calendar.py": "1c11639a2666470d88c88fe92b1041fd340c11bbcc3bad0684f5ac712415d14c",
+    "src/inv_trend/adapters/detector/data/normalizer.py": "2738a788ce43fee202821c812a7883dbd87a82ca596cd6289d65bb705ee2f900",
+    "src/inv_trend/adapters/detector/data/providers.py": "e80a9b6a6760c2cc113eedd742c717f13210779b373d12cf6458ba56a459eed1",
+    "src/inv_trend/adapters/detector/decisions.py": "cf202ffd62c3f0c2bff03e2403d27b00f2fe1652f32c20ce68f799fa363f3b4b",
+    "src/inv_trend/adapters/detector/eligibility/__init__.py": "35a2ab42359abdaabea23f6481f3acfb0a43b7ee8224ea8eb32d9a2e651f123b",
+    "src/inv_trend/adapters/detector/eligibility/checker.py": "b73e8593e1399e05372dc7fe7230bcbc2faa148765fcf7d3a0e0f59f86d36059",
+    "src/inv_trend/adapters/detector/eligibility/config/eligibility.yaml": "9dbdb342f1de90eaac5bf98ad731c7207ab0b4fb24f862c8d11c1faaeadc9a66",
+    "src/inv_trend/adapters/detector/eligibility/config.py": "5fa9a51e402a2e19c7b2ca9b2ddb992dd72b58defc8bd1634427cde203b98dee",
+    "src/inv_trend/adapters/detector/eligibility/models.py": "e9debd21ec2eb5af7346f9ddb8b5e89b422464bfaabd28953a627421ce319cca",
+    "src/inv_trend/adapters/detector/eligibility/thresholds.py": "e79ac7c32e8580b369776b61458cec0dc7baf0afaf81b7fe24c192c6c910a33f",
+    "src/inv_trend/adapters/detector/engine/__init__.py": "e9ec6a4297796a18b5c51bcf3c95fba938ac6c9184485e835f852cb7ce081e0c",
+    "src/inv_trend/adapters/detector/engine/candidate_detector.py": "75ddbcd7d50325ce2256508fd1016a39af78073434e031b7ff29aa92eaeb994b",
+    "src/inv_trend/adapters/detector/engine/scanner.py": "138bde6b1db419d0123207dfed8890317b536a39f34e82522b44f18ed06e2994",
+    "src/inv_trend/adapters/detector/engine/state_machine.py": "c91a4e62e29e02aeb4bf73b9ccca762fc9d4f65fea551f889d7327f847158939",
+    "src/inv_trend/adapters/detector/freshness.py": "dabbea47cf379b629ae7359c641e383f3ab98841cbffdf38dfffd06e5ae20a9c",
+    "src/inv_trend/adapters/detector/indicators/__init__.py": "993a820feb059f5e75d0616e0dac2f7428cab805aaeba0de34eecea1f5391da3",
+    "src/inv_trend/adapters/detector/indicators/daily_signals.py": "515bca0c8f9da945a6ac3a0eec109c68fc415b94d297f6374a3cace07336c4f9",
+    "src/inv_trend/adapters/detector/indicators/daily_strategy_checks.py": "246ae368d9e91689440a456717ffa46ac4009e6616a3cd2c894d27357e94dd2a",
+    "src/inv_trend/adapters/detector/models.py": "41ff9b44f2abe5c61e095f51340948400343336bf8c40b7b165abdaff7cff8ae",
+    "src/inv_trend/adapters/detector/risk/__init__.py": "30f675aca8192fef07e5c6177dc3f61bbff81f3e3f4b29c1dc4aa714fc0963c9",
+    "src/inv_trend/adapters/detector/risk/position_sizing.py": "870aec6cd56a98d01f68cb1daffae56ebd9c66417f2e546f841e783b97885c8a",
+    "src/inv_trend/adapters/detector/risk/stops.py": "8ecc9dc1088f443a129041b86d5d708819813112bd3a18b01035f389b2042b2a",
+    "src/inv_trend/adapters/detector/scan_state.py": "cb57a6c1904f4f064046c07b8cde2899d19eac7ebce3f79896af18781f1ba3f2",
+    "src/inv_trend/adapters/detector/signals/__init__.py": "dad3950ba7c7cee2c2f1349ed9dfdf9e10ab3ce6621083a4d7b0b34ce0d9c54e",
+    "src/inv_trend/adapters/detector/signals/filters.py": "28f6527682fd51703b82fe97d6387519109b818da3c8361f7fa0c9e5911fffe3",
+    "src/inv_trend/adapters/detector/storage/__init__.py": "7c4bd9cbf0ef5b92c8404a75df5043876d3cefb85be2fe97160d1c82fc49a343",
+    "src/inv_trend/adapters/detector/storage/daily_signal_repository.py": "8ef6e39a1aabb390dbfd456597b3a41b2acba15c6117e9f01297f8085598f632",
+    "src/inv_trend/adapters/detector/storage/signal_repository.py": "0d047ea34c8225ef35b2bf6228f43b09e8ebf0962af8580e6f8a0cab03be88a8",
+    "src/inv_trend/adapters/multi_asset/__init__.py": "dfb6bbe89cfc2bc78e9f552a3ab9464a54ccd9cf4de1f06be91f3c2c2b5ea819",
+    "src/inv_trend/adapters/multi_asset/backtest/__init__.py": "1d177a6678f7a154d32c2270939b169f8e48da9d71e9221a8b18559f05eb501d",
+    "src/inv_trend/adapters/multi_asset/backtest/data_store.py": "ce839cac181fd3b3f5a763af26b2a24fe182db9080b3ea304a887f5c71559514",
+    "src/inv_trend/adapters/multi_asset/backtest/metrics.py": "aa57bb3b2f9da3e0f8694dbe134d09fe42054e325533f652e109cff17b04858d",
+    "src/inv_trend/adapters/multi_asset/backtest/runner.py": "66c0363a48aae1ebe734c1d30cbc37f5ab62756d7f3212595cf8f9af5ae4ffbc",
+    "src/inv_trend/adapters/multi_asset/config/__init__.py": "4ee360256efe349f9e0df204060232a193cb398b1e69b8934150cc9718b82260",
+    "src/inv_trend/adapters/multi_asset/config/defaults.yaml": "11e8d4bd24aa53c193669086bbc402064b6436d280730620c4ea31c822fa84b7",
+    "src/inv_trend/adapters/multi_asset/config/settings.py": "e3f6b52c49a42e425c2b00685219048634256d0dcdb159d899e49ebbcaec9183",
+    "src/inv_trend/adapters/multi_asset/data/__init__.py": "2019c3b5faed988042217a847831af1841d7d5ea892407505cf3fd03273e40a0",
+    "src/inv_trend/adapters/multi_asset/data/builder.py": "692d6caea36213f35bb68b8ec8e069a6f492698845743d5ac49c06667d6d884b",
+    "src/inv_trend/adapters/multi_asset/data/cleaner.py": "51d5fc01f453d8812aa23e7387ffea49b40cced47bc364d6048fd8ce3b122ad8",
+    "src/inv_trend/adapters/multi_asset/data/core_dataset.py": "8eaeda62ae139a0b43e77b24004b9b59e6ae6df349b4d60b29d0c550dcd85b49",
+    "src/inv_trend/adapters/multi_asset/data/exporter.py": "327a7290c780c9a23150ec3613c0c724e2b0f4684ef168bc907cde569e5308e7",
+    "src/inv_trend/adapters/multi_asset/data/loader.py": "735353b157be479fb32987360f287f9185237ced299a4a0f9188ba65e9fe381e",
+    "src/inv_trend/adapters/multi_asset/data/normalizer.py": "8756e3a9410c4a50527ef16ec0e0b0522c5e49402934ab454091f2bc520cf8be",
+    "src/inv_trend/adapters/multi_asset/data/pipeline.py": "0d2bb57bdee68517d2191a256ca10ef646fa1ee6f217adcede69d45a660cbae1",
+    "src/inv_trend/adapters/multi_asset/data/sources.py": "88926e871cd7fa6b376fc43a4c0308dfef73ad6a568eec51f55132c114c20e55",
+    "src/inv_trend/adapters/multi_asset/data/validator.py": "c140ce61a0bb8e7bc1b306810ec0005b4002aa8d94731e91f9e42735df52464c",
+    "src/inv_trend/adapters/multi_asset/models/__init__.py": "8e86aafeed51d533db9892e7075ce789b7150c8cd1dac84b945ad9f23d256508",
+    "src/inv_trend/adapters/multi_asset/models/domain.py": "697c3d46efb7820704a55c8ed98f9cd7a311f386e6617c3d0457b6764a41dc32",
+    "src/inv_trend/adapters/multi_asset/models/order_intent.py": "2dd0aeec82f369cc8de04569310253d2fb02d5e2b2f2d14d92dfd8b7b9b8e395",
+    "src/inv_trend/adapters/multi_asset/profiles/__init__.py": "1545c382f8114771927f11cdf62a59bc8cb766a32807dcba64dc63b312e795fd",
+    "src/inv_trend/adapters/multi_asset/profiles/asset_profiles.py": "bc293489ac7230c4ae37f75b37c075352e801945972bfd498e8dbf5e55227687",
+    "src/inv_trend/adapters/multi_asset/risk/__init__.py": "890b69d65b3bd550b8535ee18356561f4b7e53acc9cd2b774220ef859010169e",
+    "src/inv_trend/adapters/multi_asset/risk/expiry.py": "61632cd8af4400ebad837347426dfcfb275a3a077ce3179da14b5fb66ad1af51",
+    "src/inv_trend/adapters/multi_asset/risk/fill_guard.py": "81f5179bc5c4ceab58979336ea7e9a970d7601155cc0b1a09214a0db6724f395",
+    "src/inv_trend/adapters/multi_asset/strategy/__init__.py": "8fe03e65f07d81a7d9f96678e43ca38640f17493b89bbabf5b896469e5ea5132",
+    "src/inv_trend/adapters/multi_asset/strategy/budget_policy.py": "cfdcc20b8bafe705d8406c62b402f6ff866f10f4d4a89de3333dc199d8217600",
+    "src/inv_trend/adapters/multi_asset/strategy/engine.py": "150583856658404670715a32f895536f671b721371ea726066a17f113324e19c",
+    "src/inv_trend/adapters/multi_asset/strategy/indicators.py": "63563d367f5cc682822c2fa3043775c499ed3d71aeb3b94d4a9043eb944877fd",
+    "src/inv_trend/adapters/multi_asset/strategy/profiles.py": "8cf7bc8335f191bcf4ebd3ca1b903633dad9f997c5eb15834ba6a626e1aa4d6b",
+    "src/inv_trend/adapters/multi_asset/strategy/sizing.py": "63485cc04de657def367e602ede84f803e6f4a7b4fd8e6c290f2ed88e1efbbbc",
+    "src/inv_trend/adapters/multi_asset/us_trend_alerts.py": "701d762d31cb7f91ff94688b67b6900c0aef971f21e4e5e79b3d6f90a5fff090",
+    "src/inv_trend/application/__init__.py": "f6bc5946cdec2e493f467bfb5c49dbfe509d5b0d43d843b1af5905b96970b7a8",
+    "src/inv_trend/application/asset_config.py": "e62536b1bd786600560aacb1bec0cf9239b011138033191574b1c78cfa0a5ebd",
+    "src/inv_trend/application/backtest/__init__.py": "31823d934db670447371dc4db6340336d4426b81ce11578fcb6285cd9de0b5a4",
+    "src/inv_trend/application/backtest/artifacts.py": "252b054dcbde46d6e86e7a70aaad4f957ebfe938ae6d98eb20956d879c85cced",
+    "src/inv_trend/application/backtest/execution.py": "ae76803e9581495a0bc451ddd2135d7180f78a198769d042d2aa876b206c15e3",
+    "src/inv_trend/application/backtest/grid.py": "882f0720a6e071aa21319d35caa341d7802deef98d86ade57301133c994b46d2",
+    "src/inv_trend/application/backtest/legacy_report.py": "ef63a464c10efbe659e0e25aec28aa7c556245ace205afcbf6ea7cbf45bc5053",
+    "src/inv_trend/application/backtest/metrics.py": "052108136f391108a0d0ba192a4a81ff5acf5f58f207d5b2378926e4afa4f6ee",
+    "src/inv_trend/application/backtest/models.py": "fc2657cd547f80c0f8b5c8b599ec3b0eae193fd9570abe767a14f126a3872d47",
+    "src/inv_trend/application/backtest/ports.py": "fdf038a3bf775f2fcfcd97ede706e099a290c83bc7a4fdac08af1037200cd4a0",
+    "src/inv_trend/application/backtest/projector.py": "fa56e6604d6c495a46bd4c384455738a435444a6c2a221a515dc9420c48d34a2",
+    "src/inv_trend/application/backtest/reporting.py": "5f9dd8d08573ae40a603dbe96d078fb672f7bc43fa0d3a77a30181a15b529c44",
+    "src/inv_trend/application/backtest/service.py": "963fcd84d162c571d09c4b0faf494d11801ab51d502828b80b66db7946e7d201",
+    "src/inv_trend/application/backtest/single.py": "158c1c8a306bc2514663da33ed661d18b18e953f65cf299425415dbe2412db00",
+    "src/inv_trend/application/backtest/single_artifacts.py": "d2ad821321b940e2370fca983eefa115f5161b9faa5b13c4f3d09bef4ddecf65",
+    "src/inv_trend/application/backtest/source.py": "95bf919cd723e7cc3dd679382d498091a02afa410f4581f90466db7fb7ce4c9a",
+    "src/inv_trend/application/backtest/validation.py": "f341200ac2ddae7c10d1ec650d2eafbb941a77c87a280901392f544c2a76c48d",
+    "src/inv_trend/application/backtest/报告交互.js": "680a78685ea74e2fa4bc5d9b6d1863b7b4871413959d2c5c180fb745618705a8",
+    "src/inv_trend/application/backtest/报告样式.css": "85cb974598775af0821ee5d33cf4d94d779af9c82cbe0fe002d07293c74fe49f",
+    "src/inv_trend/application/backtest_service.py": "b89272992fa8cbe19c1fde00560fb70fdbcf6fefa640e0cc5ae2873b0730cbb5",
+    "src/inv_trend/application/config/__init__.py": "69b5e1aa84cc61493a3f2d35ceb93e6c227ac32217a2d04fd89a024ab5e665ad",
+    "src/inv_trend/application/config/strategy.yaml": "6f812a0176bb74294c35bc0458796e9febaee2ef76a36684a32d70505411b798",
+    "src/inv_trend/application/daily/__init__.py": "b1f90ec84a3c4d28f200b467043541aa47af401191c0adf48d11106a719e0947",
+    "src/inv_trend/application/daily/artifact_publication.py": "671f1b5650901b44b94abdc0f9ad8a23d0126da277df0f66dd8e2044af6ef615",
+    "src/inv_trend/application/daily/compatibility.py": "6fc0ab1f75de0ad116858df01bd929c0e76982fd5866fc3cca34644abcd8b6e2",
+    "src/inv_trend/application/daily/data_update.py": "e7620d6c7b9fe93963b5af45924428c43ad3df8c6209c4e82a07386ded149f41",
+    "src/inv_trend/application/daily/legacy_runtime_adapter.py": "1848dcb15351d621cc314d131636e19039fef4869cdf0ec3117c37658a2408d0",
+    "src/inv_trend/application/daily/notification_delivery.py": "32076429a3f869018c6ca750fbacbce4bb6c3a5f215465e911bdcc2a915b5932",
+    "src/inv_trend/application/daily/ports.py": "6840bcec55588227949c3e5f5dfd5eb7bac308eb4febcbfb3594aa9a3d0505d2",
+    "src/inv_trend/application/daily/projections.py": "7bf1e6caf4a6d52dc5e757c624f4bde092465b4ac72c6b34bbb6aa09188894c1",
+    "src/inv_trend/application/daily/run_contract.py": "f0aadc0adf349e79bd2b08479498f1f77a7762a790ea905908f1a6a6c3c05953",
+    "src/inv_trend/application/daily/signal_commit.py": "04d016b3862f3fba3469708eb37a4e05730f675f229ccd4ebf64ac5c8ea3972c",
+    "src/inv_trend/application/daily/stage_payloads.py": "169386393a62178b017b5c0e784cfe796130e71a06b03b3f408b1a10593a178f",
+    "src/inv_trend/application/daily/strategy_screening.py": "5835e38808f7b1667f6504f5418c7a5c3c168fd39f7e48e87737e25ae16b025d",
+    "src/inv_trend/application/daily/trend_decision.py": "0c9fd42f9e4a35b96044a25716246b2d743e8b44731173184ac8f1fbf90a9ab8",
+    "src/inv_trend/application/daily/workflow.py": "c9e510bc0decb87e95e6c42b9d55f190cf2b32351fc9b9c6055cf897f7f30d66",
+    "src/inv_trend/application/daily/workspace.py": "5ea0245c575d7b9214beceb98b0e911b420dcbd8b225fba01afa1e92961c0415",
+    "src/inv_trend/application/daily_analysis.py": "7cc8c99ea49c45378b7e1ba567f6d76f97a36a9ec57a559581bca56d8af25237",
+    "src/inv_trend/application/daily_artifacts.py": "5dc2210801d67b0904446f64b69191a1b439568a0f14bf60645fb5a40adfa906",
+    "src/inv_trend/application/daily_models.py": "fbd0c842316d463f89f2528fce1fca344dff0f9774303ec7be3955f276e1d8fd",
+    "src/inv_trend/application/daily_pipeline.py": "14a5f00cc67af4457f1fa71ba7c33c063b06638e4f0ca3cb462403d00c4138f0",
+    "src/inv_trend/application/daily_stages.py": "ba5066e18fea6babd26f7252360637d28b854ec440ddc8c570d636ac884c6d70",
+    "src/inv_trend/application/detector_scan_service.py": "430fa4726bdc487192df24517e022d9101563f9cb948424b2302ccd5e6880a88",
+    "src/inv_trend/application/detector_scan_workflow.py": "c2a2afc22c9d668c28783cfaf387d2b57b77853f41c30eff194c3ed85b6f5b1d",
+    "src/inv_trend/application/detector_service.py": "6f121d1cc8f2c70a4e0bb079b1bb196ebad1bb7060f7fe5ea9accde4682e67ef",
+    "src/inv_trend/application/manifest.py": "e206da22956973304025461dd25d4655f646146bc61a7302961485ad41a4f656",
+    "src/inv_trend/application/perpetual_audit/__init__.py": "1b5601afd29090e3b3052030aa43d5c06819fe1d5765f91894a756820ce50a8e",
+    "src/inv_trend/application/perpetual_audit/亏损归因.py": "73057078d17cdc146abc7adbcdba5fea3686d8788f1b6db94a4927076afe8a13",
+    "src/inv_trend/application/perpetual_audit/候选比较.py": "2c892c9eceba61454b2b2f8c51f4572a23f29571f80c7be54de9b9ae20db3616",
+    "src/inv_trend/application/perpetual_audit/分钟执行.py": "4500ca3e7bcb61340a3ebb70c9dcc55fb2d91d770bc39725c04937cd0dfc089e",
+    "src/inv_trend/application/perpetual_audit/历史资格.py": "7912223f52d0a4babc462e0d267d2df9af8cda05ebbc8eafd90c5a9097265145",
+    "src/inv_trend/application/perpetual_audit/审计服务.py": "5642534aa9cefc332abb40f9e7d102f52c2589614f0afc2678e5a014b659c28d",
+    "src/inv_trend/application/perpetual_audit/研究协议.py": "d0488f2b36c2127a5b223579b1376467113d5c1a104f19783f0905e7952af413",
+    "src/inv_trend/application/perpetual_audit/统计验证.py": "22e6e6760f96341385c739eb9cb6024372f455c0fe35b697adb24e05493b8910",
+    "src/inv_trend/application/perpetual_audit/认证数据.py": "5b735bf1d5155e57e2ed60def80599c367a89f46d0f5c67245271941514b94e6",
+    "src/inv_trend/application/perpetual_audit/证据等级.py": "c4b3192db272ee3d3ed81ba98b005dfbd6d667426480f1c7f058c81c66e9d3ff",
+    "src/inv_trend/application/strategy_backtest/__init__.py": "9683f9224b4bec326ec7dfc8d49b80e15a425ce9bdea55155c36d402717ba18b",
+    "src/inv_trend/application/strategy_backtest/artifacts.py": "d2a99bb5061217b15abf656bf4dd6fbb378836f4d6778239d4050f145ca68916",
+    "src/inv_trend/application/strategy_backtest/grid.py": "4884b4ac41aef018685778edcf5f09cdb7facc7be7e7b5fcea18eb46b624c776",
+    "src/inv_trend/application/strategy_backtest/metrics.py": "45729d1b9d1f4e38b835b2c7c058ab5c55452cd434b1272437fe64b3b56a0e3a",
+    "src/inv_trend/application/strategy_backtest/models.py": "d55899e48393480431fc7f843171674270ed379f0d04722452ff1ebfef2a9f52",
+    "src/inv_trend/application/strategy_backtest/projector.py": "34a4ebfa7aaa3869537492da7bc14b4f081b51aae810a629b793bbff7076c056",
+    "src/inv_trend/application/strategy_backtest/service.py": "c2025a17ce751feeee29c7b7725bfe3b4f0f7ed636f32e1296ebb5be41e0fb6a",
+    "src/inv_trend/application/strategy_backtest/source.py": "161ed4694e4cfa6168ab9e1dd000e50b3a06272cde50d88d075281c3f20be6ce",
+    "src/inv_trend/application/strategy_backtest/validation.py": "3d786c61ad4ec4156a55035caa9e02e8a8550ba1cf6ae7a1a75c80cc1314077a",
+    "src/inv_trend/application/strategy_config.py": "b38852a6f7b24ab0485e726dd0dc62f4382245b769132e63379ff57a3e8f0a27",
+    "src/inv_trend/cli/__init__.py": "ba0e58b79fb5914de3d56e946d102f85161ff65942b31455e40de13fdfca5d77",
+    "src/inv_trend/cli/alert.py": "9094a7382a86ec566a85229744284c641921f1bd6920d68378e033f0a956d963",
+    "src/inv_trend/cli/backtest.py": "ea158d8a5bfca3335c2691916fc878de7fe49767634b4847e147bf5f3d869a0e",
+    "src/inv_trend/cli/daily.py": "43a945c53a84b84bf8a8adf7b21342b7a502a319948c9bce2ac142eca77da3f3",
+    "src/inv_trend/cli/data.py": "7ccc39b1ad088322ab7e790ba76af97d98de46ad9a466159da3855999412be61",
+    "src/inv_trend/cli/detect.py": "5a4a74eb17e14c3bb2c0c0f61783d93b4f3df8e8094caba533eb5caa139845e4",
+    "src/inv_trend/cli/market_data.py": "fbca1d9ce4f4b70edcd9c0c36269eb22f990e75811bfc45645e4c3f3a557bb42",
+    "src/inv_trend/config/__init__.py": "0c8e3d39833fa5daf0c23dc9e2952d6891c606e60b72e1fc82a7091980f5ef57",
+    "src/inv_trend/config/strategy.py": "ce87d2ac26403e4e48ee4ecd5247992fba50332478da7744710d7821822417aa",
+    "src/inv_trend/config/strategy.yaml": "2e26f8817d4d558509e1a43be2cac64826bef0e247227bf55bd529c43bcc4a05",
+    "src/inv_trend/core/__init__.py": "902836bb2b65c69cb1670694de281ece1a4817097bc4e10cb700c2383bbb8277",
+    "src/inv_trend/core/decision_events.py": "88f48b7c45e78b7519e493b2ce47fa50b7a84cd94d3e274fd16c538bfad1a85d",
+    "src/inv_trend/core/events.py": "7c05c370ad90be9765f1ebab50deacced478802b854509d7fd386be528831329",
+    "src/inv_trend/core/explanations.py": "a797745e3a913a2bf1e41a8b9724817537652e2e56fa697e2c2362e813faf62a",
+    "src/inv_trend/core/features.py": "2022a4ed349be2dfe99f2b87aa4b9e418c92c0c6e2bfdbc3132a88df7cf7669c",
+    "src/inv_trend/core/identity.py": "5268d6db8f36a1f95e445cf50e21b00027ac7a57b2a164fb9c31b4e0f20db1da",
+    "src/inv_trend/core/math_utils.py": "868faf848e969a4522a01dc95a4f1fac20ef522f34e21f65d70a244ccb1bd70d",
+    "src/inv_trend/core/performance.py": "88d550502ccc5028b9d221c90d4776d61c0aed7a793a6ab032179da7a7efcac7",
+    "src/inv_trend/core/resampling.py": "46481ec412c17ba1ae52ae8bd6653314bb97160bdd013e8572df26e6d1c4d229",
+    "src/inv_trend/core/rules.py": "d644f9ffb6da0b49626c95b7a0c0b86b720302ffe43dc34d743591191f480892",
+    "src/inv_trend/core/serializers.py": "20e7b196c447d1cd7192d3f96dd901c76d718595857918796442af42ee9d5468",
+    "src/inv_trend/core/signals.py": "2c00126d3fa73c5627b59b4523351141dc3088f41cc281a63ed9c71e8152c4a3",
+    "src/inv_trend/core/strategy/__init__.py": "e154b19d60ac111ffacfb71021db8901a5660dce0d44df697d2e88fdba4b195e",
+    "src/inv_trend/core/strategy/daily/__init__.py": "b24e6b95a2384d7b8f149530d06d39e92eb37be48fbc9f4622eb90cb4a6e383e",
+    "src/inv_trend/core/strategy/daily/analysis.py": "6785d8013be4ed0dc0920bb8ffc0c0d8d218c4acd6d2020efea2317f3c682278",
+    "src/inv_trend/core/strategy/daily/lifecycle.py": "ac6c686d9aac1c074d6d62496d21152e56233c8b7682f3f6668e36c65d2a7514",
+    "src/inv_trend/core/strategy/daily/signals.py": "ac20de2010cca702d4b4a7016cc6adfaf9d950928574bc4d9e7125a65a078912",
+    "src/inv_trend/core/strategy/daily/strategy_checks.py": "37631bf8143551ab77528241a4e8033a2308e00bfb8c329637aa6b9d68f43d0b",
+    "src/inv_trend/core/永续风控.py": "a7a11d527c490f604f08df77bdc4b7b68608bf63386b4ba8f5e369c06fad746b",
+    "src/inv_trend/core/突破规则.py": "933dd7c907e37c306c72a200add744972c2c75846c8610196e133e658ec7ffbf",
+    "src/inv_trend/core/行情校验.py": "ab6f144c6a52533bc7c00ad47bf9494913085eb8e63badf3d038c973c34470a5",
+    "src/inv_trend/core/趋势准入.py": "1b18864a63c68f5df6b743587a5e75b6b734a0e44589671ec237252180730697",
+    "src/inv_trend/data/__init__.py": "b4f0a6bfab7b9939ea9e1703c2ad1087897ad68a1a8ad7359e069f2ae0691e88",
+    "src/inv_trend/data/api.py": "cbb14f3ce260cae151c61bfe7cbf4be2dc2c80d4f13d2432537ec3c7f1acc100",
+    "src/inv_trend/data/audit.py": "069620068a93589cc842cf17ac60cf8a2d0435eb32d27c4f5883cc67ccfc669e",
+    "src/inv_trend/data/calendar.py": "57b750999f1bd16c5f91c99cf27b88f064125cda28a35b7307b88df8ca9025e0",
+    "src/inv_trend/data/config/__init__.py": "a0397df1d897fb03b9b766051b1ec2e1b5ba37e90ee59aa3ed4a7a7f0adc2715",
+    "src/inv_trend/data/config/assets.yaml": "b274fc31cbf497186b42c0826001b8ed557bb508c8498a2b493b5b765a7d9458",
+    "src/inv_trend/data/config/loader.py": "774186185862c85db84a29043a471b40be9416969a0a5fe6112c39145e7b3072",
+    "src/inv_trend/data/integrity.py": "e28f170380e7cb05204246be911abcf652855e93967a04155c8ff069f1f886f6",
+    "src/inv_trend/data/legacy.py": "2e11b1e2386d936dc0c3abc70de35c3d122ff2bd3261c8b116aadf8fabec8db3",
+    "src/inv_trend/data/lineage.py": "9c21468e85f102e7955f6f882fac653ec0467a307fe3f9823061030e94fa4426",
+    "src/inv_trend/data/locking.py": "2a3ddd23eac4143f2d6dc2d8c154ef681d14969c334f1bc33ab3ad308a61d1de",
+    "src/inv_trend/data/models.py": "53f5f6387f9246a9b1fa0bb9798601c25444f2e921bc30667997db33dee2419a",
+    "src/inv_trend/data/processing.py": "6a90d5c9e635772186ccdcb2e2dab8f595be9d026a00831602880c4a5699d8fa",
+    "src/inv_trend/data/provider_factory.py": "f1c02c08b1dd8cd7c5774ea11478cb3879e4018a92ad9caefdf0446d2c3585db",
+    "src/inv_trend/data/providers.py": "ca48ec8dd52450ce55d291659129c960b4cd61648fb27dc8e136b510124db108",
+    "src/inv_trend/data/registry.py": "14eb039a0fd73cde6a5195996a519c262dcb5162b94ef5da2f194dcc0be21a93",
+    "src/inv_trend/data/review.py": "4c9c9a33866f293d4fdbe6b5024017554b609ad4c23434146bae2f92bc887a1f",
+    "src/inv_trend/data/storage.py": "b6d82a3866d1171ea577151a162e4616a1a41cf452d04867c6602fe94f17b2ff",
+    "src/inv_trend/data/永续历史.py": "7697ab194214e828d074163ebe7dfc734c07574b9d9ca424c2e04627545f21e4",
+    "src/inv_trend/integrations/__init__.py": "e41bebce779819a4d53e7c5b2172da105b82acebab5c36eb0f255f098c713c56",
+    "src/inv_trend/integrations/mt5.py": "195e3205624197b232a2d6cf9dc179ebd65f4f1ef6d0e72a80185b471ec0d77e",
+    "src/inv_trend/integrations/okx.py": "f216c4375a2fdee24b8f8ae20ed2d8e199d7d112bab9ce553c158ba602eb648a",
+    "src/inv_trend/observability/__init__.py": "391bc3649784c1e35a92a7d67062231e28eb00c73e86de15d65399d49d891283",
+    "src/inv_trend/observability/audit.py": "4b76808fb2680b1aa6ca53ebf59204c58db3ee5f018218410c47af2ff2cb356a",
+    "src/inv_trend/observability/backtest_html.py": "ed56620e058fb2fd81e6165defa05cdf019a32852291160797764c262e98e693",
+    "src/inv_trend/observability/daily/__init__.py": "090618d4cd9f3cebdcde0e016d638fe158645f9cddd69788c551923ae03d1497",
+    "src/inv_trend/observability/daily/complete_renderer.py": "1fcdadbed7d18c5992392e48a49e6eae7697f5c13ecf662566859fa957ed3cb5",
+    "src/inv_trend/observability/daily/renderer.py": "e04b10a595bcb13893ab7d188f6ddb1b5887a1f84477c9358651f8d2ac13496a",
+    "src/inv_trend/observability/daily_html.py": "b71e7d1fec6a4d90d6ba729ff546c0186e8e6aea6d2c6d0dbdd79584b032c8ad",
+    "src/inv_trend/observability/report_model.py": "805960c5296786955efdb3378c39585d0b3e3de6c650d1a8cda8ff37cd5d1c63",
+    "src/inv_trend/observability/report_renderer.py": "30e1cebcf1ac83049547ab8fdfbe947679a0054a1351a2ca57b855e95bbcfe0b",
+    "src/inv_trend/storage/__init__.py": "46c1feddc64308bb9b3571c2e1a8938acb0b007501bb6173834047b8f9eb96c4",
+    "src/inv_trend/storage/仓库.py": "0f4f977a67c866de144dee5c37d99b0a3a074ad9a9756d4ee6bd3cc07d4ff391",
+    "src/inv_trend/storage/制品.py": "2f68e98ec8a474844d3194c69e9c36d6b317d0aadce90f2afa1efd3abb109be3",
+    "src/inv_trend/storage/基础.py": "5d02b74246ffd0cb4f1c55f8a5f11450b781a710f9ebc8fe88908951d2659b85",
+    "src/inv_trend/storage/实验登记.py": "982558faa474b3b82e2dd5e8437a7c40ab3eca4129b9ca68657b1360652a7fa4",
+    "src/inv_trend/storage/结构.sql": "58a969ff7dc45b880f34afb6bf4ef2bb3a201f3fd7f2c15883c1cd010b51a209",
+    "tests/__init__.py": "99ecfff12e9e4da25056b41fd6ad698b6ebd1ac7914303ac4af5169192eadc12",
+    "tests/conftest.py": "87014908ff4546e9b0b541607e71182dd578df1b5bfbceb9623a446813688ffc",
+    "tests/fixtures/golden_d1_expected.json": "627bb7b0c3b2119b3f926bfaf92cb4912157471acb171c6aeea6bb59d747b397",
+    "tests/fixtures/回测整理前基线_v1.json": "e1843e361b0f44795081112aeb1a394aaeda03d1ac6aa7060efc1b16f15e7e9a",
+    "tests/fixtures/执行真实性修复期望_v1.json": "cba43212dad3a757ecdde19f4e7171e373aabd9c442cde1c0272fe7971537874",
+    "tests/golden_master_support.py": "31bf6c0a5b43da894d9d79fb51f6dc430237a5ae1ba2312afc86e0fe348a0308",
+    "tests/test_application_services.py": "f00fa0373fad605732871f248761e02c13bf52ccc56943b54c4e19c1e59b7ed2",
+    "tests/test_architecture_boundaries.py": "338a780fafe19e7d45a6816ac80db4d162d216b18cb366d73ba616449c78b764",
+    "tests/test_audit_hardening.py": "56430830dfa65a8a939fbea65b50711b6c144f4913e0dc02d5f7547990db1cec",
+    "tests/test_backtest_config.py": "a3fc0cd981e9eb5ab62991f53a8570b9df6208c56732c679977ef1f602442f91",
+    "tests/test_canonical_strategy_config.py": "2d49214ce56f81f464ce6f3164680df55b22b6f933c34295f79c92148854379a",
+    "tests/test_core_dataset.py": "a2515c1e7963bd90b51d8ecc62f80b6738b2beeceda5bfd2215594d6a4aa97bd",
+    "tests/test_daily_cli_stage_isolation.py": "cbf82e055d5bca067648c1dc7506fe062c3057583c4bb6d42a2a106772f9ccc3",
+    "tests/test_daily_execution_decision_events.py": "355bf747b3e28fff88d15ff356c2d5175565af306a417efd6a7347aabc009137",
+    "tests/test_daily_freshness_and_store.py": "1c48529401572089f00d1e38a6901d5bac118e7cfdd3f08ff0b489bfb7feea65",
+    "tests/test_daily_market_scan.py": "072db8d3bb03ca6b97e5876e6f74260ddbb69144b4ba6e2c75bff56b841d3176",
+    "tests/test_daily_signals.py": "d35831126077dca014800d2f0c551e5828dc6e66308ce97b818de2d9c393f084",
+    "tests/test_daily_strategy_checks.py": "72f2fc5a4ca0ee59fdd80195d60c7a49dfda4370d5b1255917ff73530e641a72",
+    "tests/test_detector_scan_workflow.py": "bcb3be33b261ed5a4356672df81e79fb2640f2d06258cf17df180ad2415ede87",
+    "tests/test_eligibility.py": "f8bb7fbd6bc4594dab24ca963fd3f981d82f05f3c88a71afeb4f13daee016668",
+    "tests/test_feature_preparation.py": "088d216bb221ba5a2f94566637ca7ffa3a324b2d359c023d4b0c73ec147156c3",
+    "tests/test_golden_master.py": "994c0b31fcf2e0da63551bda6db09e3e6f681d287d41376c1c4c5629504148fb",
+    "tests/test_historical_data.py": "b28291f7c917f3ba08ec82106a01fa898bb03f8207368f4848c2b1f11ba988cd",
+    "tests/test_historical_data_incremental.py": "1ab023a6c6a6fbf4e8479a05bb14ed1e4799d7f461983f81ad77d0c4f1772a5f",
+    "tests/test_historical_data_p0.py": "0eeeffa8cc93e5b5936600105ceb1f465a9f477f75601b3d471992a03597445b",
+    "tests/test_historical_data_universe.py": "329eae1e9db99a641a83f480d169d215e166445f701d05be291d22d173ef22dc",
+    "tests/test_holdings_universe.py": "6902a146c9d23dff3631e44312db86bbe9d5cc9cde44bd91e947cf58aa9180eb",
+    "tests/test_indicator_anomaly_audit.py": "7e093abdde8f3eb610dcdf4f9211ef430192223ec0e546ed378b6897f6293157",
+    "tests/test_mt5_data_adapter.py": "f8d5b634e81dec9777520dd6e6efabcfe507bcde32a38300c3497dfae5b8c9e2",
+    "tests/test_provider_factory.py": "e5eea8847f65b452b06b8ad2c1749edcb7edbf0f1b05653dfc581302b4888215",
+    "tests/test_provider_fallback_safety.py": "43c6dbb5dad46ed0fc9083bd8e4ea75e83bfd7782de4f274844dd05009eb7974",
+    "tests/test_trend_stability.py": "c07d31e517c109da6da49072614bb461144eacf1a73e67021a9a4a2c75d600c9",
+    "tests/test_turtle_breakout_alerts.py": "eb0413d34a73782c5195abf6afd612664723be3dda54fda6f79cd60a0267bcdd",
+    "tests/test_turtle_detector.py": "8806558faf00a12a260f1fbd560f5d3e9bf0924caa104f8c019c9311553515f1",
+    "tests/test_turtle_market_scenarios.py": "4c2881bb07ebd7c5519fc3755aa572843e735ebf0c85ab7966ef0ac17b26dddb",
+    "tests/test_turtle_multi_asset.py": "1285418b92e9296af13335148f184743d6b9a723eb5af709e8ee7798a4b0f3d5",
+    "tests/test_us_trend_alerts.py": "2f5178f54ff0115701fc333c5e85ce2c0769e52c16d18d77c0356bd52cf7c061",
+    "tests/test_五轮重构.py": "4aff4c8dd94e670b88d19c4c76361610d9d4a9223ad28544d9ab04a188a30232",
+    "tests/test_回测报告审计.py": "ac70a3451a90a93a8d4d84de29a9187db7e39ae29d6f8520fc68d0b311385b4c",
+    "tests/test_存储治理.py": "db4f23f7f7a4c0497781c257eebdc31b68453c505914453badb29f6c3abe5c71",
+    "tests/test_执行真实性审计.py": "15c22aca8dad4dcf622f311d6113883658473ffa9fc754b8174ccad57b24249b",
+    "tests/test_永续分钟执行.py": "cea36b320508748ab3659c253e05cd2861dbc47c000c9a96b26b6663b47d349a",
+    "tests/test_永续审计工作流.py": "1ebc254517bf66c80ecda95ca75b359b14eb1b2200b29204d6e3e95d52a02685",
+    "tests/test_永续研究协议.py": "83a99986d1e5ab8920b5c8b3307ae923474596ae9da6ff5de6006ddf63f9cc5d",
+    "tests/unit/test_atr_percentile_equivalence_v2.py": "91c57f2646a829baabcb053310aac263460b574326721aee78621950082f54b9",
+    "tests/unit/test_daily_artifact_publication.py": "5b4422f298f1705a1ef345c717dd3afcd497c3c53f51a4ddae5443075b4bd989",
+    "tests/unit/test_daily_core_strategy.py": "f7b614d052d819678e67e41e4db65808aab237f93ba7c41788b4906fa0747bc3",
+    "tests/unit/test_daily_module_shells.py": "a5b3489a2f1bf0d2cdf25b20523d79c3cb2d8834185142550b392a64b15acd3a",
+    "tests/unit/test_daily_stages_v3.py": "70d62d1a47d3832c882f1293872478de2a328ae83626d3fdbb93bd0c63fc7581",
+    "tests/unit/test_eligibility_bugfix_v2.py": "75304b612abb267123db3b424dc78b00a52b4d5bdc880527338ebead45d45388",
+    "tests/unit/test_explainable_daily_analysis_v2.py": "b9be66e95b8f5413878f41b6c44c13b6e8f5e4030ce8c386c45c6670780b6192",
+    "tests/unit/test_feature_request_merge_v2.py": "6899eda2b6f15cdf70609e00562e9e57735478db6231f1dbb1b14693c7fb04d4",
+    "tests/unit/test_indicator_lifecycle_v5.py": "d2478ec315930fa346448d4244892f89132493863c4a1c0a045b271d0bd443d7",
+    "tests/unit/test_report_renderer_v2.py": "6af806852e626fd4280db4525c307a9fafdb43f50a1e8afe9ccab727e76c4a8c",
+    "tests/unit/test_strategy_backtest_stage.py": "059b99d19c365565e546fbc81049c4fb08a12242185455a5982de92673cdad0a"
+  },
+  "probes": [
+    {
+      "id": "P01_指标前缀与未来价格扰动",
+      "status": "completed",
+      "seconds": 0.14816540002357215,
+      "prefix_points": [
+        1,
+        13,
+        14,
+        20,
+        27,
+        55,
+        120,
+        200,
+        300,
+        419
+      ],
+      "errors": [],
+      "future_price_mutation_preserves_prefix": true
+    },
+    {
+      "id": "P02_尾部存在性改变交易资格与信号",
+      "status": "completed",
+      "seconds": 0.03946360002737492,
+      "without_future_bar": {
+        "at": "2024-03-20 00:00:00+00:00",
+        "active": [
+          "OTHER"
+        ],
+        "test_orders": []
+      },
+      "with_future_bar": {
+        "at": "2024-03-20 00:00:00+00:00",
+        "active": [
+          "OTHER",
+          "TEST"
+        ],
+        "test_orders": [
+          "open"
+        ]
+      },
+      "history_through_T_identical": true
+    },
+    {
+      "id": "P03_访问边界不存在",
+      "status": "completed",
+      "seconds": 0.00931190000846982,
+      "current": "2024-01-01 00:00:00+00:00",
+      "future_date": "2024-03-20 00:00:00+00:00",
+      "unrestricted_future_close": 179.0,
+      "current_bar_close_exposed_in_open_reader": 100.0
+    },
+    {
+      "id": "P04_未知数据末尾触发提前清仓",
+      "status": "completed",
+      "seconds": 0.0956408999627456,
+      "no_future_bar": [
+        {
+          "entry_time": "2024-01-02 00:00:00+00:00",
+          "exit_time": "2024-03-20 00:00:00+00:00",
+          "symbol": "TEST",
+          "system": "slow",
+          "side": 1,
+          "side_name": "long",
+          "entry_reason": "audit",
+          "exit_reason": "end_of_test",
+          "exit_type": "end_of_test",
+          "unit_count": 1,
+          "add_count": 0,
+          "qty": 1.0,
+          "first_entry_price": 100.9,
+          "avg_entry": 100.9,
+          "last_add_time": "2024-01-02 00:00:00+00:00",
+          "last_add_price": 100.9,
+          "exit_price": 179.0,
+          "initial_stop": 80.9,
+          "final_stop": 80.9,
+          "first_n": 10.0,
+          "last_n": 10.0,
+          "entry_cost": 0.030270000000000005,
+          "exit_cost": 0.0537,
+          "total_cost": 0.08397,
+          "gross_pnl": 78.1,
+          "pnl": 78.01602999999999,
+          "notional_at_exit": 179.0,
+          "holding_bars": 78
+        }
+      ],
+      "appended_one_bar": [
+        {
+          "entry_time": "2024-01-02 00:00:00+00:00",
+          "exit_time": "2024-03-21 00:00:00+00:00",
+          "symbol": "TEST",
+          "system": "slow",
+          "side": 1,
+          "side_name": "long",
+          "entry_reason": "audit",
+          "exit_reason": "end_of_test",
+          "exit_type": "end_of_test",
+          "unit_count": 1,
+          "add_count": 0,
+          "qty": 1.0,
+          "first_entry_price": 100.9,
+          "avg_entry": 100.9,
+          "last_add_time": "2024-01-02 00:00:00+00:00",
+          "last_add_price": 100.9,
+          "exit_price": 180.0,
+          "initial_stop": 80.9,
+          "final_stop": 80.9,
+          "first_n": 10.0,
+          "last_n": 10.0,
+          "entry_cost": 0.030270000000000005,
+          "exit_cost": 0.054,
+          "total_cost": 0.08427000000000001,
+          "gross_pnl": 79.1,
+          "pnl": 79.01572999999999,
+          "notional_at_exit": 180.0,
+          "holding_bars": 79
+        }
+      ],
+      "explicit_evaluation_end": null
+    },
+    {
+      "id": "P05_不完整Bar与跨周期边界",
+      "status": "completed",
+      "seconds": 0.013579400023445487,
+      "feature_rows": 10,
+      "store_rows": 10,
+      "aggregate_rows": 5,
+      "aggregate_last": "2024-01-10 00:00:00+00:00",
+      "incomplete_last": "2024-01-10 00:00:00+00:00",
+      "scope": "直接公开内存入口；版本化加载器另有完成过滤"
+    },
+    {
+      "id": "P06_小时日历虚报缺失",
+      "status": "completed",
+      "seconds": 0.0004249999765306711,
+      "actual_missing": 0,
+      "reported_missing": 23,
+      "breakdown": {
+        "weekend": 0,
+        "holiday": 0,
+        "provider_gap": 23,
+        "unknown": 0
+      }
+    },
+    {
+      "id": "P07_无穷值与字符串完成标记",
+      "status": "completed",
+      "seconds": 0.03481029998511076,
+      "clean_rows": 2,
+      "quarantine_rows": 0,
+      "infinite_open_survives": true,
+      "string_false_completed": [
+        true,
+        true
+      ]
+    },
+    {
+      "id": "P08_复权辅助函数缺省列崩溃",
+      "status": "completed",
+      "seconds": 0.0007373999105766416,
+      "observed_exception": "AttributeError",
+      "message": "'float' object has no attribute 'fillna'",
+      "scope": "孤立辅助函数；源码无生产调用"
+    },
+    {
+      "id": "P09_同数据日常与回测复权不一致",
+      "status": "completed",
+      "seconds": 0.0234448000555858,
+      "daily_close": [
+        50.0,
+        50.5
+      ],
+      "backtest_close": [
+        100.0,
+        101.0
+      ],
+      "scope": "真实转换函数；仅磁盘与血缘I/O使用同一合成帧替身，不证明现有历史交易受影响"
+    },
+    {
+      "id": "P10_缓存可变对象污染",
+      "status": "completed",
+      "seconds": 0.004035800113342702,
+      "original": 1.1995706881770523,
+      "reused_value": 999.0,
+      "same_object": true
+    },
+    {
+      "id": "P11_投影缓存未绑定实际数据",
+      "status": "completed",
+      "seconds": 0.017125100013799965,
+      "same_store": true,
+      "provided_last_close": 204.78176408135676,
+      "cached_last_close": 102.39088204067838,
+      "scope": "同一 projector 被复用且传入变更数据；常规批次只传固定数据"
+    },
+    {
+      "id": "P12_共享计算与缓存计数",
+      "status": "completed",
+      "seconds": 0.07065919996239245,
+      "rows": 3000,
+      "primitive_counts": {
+        "true_range": 2,
+        "ema_in_feature_layer": 2
+      },
+      "cache_measurements": [
+        {
+          "attrs": false,
+          "fingerprints": 2,
+          "feature_builds": 1,
+          "same_object": true,
+          "seconds": 0.021793900057673454,
+          "peak_python_bytes": 734090
+        },
+        {
+          "attrs": true,
+          "fingerprints": 2,
+          "feature_builds": 2,
+          "same_object": false,
+          "seconds": 0.04000200005248189,
+          "peak_python_bytes": 1092236
+        }
+      ],
+      "measurement_scope": "单次本机微基准，tracemalloc不代表进程RSS"
+    },
+    {
+      "id": "P13_行情冲突含缺失值误判一致",
+      "status": "completed",
+      "seconds": 0.03417430003173649,
+      "conflicting_duplicates": 0,
+      "quarantine_reasons": [
+        "duplicate_superseded;"
+      ]
+    },
+    {
+      "id": "P14_版本化来源未核验旧制品内容哈希",
+      "status": "completed",
+      "seconds": 0.007677299901843071,
+      "accepted_non_hex_unverified_hash": "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz",
+      "scope": "旧01_canonical路径；v3路径另有manifest校验"
+    },
+    {
+      "id": "P15_现金模型允许无借贷证据做空",
+      "status": "completed",
+      "seconds": 0.014150700066238642,
+      "short_position_created": -1,
+      "cash_after": 10099.85,
+      "default_source_instrument": "TEST.SPOT",
+      "default_resolved_can_short": true,
+      "scope": "公共执行配置允许；不是所有现货计划均启用"
+    },
+    {
+      "id": "P16_部分退出接口实际全平",
+      "status": "completed",
+      "seconds": 0.009660600102506578,
+      "requested_exit": 2,
+      "actual_exit": 10.0,
+      "position_remains": false,
+      "scope": "日线引擎exit语义为全平；永续分钟另支持风险减仓"
+    },
+    {
+      "id": "P17_恒价ADX与缺失递推",
+      "status": "completed",
+      "seconds": 0.00327590003143996,
+      "flat_adx_valid": 0,
+      "flat_di_valid": 0,
+      "wilder_after_gap_all_missing": true,
+      "scope": "不可用而不是方向证据；需明示缺失恢复策略"
+    },
+    {
+      "id": "P18_H4聚合仅计数无法证明连续",
+      "status": "completed",
+      "seconds": 0.005368300015106797,
+      "duplicate_00_missing_01": true,
+      "marked_complete": [
+        true
+      ],
+      "scope": "聚合边界直调；需检查上游是否先对H1去重"
+    },
+    {
+      "id": "P19_确定性与执行微基准",
+      "status": "completed",
+      "seconds": 0.04211470007430762,
+      "rows": 520,
+      "run_seconds": [
+        0.019481300027109683,
+        0.018960899906232953
+      ],
+      "hashes": [
+        "cae7d0e3539953c162f6dd210c43045f93af303b2b8272529f495c873aee4b47",
+        "cae7d0e3539953c162f6dd210c43045f93af303b2b8272529f495c873aee4b47"
+      ],
+      "equal": true
+    },
+    {
+      "id": "P20_入口与依赖清单",
+      "status": "completed",
+      "seconds": 0.40743279992602766,
+      "entries": {
+        "turtle-data": {
+          "target": "inv_trend.cli.data:main",
+          "module_exists": true
+        },
+        "turtle-detect": {
+          "target": "inv_trend.cli.detect:main",
+          "module_exists": true
+        },
+        "turtle-alert": {
+          "target": "inv_trend.cli.alert:main",
+          "module_exists": true
+        },
+        "turtle-daily": {
+          "target": "inv_trend.cli.daily:main",
+          "module_exists": true
+        },
+        "turtle-backtest": {
+          "target": "inv_trend.cli.backtest:main",
+          "module_exists": true
+        },
+        "strategy-backtest": {
+          "target": "inv_trend.cli.backtest:main",
+          "module_exists": true
+        },
+        "market-data": {
+          "target": "inv_trend.cli.market_data:main",
+          "module_exists": true
+        },
+        "storage": {
+          "target": "inv_trend.cli.storage:main",
+          "module_exists": false
+        }
+      },
+      "layer_file_counts": {
+        "__root__": 1,
+        "adapters": 77,
+        "application": 63,
+        "cli": 7,
+        "config": 2,
+        "core": 22,
+        "data": 18,
+        "integrations": 3,
+        "observability": 9,
+        "storage": 5
+      },
+      "edge_count": 512,
+      "scope": "AST静态import含相对导入；运行时注入与非字面动态导入不在图内"
+    },
+    {
+      "id": "P21_Daily多周期评级前缀",
+      "status": "completed",
+      "seconds": 0.31714639998972416,
+      "checks": [
+        {
+          "n": 60,
+          "equal": true,
+          "higher_frames": {
+            "D1": 60,
+            "D2": 30,
+            "D5": 12,
+            "D7": 8
+          }
+        },
+        {
+          "n": 132,
+          "equal": true,
+          "higher_frames": {
+            "D1": 132,
+            "D2": 66,
+            "D5": 26,
+            "D7": 18
+          }
+        },
+        {
+          "n": 169,
+          "equal": true,
+          "higher_frames": {
+            "D1": 169,
+            "D2": 84,
+            "D5": 33,
+            "D7": 24
+          }
+        },
+        {
+          "n": 237,
+          "equal": true,
+          "higher_frames": {
+            "D1": 237,
+            "D2": 118,
+            "D5": 47,
+            "D7": 33
+          }
+        },
+        {
+          "n": 300,
+          "equal": true,
+          "higher_frames": {
+            "D1": 300,
+            "D2": 150,
+            "D5": 60,
+            "D7": 42
+          }
+        },
+        {
+          "n": 419,
+          "equal": true,
+          "higher_frames": {
+            "D1": 419,
+            "D2": 209,
+            "D5": 83,
+            "D7": 59
+          }
+        },
+        {
+          "n": 519,
+          "equal": true,
+          "higher_frames": {
+            "D1": 519,
+            "D2": 259,
+            "D5": 103,
+            "D7": 74
+          }
+        }
+      ]
+    },
+    {
+      "id": "P22_完整行情价格扰动执行前缀",
+      "status": "completed",
+      "seconds": 0.03947580000385642,
+      "equal": true,
+      "cutoff": "2020-12-15 00:00:00+00:00",
+      "scope": "固定截止、时间索引相同、仅改变截止后价格"
+    },
+    {
+      "id": "P23_未来合约事件与历史资格",
+      "status": "completed",
+      "seconds": 0.01027029997203499,
+      "future_effective_spec_preserves_past": true,
+      "future_published_context": {
+        "status": "NOT_EVALUATED",
+        "evaluated": false,
+        "passed": false,
+        "reason": "MISSING_OR_OVERLAPPING_HISTORICAL_EXECUTION_CONTEXT"
+      },
+      "missing_spec_available_at": true
+    },
+    {
+      "id": "P24_报告独立进程断网验证",
+      "status": "completed",
+      "seconds": 0.9334623999893665,
+      "exit_code": 0,
+      "stdout": "{\"report\": \"E:\\\\Project\\\\inv-trend-trading\\\\优化验证\\\\全流程审计\\\\报告重建自检.html\", \"stage\": \"strategy-backtest-report\", \"status\": \"COMPLETED\"}\n",
+      "stderr": "",
+      "output_exists": true,
+      "source": "优化验证\\修复后复验\\完整回测结果.json",
+      "scope": "独立子进程，阻断socket连接/Parquet读取/回测服务；未验证像素布局"
+    },
+    {
+      "id": "P25_公开阶段CLI清单",
+      "status": "completed",
+      "seconds": 2.159197699977085,
+      "results": [
+        {
+          "module": "inv_trend.cli.daily",
+          "exit_code": 0,
+          "output": "usage: -c [-h] [--symbol SYMBOL] [--data-root DATA_ROOT]\n          [--output-dir OUTPUT_DIR] [--database DATABASE]\n          [--signal-log-dir SIGNAL_LOG_DIR] [--bootstrap-days BOOTSTRAP_DAYS]\n          [--provider-timeout PROVIDER_TIMEOUT]\n          [--provider-retries PROVIDER_RETRIES] [--scan-only]\n          [--research-mode] [--no-color] [--strategy-version {corrected-v2}]\n          [--backfill-signals] [--chart-bars CHART_BARS] [--no-html]\n          [--open-report] [--with-backtest] [--backtest-plan BACKTEST_PLAN]\n          [--backtest-output-dir BACKTEST_OUTPUT_DIR]\n\nRefresh configured D1 data and scan parallel trend-strategy checks.\n\noptions:\n  -h, --help            show this help message and exit\n  --symbol SYMBOL       Configured D1 symbol; repeat as needed\n  --data-root DATA_ROOT\n  --output-dir OUTPUT_DIR\n  --database DATABASE   SQLite SignalStore path\n  --signal-log-dir SIGNAL_LOG_DIR\n  --bootstrap-days BOOTSTRAP_DAYS\n  --provider-timeout PROVIDER_TIMEOUT\n                        Network timeout in seconds for each provider HTTP\n                        attempt (default: 10)\n  --provider-retries PROVIDER_RETRIES\n                        Provider/data-service attempts per request (default:\n                        1)\n  --scan-only           Do not contact providers; scan the current local\n                        dataset after freshness checks\n  --research-mode       Include non-CURATED detected events in the snapshot\n                        only; never formally alert them\n  --no-color\n  --strategy-version {corrected-v2}\n  --backfill-signals    Research replay of all complete bars; newly found\n                        events are not notified\n  --chart-bars CHART_BARS\n  --no-html\n  --open-report         Open the generated local HTML report after completion\n  --with-backtest       After publish/delivery, append an independent\n                        strategy-backtest batch\n  --backtest-plan BACKTEST_PLAN\n                        YAML plan required by --with-backtest\n  --backtest-output-dir BACKTEST_OUTPUT_DIR\n                        Independent backtest artifact root\n\n推荐的分阶段入口：turtle-daily run | data-update | strategy-screen | trend-decide |\ncommit | publish | deliver。保留无子命令调用以兼容现有任务计划。\n"
+        },
+        {
+          "module": "inv_trend.cli.backtest",
+          "exit_code": 0,
+          "output": "usage: -c [-h] {validate-plan,run,report} ...\n\nUnified strategy backtest, comparison, and report CLI.\n\npositional arguments:\n  {validate-plan,run,report}\n    validate-plan       Validate and expand a plan only\n    run                 Execute an immutable backtest batch\n    report              Regenerate HTML from an existing v1/v2 batch result\n\noptions:\n  -h, --help            show this help message and exit\n"
+        },
+        {
+          "module": "inv_trend.cli.market_data",
+          "exit_code": 0,
+          "output": "usage: -c [-h] [--root ROOT]\n          {download,update,update-gaps,reprocess,update-batch,status,coverage,versions,validate,verify,audit,missing,rollback,repair-current,review,migrate-legacy,holdings,refresh-official-holdings,qqq-holdings,sync-universe}\n          ...\n\nTraceable historical market-data ingestion\n\npositional arguments:\n  {download,update,update-gaps,reprocess,update-batch,status,coverage,versions,validate,verify,audit,missing,rollback,repair-current,review,migrate-legacy,holdings,refresh-official-holdings,qqq-holdings,sync-universe}\n\noptions:\n  -h, --help            show this help message and exit\n  --root ROOT\n"
+        },
+        {
+          "module": "inv_trend.cli.storage",
+          "exit_code": 1,
+          "output": "Traceback (most recent call last):\n  File \"<string>\", line 1, in <module>\n  File \"<frozen runpy>\", line 222, in run_module\n  File \"<frozen runpy>\", line 142, in _get_module_details\nImportError: No module named inv_trend.cli.storage\n"
+        }
+      ]
+    },
+    {
+      "id": "P26_本地数据抽样与证据范围",
+      "status": "probe_error",
+      "exception": "FileNotFoundError",
+      "message": "[Errno 2] No such file or directory: 'E:\\\\Project\\\\inv-trend-trading\\\\data\\\\data\\\\curated\\\\asset_class=legacy\\\\instrument=XAUUSD_DUKAS.LEGACY.CSV\\\\timeframe=H4\\\\version=legacy-9f2698b6edf48db5a4778d24\\\\bars.parquet'"
+    },
+    {
+      "id": "P27_未平仓费用与暴露指标漏计",
+      "status": "completed",
+      "seconds": 0.013003199943341315,
+      "open_position_count": 1,
+      "filled_order_cost": 0.030270000000000005,
+      "reported_total_cost": 0.0,
+      "reported_exposure": 0.0,
+      "reported_turnover": 0.0
+    }
+  ]
+}

@@ -1,0 +1,60 @@
+{
+  "baseline": "完整代码_v1",
+  "deletions": [
+    {
+      "path": "scripts/审计实验复现_v1.py",
+      "before_sha256": "c797daf9d230b1e83fb7da6cdc0ace13c9d4270052cb61c56d0676ab19a2fa8c",
+      "reason": "旧的一次性实验或旧冻结入口；历史证据独立归档，新版统一入口替代"
+    },
+    {
+      "path": "scripts/轮次基准复现_v1.py",
+      "before_sha256": "c587d9dee8f685444aa1c15aa175cf56c732cd5db1e3b3f173b09f78eb236c80",
+      "reason": "旧的一次性实验或旧冻结入口；历史证据独立归档，新版统一入口替代"
+    },
+    {
+      "path": "scripts/性能对照复现_v1.py",
+      "before_sha256": "990a7ea15572d47cf04459067bb4bbf14e160cae81388b6114fdd70cb8310ee8",
+      "reason": "旧的一次性实验或旧冻结入口；历史证据独立归档，新版统一入口替代"
+    },
+    {
+      "path": "scripts/五轮重构基准.py",
+      "before_sha256": "6df11f8010393cf8b34d02f59e5295e7d379101720931e691c5e02fe163402c4",
+      "reason": "旧的一次性实验或旧冻结入口；历史证据独立归档，新版统一入口替代"
+    },
+    {
+      "path": "scripts/重构证据审计.py",
+      "before_sha256": "327b28b6fe938c827a47c2b93f8b8aae6ceffdcce0824425c9187cc4dec9376a",
+      "reason": "旧的一次性实验或旧冻结入口；历史证据独立归档，新版统一入口替代"
+    },
+    {
+      "path": "scripts/打包重构代码.py",
+      "before_sha256": "bbc31a8c6a932db702f490a35106cd8c0cd1a6f48f868a5dfa95f3f11263fe87",
+      "reason": "旧的一次性实验或旧冻结入口；历史证据独立归档，新版统一入口替代"
+    },
+    {
+      "path": "scripts/生成优化说明.py",
+      "before_sha256": "e684537d0679d8c81c93c74f4386f6515390278e896d170bac54dbbb806766fc",
+      "reason": "旧的一次性实验或旧冻结入口；历史证据独立归档，新版统一入口替代"
+    },
+    {
+      "path": "scripts/优化结果对比.py",
+      "before_sha256": "5c296aaa4bb57e57431d61caba4b1ab350a77b62fd6daf476b5fe32e502cc8f2",
+      "reason": "旧的一次性实验或旧冻结入口；历史证据独立归档，新版统一入口替代"
+    },
+    {
+      "path": "scripts/真实性与参数验证.py",
+      "before_sha256": "9d3be1b4a9be6c7c39da7aa092d86488d7a63deef1f20f2ed2da32326fe41276",
+      "reason": "旧的一次性实验或旧冻结入口；历史证据独立归档，新版统一入口替代"
+    },
+    {
+      "path": "config/阶段研究实验_v1.json",
+      "before_sha256": "5924ac0e14d849f61cf9a6a8c3ec00e7371e31a54de15a13c4c4089e3f23e4ed",
+      "reason": "旧的一次性实验或旧冻结入口；历史证据独立归档，新版统一入口替代"
+    },
+    {
+      "path": "config/验证期选择冻结_v1.json",
+      "before_sha256": "f85cb99050694ba7185d1cb15d5012c85b39151aa861d79c97eb823e763ba80c",
+      "reason": "旧的一次性实验或旧冻结入口；历史证据独立归档，新版统一入口替代"
+    }
+  ]
+}
