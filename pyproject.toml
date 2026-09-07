@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "inv-trend-trading"
-version = "0.3.0rc2"
+version = "0.3.0rc3"
 description = "Multi-asset Turtle trend-following research system"
 readme = "README.md"
 requires-python = ">=3.10"

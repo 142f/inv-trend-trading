@@ -23,6 +23,15 @@ class SQLiteRegistry:
             resolved = selected
         self.store = Storage(resolved if resolved is not None else project_root(self.path))
         self.registry_id = str(self.path)
+        if hasattr(self.store, "catalog"):
+            try:
+                self.registry_id = self.path.relative_to(self.store.root).as_posix()
+            except ValueError:
+                # Explicit external export locations are opaque registry namespaces,
+                # never a second database or a writable path outside the data root.
+                self.registry_id = "external:" + hashlib.sha256(str(self.path).encode()).hexdigest()
+            # Explicit database identity replaces per-registry filesystem binding files.
+            return
         from .基础 import atomic_write
         binding = {"schema_version":1, "root_relative":os.path.relpath(self.store.root,self.binding.parent)}
         with self.store.lock():
