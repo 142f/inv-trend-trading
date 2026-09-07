@@ -1,0 +1,90 @@
+{
+  "data": {
+    "BTC": {
+      "path": "processed_data\\cleaned\\metal_tech_core\\btcusdt_binance_d1_cleaned.csv",
+      "sha256": "6b8fdbad488df4d016eec10ef88d47018d3c112ddce4c9a8042d31ab73e1214b",
+      "bars": 3169,
+      "start": "2017-08-17T00:00:00+00:00",
+      "end": "2026-04-20T00:00:00+00:00"
+    },
+    "ETH": {
+      "path": "processed_data\\cleaned\\metal_tech_core\\ethusdt_binance_d1_cleaned.csv",
+      "sha256": "75d2b3fcbaae739f5e23bb78be70b0ac082f2fbd40784d65e539bb1e863666be",
+      "bars": 3169,
+      "start": "2017-08-17T00:00:00+00:00",
+      "end": "2026-04-20T00:00:00+00:00"
+    }
+  },
+  "plan_sha256": "250496080405193605a5eb135cc56d776a0bed9c532f956346e64deb78a980b0",
+  "plan": {
+    "symbols": [
+      "BTC",
+      "ETH"
+    ],
+    "strategy_id": "turtle",
+    "parameter_space": {
+      "turtle.rules.fast_entry": [
+        20
+      ],
+      "turtle.rules.slow_entry": [
+        55
+      ],
+      "turtle.rules.stop_n": [
+        1.5,
+        2.0,
+        2.5
+      ],
+      "turtle.rules.pyramid_step_n": [
+        0.5,
+        1.0
+      ],
+      "turtle.rules.allow_short": [
+        false
+      ],
+      "assets.BTC.can_short": [
+        false
+      ],
+      "assets.ETH.can_short": [
+        false
+      ],
+      "assets.BTC.unit_1n_risk_pct": [
+        0.003
+      ],
+      "assets.ETH.unit_1n_risk_pct": [
+        0.003
+      ]
+    },
+    "constraints": [
+      "rules.fast_entry < rules.slow_entry"
+    ],
+    "initial_equity": 100000.0,
+    "cash_model": "cash",
+    "liquidate_at_end": true,
+    "window_boundary_policy": "mark_to_market",
+    "max_combinations": 6,
+    "validation": {
+      "train_bars": 1460,
+      "validation_bars": 365,
+      "step_bars": 365,
+      "holdout_bars": 365,
+      "min_folds": 3
+    },
+    "ranking": {
+      "min_oos_trades": 10,
+      "max_drawdown": 0.4,
+      "sharpe_weight": 0.35,
+      "mar_weight": 0.25,
+      "cagr_weight": 0.2,
+      "stability_weight": 0.2
+    },
+    "strategy_config_path": null,
+    "schema_version": "2"
+  },
+  "fee_bps": 10.0,
+  "slippage_bps": 5.0,
+  "source_root": ".tmp\\audit-baseline-332f70e",
+  "code_sha256": "dbdd44255680d33643ea33369a0ac359d94383cc6952f843774d9012437b0f17",
+  "python": "3.12.6 (tags/v3.12.6:a4a2d2b, Sep  6 2024, 20:11:23) [MSC v.1940 64 bit (AMD64)]",
+  "pandas": "3.0.1",
+  "selection": "validation only; holdout is confirmation, never parameter fallback"
+}

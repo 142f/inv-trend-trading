@@ -31,9 +31,13 @@ class OKXConfig:
     proxy: str | None = None
     use_server_time: bool = False
     default_swap_inst_id: str = "BTC-USDT-SWAP"
-    default_swap_td_mode: str = "cross"
-    default_swap_leverage: int = 20
-    max_leverage: int = 20
+    default_swap_td_mode: str = "isolated"
+    default_swap_leverage: int = 3
+    max_leverage: int = 3
+
+    def __post_init__(self) -> None:
+        if not 0 < self.default_swap_leverage <= self.max_leverage <= 3:
+            raise ValueError("internal strategy leverage limit is 3; exchange limits may be lower")
 
     @property
     def flag(self) -> str:
@@ -54,9 +58,9 @@ class OKXConfig:
             use_server_time=_env_bool("OKX_USE_SERVER_TIME", default=False),
             default_swap_inst_id=os.getenv("OKX_DEFAULT_SWAP_INST_ID", "BTC-USDT-SWAP").strip()
             or "BTC-USDT-SWAP",
-            default_swap_td_mode=os.getenv("OKX_DEFAULT_SWAP_TD_MODE", "cross").strip() or "cross",
-            default_swap_leverage=int(os.getenv("OKX_DEFAULT_SWAP_LEVERAGE", "20")),
-            max_leverage=int(os.getenv("OKX_MAX_LEVERAGE", "20")),
+            default_swap_td_mode=os.getenv("OKX_DEFAULT_SWAP_TD_MODE", "isolated").strip() or "isolated",
+            default_swap_leverage=int(os.getenv("OKX_DEFAULT_SWAP_LEVERAGE", "3")),
+            max_leverage=int(os.getenv("OKX_MAX_LEVERAGE", "3")),
         )
 
     def require_credentials(self) -> None:
@@ -155,11 +159,11 @@ class OKXClient:
         self,
         inst_id: str,
         lever: str | int,
-        margin_mode: str = "cross",
+        margin_mode: str = "isolated",
         position_side: str = "",
     ) -> dict[str, Any]:
         self._require_trading_enabled()
-        if int(lever) > self.config.max_leverage:
+        if not Decimal("0") < Decimal(str(lever)) <= Decimal(str(self.config.max_leverage)):
             raise ValueError(f"leverage {lever} exceeds configured max {self.config.max_leverage}")
         response = self.account.set_leverage(
             lever=str(lever),
@@ -174,7 +178,7 @@ class OKXClient:
         inst_id: str,
         side: str,
         size: str | int | float | Decimal,
-        td_mode: str = "cross",
+        td_mode: str = "isolated",
         client_order_id: str = "",
         position_side: str = "",
         reduce_only: bool = False,
@@ -198,7 +202,7 @@ class OKXClient:
         side: str,
         size: str | int | float | Decimal,
         price: str | int | float | Decimal,
-        td_mode: str = "cross",
+        td_mode: str = "isolated",
         client_order_id: str = "",
         position_side: str = "",
         reduce_only: bool = False,
@@ -223,7 +227,7 @@ class OKXClient:
         side: str,
         size: str | int | float | Decimal,
         order_type: str,
-        td_mode: str = "cross",
+        td_mode: str = "isolated",
         price: str | int | float | Decimal | None = None,
         client_order_id: str = "",
         position_side: str = "",

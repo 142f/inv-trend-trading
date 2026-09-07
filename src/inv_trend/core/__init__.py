@@ -20,13 +20,14 @@ from .math_utils import (
 )
 from .resampling import aggregate_completed_sessions
 from .signals import CORRECTED_STRATEGY_VERSION, SignalEvent, crossed_above, crossed_below
-from .performance import equity_statistics
+from .performance import equity_metric_kernel, equity_statistics
 
 __all__ = [
     "ConfigFingerprint", "DataFingerprint", "DecisionEvent", "EventType", "RunId",
     "DEFAULT_DECISION_RULE_VERSION", "ExecutionDecisionEvent",
     "ExecutionDecisionEventType",
-    "FeatureCache", "FeatureRequest", "PreparedBars", "ohlcv_fingerprint", "equity_statistics",
+    "FeatureCache", "FeatureRequest", "PreparedBars", "ohlcv_fingerprint",
+    "equity_metric_kernel", "equity_statistics",
     "CORRECTED_STRATEGY_VERSION",
     "SignalEvent", "crossed_above", "crossed_below", "donchian_channels",
     "directional_movement_index", "aggregate_completed_sessions",

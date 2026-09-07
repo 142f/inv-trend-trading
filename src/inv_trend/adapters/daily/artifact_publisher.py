@@ -49,6 +49,15 @@ class DailyRunArtifactWriter:
         *,
         render_html: bool = True,
     ) -> DailyArtifactPublication:
+        from inv_trend.storage.制品 import daily_publish
+        return daily_publish(self, snapshot, bool(render_html))
+
+    def export_v2(
+        self,
+        snapshot: Mapping[str, Any],
+        *,
+        render_html: bool = True,
+    ) -> DailyArtifactPublication:
         """Publish one immutable run and refresh its convenience projections.
 
         ``render_html`` is fixed when the run is first promoted.  A retry with
@@ -74,12 +83,14 @@ class DailyRunArtifactWriter:
         if final_root.exists():
             return self._recover_existing(snapshot, final_root, render_html=render_html)
 
-        safe_run_id = _path_segment(run_id, fallback="未知批次")
         # ``tempfile.mkdtemp`` applies a private 0700 mode.  Python 3.12 maps
         # that mode to a restrictive Windows ACL which can make the directory
         # inaccessible to the managed workspace token.  A UUID sibling keeps
         # the same collision resistance while inheriting the workspace ACL.
-        temporary_root = date_root / f".{safe_run_id}.{uuid4().hex}"
+        # Keep this opaque sibling deliberately short: the immutable tree also
+        # contains human-facing Chinese aliases, and repeating the run ID here
+        # can exceed the legacy Windows MAX_PATH budget before promotion.
+        temporary_root = date_root / f".tmp-{uuid4().hex[:12]}"
         temporary_root.mkdir()
         complete_results: dict[str, Path] = {}
         complete_payloads: dict[str, Mapping[str, Any]] = {}
