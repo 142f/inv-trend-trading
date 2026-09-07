@@ -6,6 +6,7 @@ from typing import Any, Mapping
 
 import numpy as np
 import pandas as pd
+from inv_trend.core.趋势准入 import trend_filter
 
 from inv_trend.core.突破规则 import breakout_direction
 
@@ -548,9 +549,7 @@ class MultiAssetTurtleStrategy:
         moving_average = _finite_float(row.get(f"sma_{period}"))
         if moving_average is None:
             return False
-        if side == LONG:
-            return signal_price >= moving_average
-        return signal_price <= moving_average
+        return trend_filter(side, signal_price, moving_average)
 
     def _exit_signal(self, row: Mapping[str, Any], period: int, position_side: int) -> str | None:
         high_level = _finite_float(row.get(f"high_{period}"))

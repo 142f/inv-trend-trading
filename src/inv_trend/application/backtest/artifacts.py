@@ -26,6 +26,15 @@ class BacktestArtifactWriter:
         *,
         lineage: Mapping[str, Mapping[str, Any]],
     ) -> dict[str, str]:
+        from inv_trend.storage.制品 import backtest_publish
+        return backtest_publish(self, batch, lineage)
+
+    def export_v2(
+        self,
+        batch: BacktestBatchResult,
+        *,
+        lineage: Mapping[str, Mapping[str, Any]],
+    ) -> dict[str, str]:
         run_root = self.output_root / "runs" / batch.report_date / batch.run_id
         if run_root.exists():
             raise FileExistsError(f"immutable backtest run already exists: {run_root}")
@@ -155,7 +164,8 @@ class BacktestArtifactWriter:
     ) -> Path:
         """Regenerate v1/v2 HTML from stored JSON without running a strategy."""
 
-        raw = json.loads(Path(batch_result).read_text(encoding="utf-8"))
+        from inv_trend.storage.制品 import read_backtest
+        raw = read_backtest(batch_result)
         target = Path(output)
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(render_backtest_html(raw), encoding="utf-8")
