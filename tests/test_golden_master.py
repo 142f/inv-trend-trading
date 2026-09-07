@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 
 from tests.golden_master_support import (
     build_current_snapshot,
@@ -37,7 +38,13 @@ def test_shared_paths_match_the_recertified_d1_golden_master() -> None:
     bars = load_bars(fixture)
     assert len(bars) == 420
     actual = build_current_snapshot(bars)
-    difference = first_difference(actual, expected["outputs"])
+    # Keep the historical fixture byte-for-byte. Only the portfolio execution
+    # paths have an independently documented, audited correction baseline.
+    corrected = json.loads((expected_path().parent / "执行真实性修复期望_v1.json").read_text(encoding="utf-8"))
+    assert corrected["input_sha256"] == expected["input_sha256"]
+    assert corrected["legacy_expected_sha256"] == hashlib.sha256(expected_path().read_bytes()).hexdigest()
+    assert all(key.startswith("multi_") for key in corrected["outputs"])
+    difference = first_difference(actual, {**expected["outputs"], **corrected["outputs"]})
     assert difference is None, (
         "Golden Master mismatch. Inspect the first business difference before "
         "intentionally running scripts/refresh_golden_master.py --confirm: "

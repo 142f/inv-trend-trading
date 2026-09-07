@@ -14,6 +14,7 @@ from inv_trend.adapters.multi_asset import (
     compute_turtle_indicators,
 )
 from inv_trend.adapters.multi_asset.strategy import _risk_sized_qty
+from inv_trend.adapters.multi_asset.strategy.budget_policy import PortfolioBudgetPolicy
 
 
 def _trend_bars(periods: int = 90, start: float = 100.0, end: float = 160.0) -> pd.DataFrame:
@@ -142,3 +143,94 @@ def test_mark_equity_uses_last_available_price_for_closed_market() -> None:
     )
     equity = backtester._mark_equity(pd.Timestamp("2024-01-03", tz="UTC"), 10_000, state)
     assert equity == 10_020
+
+
+def test_fill_risk_prices_include_last_close_for_a_closed_market() -> None:
+    rules = TurtleRules(
+        fast_entry=3,
+        slow_entry=5,
+        fast_exit=2,
+        slow_exit=3,
+        n_period=3,
+        max_total_1n_risk_pct=1.0,
+        max_direction_1n_risk_pct=1.0,
+        default_cluster_1n_risk_pct=1.0,
+        max_total_leverage=0.12,
+        max_direction_leverage=0.12,
+        default_cluster_leverage=1.0,
+    )
+    xau = pd.DataFrame(
+        {
+            "open": [100.0, 109.0],
+            "high": [101.0, 111.0],
+            "low": [99.0, 108.0],
+            "close": [100.0, 110.0],
+        },
+        index=pd.to_datetime(["2024-01-01", "2024-01-02"], utc=True),
+    )
+    btc = pd.DataFrame(
+        {
+            "open": [200.0, 201.0, 202.0],
+            "high": [201.0, 202.0, 203.0],
+            "low": [199.0, 200.0, 201.0],
+            "close": [200.0, 201.0, 202.0],
+        },
+        index=pd.to_datetime(["2024-01-01", "2024-01-02", "2024-01-03"], utc=True),
+    )
+    specs = {
+        "XAU": AssetSpec("XAU", "metal", "precious_metals", qty_step=1),
+        "BTC": AssetSpec("BTC", "crypto", "crypto", qty_step=1),
+    }
+    backtester = TurtleBacktester({"XAU": xau, "BTC": btc}, specs, rules)
+
+    prices = backtester._causal_prices_at_open(pd.Timestamp("2024-01-03", tz="UTC"))
+
+    assert prices == {"XAU": 110.0, "BTC": 202.0}
+    state = PortfolioState(
+        positions={
+            "XAU": Position(
+                symbol="XAU",
+                side=1,
+                system="fast",
+                units=[PositionUnit(qty=10, entry_price=100.0, n_at_entry=1.0)],
+                last_add_price=100.0,
+                stop_price=98.0,
+            )
+        }
+    )
+    decision = PortfolioBudgetPolicy(rules, specs).evaluate(
+        symbol="BTC",
+        side=1,
+        price=202.0,
+        n=1.0,
+        requested_qty=1.0,
+        equity=10_000.0,
+        state=state,
+        prices=prices,
+    )
+    assert decision.allowed is False
+    assert decision.reason == "minimum_size_not_met"
+
+
+def test_evaluation_window_finishes_without_an_unfillable_terminal_intent() -> None:
+    rules = TurtleRules(
+        fast_entry=5,
+        slow_entry=10,
+        fast_exit=3,
+        slow_exit=5,
+        n_period=5,
+        skip_fast_after_win=False,
+    )
+    bars = _trend_bars(periods=30, end=180)
+    bars.index = bars.index.tz_localize("UTC")
+    result = TurtleBacktester(
+        {"SPY": bars},
+        {"SPY": AssetSpec("SPY", "etf", "us_index", qty_step=1)},
+        rules,
+        liquidate_at_end=False,
+        evaluation_end=bars.index[-2],
+    ).run()
+
+    assert result.pending_intent_count == 0
+    assert result.open_position_count >= 0
+    assert np.isfinite(result.unrealized_pnl)

@@ -8,34 +8,31 @@ from typing import Any, Iterable
 import numpy as np
 import pandas as pd
 
+from inv_trend.core.performance import analyze_equity, drawdown_duration as _drawdown_duration
+
 
 def performance_metrics(
     equity: pd.Series,
     trades: pd.DataFrame,
     orders: pd.DataFrame | None = None,
+    *,
+    open_position_count: int = 0,
+    unrealized_pnl: float = 0.0,
+    pending_intent_count: int = 0,
 ) -> tuple[dict[str, Any], dict[str, str]]:
     unavailable: dict[str, str] = {}
     if equity.empty:
         return {}, {"all": "权益曲线为空"}
-    curve = equity.astype(float).sort_index()
-    start, end = float(curve.iloc[0]), float(curve.iloc[-1])
-    if start <= 0:
-        raise ValueError("equity must start above zero")
-    returns = curve.pct_change().replace([np.inf, -np.inf], np.nan).dropna()
-    years = max((curve.index[-1] - curve.index[0]).days / 365.25, 1 / 365.25)
-    periods_per_year = len(returns) / years if years > 0 else 0.0
-    total_return = end / start - 1.0
-    cagr = -1.0 if end <= 0 else (end / start) ** (1.0 / years) - 1.0
-    volatility = _finite_or_none(
-        returns.std(ddof=0) * math.sqrt(periods_per_year) if periods_per_year else None
-    )
-    sharpe = _ratio(
-        returns.mean() * periods_per_year if periods_per_year else None,
-        volatility,
-        "sharpe_ratio",
-        unavailable,
-        "收益波动率为零",
-    )
+    analysis = analyze_equity(equity)
+    curve, returns, shared = analysis.curve, analysis.returns, analysis.metrics
+    end = float(shared["ending_equity"])
+    periods_per_year = float(shared["periods_per_year"])
+    total_return = float(shared["total_return"])
+    cagr = float(shared["annualized_return"])
+    volatility = _finite_or_none(shared["volatility"])
+    sharpe = _finite_or_none(shared["sharpe_ratio"])
+    if sharpe is None:
+        unavailable["sharpe_ratio"] = "收益波动率为零"
     downside = returns[returns < 0]
     downside_deviation = (
         float(np.sqrt(np.mean(np.square(downside))) * math.sqrt(periods_per_year))
@@ -48,14 +45,13 @@ def performance_metrics(
         unavailable,
         "没有可用的下行波动",
     )
-    drawdown = curve / curve.cummax() - 1.0
-    max_drawdown = float(drawdown.min()) if len(drawdown) else 0.0
+    max_drawdown = float(shared["max_drawdown"])
     mar = _ratio(
         cagr, abs(max_drawdown), "mar_ratio", unavailable, "最大回撤为零"
     )
-    dd_duration, dd_recovery = _drawdown_duration(drawdown)
+    dd_duration, dd_recovery = _drawdown_duration(analysis.drawdown)
 
-    frame = trades.copy() if not trades.empty else pd.DataFrame()
+    frame = trades
     pnls = pd.to_numeric(frame.get("pnl", pd.Series(dtype=float)), errors="coerce").dropna()
     wins = pnls[pnls > 0]
     losses = pnls[pnls < 0]
@@ -110,7 +106,11 @@ def performance_metrics(
         "max_drawdown_recovery_bars": dd_recovery, "volatility": volatility,
         "sharpe_ratio": sharpe, "sortino_ratio": sortino, "mar_ratio": mar,
         "periods_per_year": float(periods_per_year), "ending_equity": end,
-        "trade_count": trade_count, "win_rate": win_rate,
+        "trade_count": trade_count, "closed_trade_count": trade_count,
+        "open_position_count": int(open_position_count),
+        "unrealized_pnl": float(unrealized_pnl),
+        "pending_intent_count": int(pending_intent_count),
+        "win_rate": win_rate,
         "average_win": average_win, "average_loss": average_loss,
         "payoff_ratio": payoff, "profit_factor": profit_factor,
         "expectancy": expectancy, "average_holding_bars": average_holding,
@@ -161,29 +161,12 @@ def curve_rows(equity: pd.Series) -> tuple[dict[str, Any], ...]:
 
 
 def drawdown_rows(equity: pd.Series) -> tuple[dict[str, Any], ...]:
-    drawdown = equity.astype(float) / equity.astype(float).cummax() - 1.0
+    curve = equity.astype(float)
+    drawdown = curve / curve.cummax() - 1.0
     return tuple(
         {"time": pd.Timestamp(time).isoformat(), "drawdown": float(value)}
         for time, value in drawdown.items()
     )
-
-
-def _drawdown_duration(drawdown: pd.Series) -> tuple[int, int | None]:
-    longest = current = 0
-    trough_position: int | None = None
-    recovery: int | None = None
-    trough = float("inf")
-    for position, value in enumerate(drawdown.tolist()):
-        if value < 0:
-            current += 1
-            longest = max(longest, current)
-            if value < trough:
-                trough, trough_position = value, position
-        else:
-            if trough_position is not None and recovery is None:
-                recovery = position - trough_position
-            current = 0
-    return int(longest), recovery
 
 
 def _ratio(

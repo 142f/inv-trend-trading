@@ -1,0 +1,10 @@
+* [33mfa274b5[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m)[m feat(backtest): 添加窗口边界策略和回测证据字段
+* [33m157c547[m[33m ([m[1;31morigin/main[m[33m, [m[1;31morigin/HEAD[m[33m)[m refactor(backtest): 统一回测模块并更新CLI命令
+* [33m53b0639[m feat: 添加独立策略回测功能模块
+* [33mb440f3c[m feat(daily-analysis): 添加指标生命周期分析和决策证据链功能
+* [33mbd8fc12[m docs(README): 添加PyPI镜像安装说明和PIP_NO_INDEX环境变量处理方案
+* [33mf1e95a1[m docs(architecture): 添加核心代码架构文档并修复执行决策事件语义
+* [33m86b6123[m refactor(daily): modularize D1 workflow stages
+* [33mfa031fe[m ``` docs(daily-market-scan): 更新
+* [33m35356cd[m feat(daily-analysis): 增加可解释日报与交互报告功能
+* [33mcf65770[m 多维度策略平衡控制

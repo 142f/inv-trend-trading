@@ -1,0 +1,39 @@
+schema_version: perpetual-audit-v1
+symbols: [BTC-USDT-SWAP, ETH-USDT-SWAP]
+initial_equity: 100000.0
+development_end: '2026-04-20'
+test_end: '2026-09-06'
+sample_status: CONTAMINATED_TEST
+warmup_bars: 440
+train_bars: 730
+validation_bars: 180
+min_folds: 3
+risk:
+  trade_stop_risk: 0.005
+  symbol_stop_risk: 0.01
+  portfolio_stop_risk: 0.02
+  strategy_max_leverage: 3.0
+  margin_limit: 0.8
+  volatility_target: 0.15
+  covariance_days: 60
+  stress_history_days: 365
+  stress_quantile: 0.95
+  margin_mode: isolated
+statistics:
+  minimum_trades: 30
+  max_drawdown: 0.20
+  minimum_sharpe_delta: 0.10
+  bootstrap_seed: 20260907
+  bootstrap_repetitions: 2000
+  bootstrap_blocks: [30, 15, 60]
+  historical_search_count_known: false
+execution:
+  default_scenario: worst_case
+  scenarios: [worst_case, best_case]
+  stop_trigger: last
+  funding_interval: actual_events
+  auto_add_margin: false
+  live_trading: false
+  assumed_fee_bps: 10.0
+  assumed_slippage_bps: 5.0
+  cost_status: RESEARCH_ASSUMPTION

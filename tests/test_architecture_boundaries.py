@@ -47,6 +47,67 @@ def test_application_does_not_depend_on_cli_or_presentation_packages() -> None:
     assert violations == []
 
 
+def test_observability_does_not_depend_on_data_or_strategy_adapters() -> None:
+    root = Path(__file__).parents[1] / "src" / "inv_trend" / "observability"
+    banned = {"inv_trend.data", "inv_trend.adapters"}
+    violations = []
+    for source in root.rglob("*.py"):
+        tree = ast.parse(source.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            names = []
+            if isinstance(node, ast.Import):
+                names = [alias.name for alias in node.names]
+            elif isinstance(node, ast.ImportFrom) and node.module:
+                names = [node.module]
+            elif isinstance(node, ast.Call):
+                names = _dynamic_import_names(node)
+            for name in names:
+                if _is_banned(name, banned):
+                    violations.append(f"{source.name}: {name}")
+    assert violations == []
+
+
+def test_adapter_reverse_dependencies_are_an_explicit_transition_allowlist() -> None:
+    root = Path(__file__).parents[1] / "src" / "inv_trend" / "adapters"
+    observed: set[tuple[str, str]] = set()
+    for source in root.rglob("*.py"):
+        tree = ast.parse(source.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            names = []
+            if isinstance(node, ast.Import):
+                names = [alias.name for alias in node.names]
+            elif isinstance(node, ast.ImportFrom) and node.module:
+                names = [node.module]
+            elif isinstance(node, ast.Call):
+                names = _dynamic_import_names(node)
+            for name in names:
+                if _is_banned(name, {"inv_trend.application", "inv_trend.observability"}):
+                    observed.add((source.relative_to(root).as_posix(), name))
+
+    assert observed == {
+        (
+            "daily/artifact_publisher.py",
+            "inv_trend.application.daily.artifact_publication",
+        ),
+        ("daily/artifact_publisher.py", "inv_trend.application.daily.ports"),
+        ("daily/composition.py", "inv_trend.application.daily.ports"),
+        ("daily/composition.py", "inv_trend.observability.daily"),
+        ("daily/data_lineage.py", "inv_trend.application.daily.ports"),
+        (
+            "daily/stage_runtime_adapters.py",
+            "inv_trend.application.daily.artifact_publication",
+        ),
+        (
+            "multi_asset/data/core_dataset.py",
+            "inv_trend.application.backtest.execution",
+        ),
+        (
+            "multi_asset/data/core_dataset.py",
+            "inv_trend.application.backtest.single_artifacts",
+        ),
+    }
+
+
 def test_historical_data_does_not_depend_on_strategy_or_application_packages() -> None:
     root = Path(__file__).parents[1] / "src" / "inv_trend" / "data"
     banned = {"inv_trend.application", "inv_trend.adapters.detector", "inv_trend.adapters.multi_asset"}

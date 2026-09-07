@@ -79,6 +79,8 @@ class BacktestBatchService:
             "ranking": plan.ranking,
             "fill_model": "signal close; next available bar open",
             "cost_model": "fixed AssetSpec cost_bps + slippage_bps",
+            "slippage_model": "cash_cost_equivalent",
+            "window_boundary_policy": plan.window_boundary_policy,
         }
         conclusion = _batch_conclusion(ranked, validation_status, best_id, stable_ids)
         return BacktestBatchResult(
@@ -121,7 +123,7 @@ class BacktestBatchService:
                 data, specs, rules,
                 initial_equity=float(settings["initial_equity"]),
                 cash_model=str(settings["cash_model"]),
-                liquidate_at_end=bool(settings["liquidate_at_end"]),
+                liquidate_at_end=bool(settings["liquidate_at_end"]) if end is None else False,
                 evaluation_start=start,
                 evaluation_end=end,
                 market_data=store,
@@ -129,23 +131,19 @@ class BacktestBatchService:
             ).run()
 
         full = execute()
-        metrics, unavailable = performance_metrics(full.equity_curve, full.trades, full.orders)
+        metrics, unavailable = _result_metrics(full)
         fold_results: list[FoldResult] = []
         for window in windows:
             train = execute(window.train_start, window.train_end)
             validation = execute(window.validation_start, window.validation_end)
-            train_metrics, _ = performance_metrics(train.equity_curve, train.trades, train.orders)
-            validation_metrics, _ = performance_metrics(
-                validation.equity_curve, validation.trades, validation.orders
-            )
+            train_metrics, _ = _result_metrics(train)
+            validation_metrics, _ = _result_metrics(validation)
             fold_results.append(FoldResult(window, train_metrics, validation_metrics))
         validation_metrics = _aggregate_fold_metrics(fold_results, "validation_metrics")
         holdout_metrics: Mapping[str, Any] = {}
         if holdout is not None:
             holdout_result = execute(*holdout)
-            holdout_metrics, _ = performance_metrics(
-                holdout_result.equity_curve, holdout_result.trades, holdout_result.orders
-            )
+            holdout_metrics, _ = _result_metrics(holdout_result)
         trades = _records(full.trades)
         orders = _records(full.orders)
         return BacktestCombinationResult(
@@ -170,6 +168,17 @@ class BacktestBatchService:
         )
 
 
+def _result_metrics(result: Any) -> tuple[dict[str, Any], dict[str, str]]:
+    return performance_metrics(
+        result.equity_curve,
+        result.trades,
+        result.orders,
+        open_position_count=int(getattr(result, "open_position_count", 0)),
+        unrealized_pnl=float(getattr(result, "unrealized_pnl", 0.0)),
+        pending_intent_count=int(getattr(result, "pending_intent_count", 0)),
+    )
+
+
 def _aggregate_fold_metrics(
     folds: list[FoldResult], attribute: str
 ) -> dict[str, Any]:
@@ -180,7 +189,20 @@ def _aggregate_fold_metrics(
     valid_returns = [value for value in returns if value is not None]
     aggregate: dict[str, Any] = {
         "fold_count": len(folds),
+        "bankrupt": any(bool(row.get("bankrupt")) for row in rows),
         "trade_count": int(sum(int(row.get("trade_count") or 0) for row in rows)),
+        "closed_trade_count": int(
+            sum(int(row.get("closed_trade_count") or 0) for row in rows)
+        ),
+        "open_position_count": int(
+            sum(int(row.get("open_position_count") or 0) for row in rows)
+        ),
+        "unrealized_pnl": float(
+            sum(float(row.get("unrealized_pnl") or 0.0) for row in rows)
+        ),
+        "pending_intent_count": int(
+            sum(int(row.get("pending_intent_count") or 0) for row in rows)
+        ),
         "total_return": (
             float(np.prod([1 + value for value in valid_returns]) - 1)
             if valid_returns else None
@@ -226,10 +248,10 @@ def _rank_results(
     for result in results:
         values = result.validation_metrics
         drawdown = _number(values.get("max_drawdown"))
-        trades = int(values.get("trade_count") or 0)
+        trades = int(values.get("closed_trade_count") or 0)
         if (
             result.status == "COMPLETED"
-            and not bool(result.metrics.get("bankrupt"))
+            and not bool(values.get("bankrupt"))
             and trades >= plan.ranking.min_oos_trades
             and drawdown is not None
             and abs(drawdown) <= plan.ranking.max_drawdown
@@ -267,8 +289,8 @@ def _rank_results(
     holdout_order = sorted(
         [item for item in ordered if item.qualified],
         key=lambda item: (
-            _number(item.holdout_metrics.get("sharpe_ratio")) or -math.inf,
-            _number(item.holdout_metrics.get("annualized_return")) or -math.inf,
+            _sort_number(item.holdout_metrics.get("sharpe_ratio")),
+            _sort_number(item.holdout_metrics.get("annualized_return")),
         ), reverse=True,
     )
     holdout_rank = {item.combination_id: pos + 1 for pos, item in enumerate(holdout_order)}
@@ -283,14 +305,17 @@ def _rank_results(
         ranked.append(replace(item, rank=rank, overfit_risk=risk))
     ranked = _add_neighbor_risk(ranked, plan)
     candidate = next((item for item in ranked if item.rank == 1), None)
+    # Freeze the neighborhood using development validation alone. The final
+    # holdout may reject that candidate, never pick a replacement or a neighbor.
+    stable = _stable_region(ranked, plan, candidate)
+    holdout_return = _number(candidate.holdout_metrics.get("total_return")) if candidate else None
     passed_holdout = bool(
         candidate is not None
         and has_holdout
-        and (_number(candidate.holdout_metrics.get("total_return")) or 0.0) >= 0
+        and holdout_return is not None and holdout_return >= 0
     )
     best_id = candidate.combination_id if passed_holdout else None
-    stable = _stable_region(ranked, plan, candidate) if passed_holdout else ()
-    return ranked, best_id, stable
+    return ranked, best_id, stable if passed_holdout else ()
 
 
 def _add_neighbor_risk(
@@ -328,8 +353,15 @@ def _percentiles(
     finite = sorted((value, name) for name, value in pairs if value is not None)
     if not finite:
         return {name: 0.0 for name, _ in pairs}
-    denominator = max(len(finite) - 1, 1)
-    return {name: 100.0 * position / denominator for position, (_, name) in enumerate(finite)}
+    scores = {name: 0.0 for name, _ in pairs}
+    if len(finite) == 1:
+        scores[finite[0][1]] = 50.0
+        return scores
+    # Equal statistics get equal scores; IDs must not break financial ties.
+    ranks = pd.Series([value for value, _ in finite]).rank(method="average")
+    scores.update({name: 100.0 * (float(rank) - 1) / (len(finite) - 1)
+                   for (_, name), rank in zip(finite, ranks)})
+    return scores
 
 
 def _overfit_risk(
@@ -381,7 +413,6 @@ def _stable_region(
         and item.score is not None
         and item.score >= candidate.score * 0.90
         and float(item.validation_metrics.get("positive_fold_ratio") or 0.0) >= 2 / 3
-        and (_number(item.holdout_metrics.get("total_return")) or -math.inf) >= 0
     }
     visited: set[str] = set()
     pending = [candidate.combination_id]
@@ -479,6 +510,11 @@ def _number(value: Any) -> float | None:
     except (TypeError, ValueError):
         return None
     return number if math.isfinite(number) else None
+
+
+def _sort_number(value: Any) -> float:
+    number = _number(value)
+    return -math.inf if number is None else number
 
 
 def _batch_conclusion(

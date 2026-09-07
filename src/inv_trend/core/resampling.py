@@ -5,6 +5,8 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
+from .行情校验 import validate_bar_index
+
 
 def aggregate_completed_sessions(
     bars: pd.DataFrame,
@@ -20,28 +22,21 @@ def aggregate_completed_sessions(
     final incomplete group is dropped rather than exposed as a closed bar.
     """
 
-    if not isinstance(bars, pd.DataFrame):
-        raise TypeError("bars must be a pandas DataFrame")
-    if sessions_per_bar < 2:
-        raise ValueError("sessions_per_bar must be >= 2")
-    required = {"open", "high", "low", "close"}
-    missing = sorted(required - set(bars.columns))
-    if missing:
-        raise ValueError(f"bars require OHLC columns: {missing}")
-    if not isinstance(bars.index, pd.DatetimeIndex):
-        raise ValueError("bars require a DatetimeIndex")
-    if bars.index.has_duplicates or not bars.index.is_monotonic_increasing:
-        raise ValueError("bars require unique, increasing timestamps")
+    validate_bar_index(bars)
+    if isinstance(sessions_per_bar, bool) or not isinstance(sessions_per_bar, (int, np.integer)) or sessions_per_bar < 2:
+        raise ValueError("sessions_per_bar must be an integer >= 2")
 
     anchor_timestamp = pd.Timestamp(anchor)
     if anchor_timestamp.tzinfo is None:
         anchor_timestamp = anchor_timestamp.tz_localize("UTC")
     else:
         anchor_timestamp = anchor_timestamp.tz_convert("UTC")
+    if bars.index.tz is None:
+        anchor_timestamp = anchor_timestamp.tz_localize(None)
     if anchor_timestamp not in bars.index:
         raise ValueError("session anchor must be present in bars")
 
-    anchored = bars.loc[anchor_timestamp:].copy()
+    anchored = bars.iloc[bars.index.get_loc(anchor_timestamp):]
     complete_groups = len(anchored) // sessions_per_bar
     if complete_groups == 0:
         return pd.DataFrame(
@@ -50,28 +45,33 @@ def aggregate_completed_sessions(
         )
     anchored = anchored.iloc[: complete_groups * sessions_per_bar]
     groups = np.arange(len(anchored), dtype=int) // sessions_per_bar
-    records: list[dict[str, object]] = []
-    endpoints: list[pd.Timestamp] = []
-    for _, group in anchored.groupby(groups, sort=True):
-        records.append(
-            {
-                "open": float(group["open"].iloc[0]),
-                "high": float(group["high"].max()),
-                "low": float(group["low"].min()),
-                "close": float(group["close"].iloc[-1]),
-                "volume": (
-                    float(pd.to_numeric(group["volume"], errors="coerce").sum(min_count=1))
-                    if "volume" in group
-                    else np.nan
-                ),
-                "session_start": group.index[0],
-                "session_end": group.index[-1],
-                "session_count": len(group),
-            }
-        )
-        endpoints.append(group.index[-1])
-    out = pd.DataFrame(records, index=pd.DatetimeIndex(endpoints, tz="UTC", name=bars.index.name))
-    return out
+    extrema = anchored.groupby(groups, sort=False).agg({"high": "max", "low": "min"})
+    endpoints = anchored.index[sessions_per_bar - 1::sessions_per_bar]
+    output_index = (
+        endpoints.tz_localize("UTC") if endpoints.tz is None else endpoints.tz_convert("UTC")
+    ).copy(deep=True)
+    # The legacy constructor did not infer a frequency. Preserve its metadata
+    # without converting every timestamp to a Python object.
+    output_index.freq = None
+    volume = (
+        pd.to_numeric(anchored["volume"], errors="coerce")
+        .groupby(groups, sort=False).sum(min_count=1).to_numpy(dtype=float)
+        if "volume" in anchored else np.nan
+    )
+    # Positional endpoints retain NaN open/close values; groupby.first/last
+    # would skip them and silently substitute a different session's price.
+    return pd.DataFrame(
+        {
+            "open": anchored["open"].iloc[::sessions_per_bar].to_numpy(dtype=float),
+            "high": extrema["high"].to_numpy(dtype=float),
+            "low": extrema["low"].to_numpy(dtype=float),
+            "close": anchored["close"].iloc[sessions_per_bar - 1::sessions_per_bar].to_numpy(dtype=float),
+            "volume": volume,
+            "session_start": anchored.index[::sessions_per_bar],
+            "session_end": endpoints,
+            "session_count": sessions_per_bar,
+        }, index=output_index,
+    )
 
 
 __all__ = ["aggregate_completed_sessions"]
