@@ -22,13 +22,29 @@ def load_source_bundle(source_run: str | Path, plan: BacktestPlan) -> BacktestSo
     batch_index = _read_optional(root / "批次索引.json") or _read_optional(root / "run_index.json")
     source_run_id = str((batch_index or {}).get("run_id") or root.name)
     instruments: list[SourceInstrument] = []
+    v3_path = root / "审计" / "运行清单_v3.json"
+    v3 = None
+    if v3_path.exists():
+        from inv_trend.storage import Storage
+        from inv_trend.storage.仓库 import project_root
+        store = Storage(project_root(root))
+        v3 = store.manifest(root.name)
+        store._verify_manifest(v3)
     for symbol in plan.symbols:
         canonical = root / symbol / "01_canonical"
-        if not canonical.is_dir():
+        if v3 is not None:
+            name = f"输入/{symbol}/完整分析.json"
+            entry = next(f for f in v3["files"] if f["logical_name"] == name)
+            complete = _read_json(store.root / entry["path"])
+            row = complete["storage_source_row"]
+            from inv_trend.adapters.daily.artifact_publisher import _stage
+            data, screening, decision = (_stage(row, key) for key in ("data_update", "strategy_screening", "trend_decision"))
+        elif not canonical.is_dir():
             raise FileNotFoundError(f"source run has no canonical directory for {symbol}: {canonical}")
-        data = _read_json(canonical / "data_update_result.json")
-        screening = _read_json(canonical / "strategy_screening_result.json")
-        decision = _read_json(canonical / "trend_decision_result.json")
+        else:
+            data = _read_json(canonical / "data_update_result.json")
+            screening = _read_json(canonical / "strategy_screening_result.json")
+            decision = _read_json(canonical / "trend_decision_result.json")
         _require_identity(symbol, data, screening, decision)
         version = str(data.get("dataset_version") or "")
         if not version:

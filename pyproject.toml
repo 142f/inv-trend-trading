@@ -41,6 +41,7 @@ turtle-daily = "inv_trend.cli.daily:main"
 turtle-backtest = "inv_trend.cli.backtest:main"
 strategy-backtest = "inv_trend.cli.backtest:main"
 market-data = "inv_trend.cli.market_data:main"
+storage = "inv_trend.cli.storage:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
@@ -52,6 +53,7 @@ include = ["inv_trend", "inv_trend.*"]
 namespaces = false
 
 [tool.setuptools.package-data]
+"inv_trend.storage" = ["*.sql"]
 "inv_trend.application.backtest" = ["*.css", "*.js"]
 "inv_trend.config" = ["strategy.yaml"]
 "inv_trend.data.config" = ["assets.yaml"]

@@ -11,6 +11,7 @@ from typing import Any, Iterable, Mapping
 from inv_trend.core.decision_events import ExecutionDecisionEvent
 from inv_trend.core.explanations import DecisionEvidenceItem
 from inv_trend.core.signals import SignalEvent
+from inv_trend.core.趋势准入 import confirmed_eligibility
 from inv_trend.core.strategy.daily import build_daily_signal_events
 
 from ..daily_models import (
@@ -513,11 +514,7 @@ def _eligibility_blocks(eligibility: Mapping[str, Any], direction: str) -> tuple
 def _eligibility_confirmed(eligibility: Mapping[str, Any]) -> bool:
     """Fail closed unless the execution gate was actually evaluated and passed."""
 
-    return (
-        str(eligibility.get("status") or "").upper() == "PASSED"
-        and eligibility.get("evaluated") is True
-        and eligibility.get("passed") is True
-    )
+    return confirmed_eligibility(eligibility)
 
 
 def build_execution_decision_event(

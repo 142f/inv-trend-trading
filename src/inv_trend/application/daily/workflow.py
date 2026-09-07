@@ -126,9 +126,8 @@ class DailyWorkflow:
         # The return value mirrors the immutable compatibility JSON rather
         # than the later delivery receipt.  Delivery is an independent retry
         # stage and never mutates published business artifacts.
-        snapshot = _compatibility_snapshot(
-            _mapping(json.loads(publication.compatibility_json.read_text(encoding="utf-8")))
-        )
+        from inv_trend.storage.制品 import read_daily
+        snapshot = _compatibility_snapshot(_mapping(read_daily(publication.compatibility_json)))
         return DailyMarketScanResult(
             publication.compatibility_json,
             self.database_path,

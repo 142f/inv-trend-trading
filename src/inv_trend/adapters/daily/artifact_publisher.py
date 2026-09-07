@@ -49,6 +49,15 @@ class DailyRunArtifactWriter:
         *,
         render_html: bool = True,
     ) -> DailyArtifactPublication:
+        from inv_trend.storage.制品 import daily_publish
+        return daily_publish(self, snapshot, bool(render_html))
+
+    def export_v2(
+        self,
+        snapshot: Mapping[str, Any],
+        *,
+        render_html: bool = True,
+    ) -> DailyArtifactPublication:
         """Publish one immutable run and refresh its convenience projections.
 
         ``render_html`` is fixed when the run is first promoted.  A retry with
