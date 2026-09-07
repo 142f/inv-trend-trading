@@ -76,7 +76,12 @@ def run_audit(root, *, data_root=None, output=None, download=False, max_pages=No
     validate_plan(plan)
     registry = ExperimentRegistry(output / '实验登记.jsonl', root=root)
     code = source_hash(root)
-    git_head = subprocess.run(['git', 'rev-parse', 'HEAD'], cwd=root, capture_output=True, text=True, check=True).stdout.strip()
+    try:
+        git_result = subprocess.run(['git', 'rev-parse', 'HEAD'], cwd=root,
+                                    capture_output=True, text=True, check=False)
+        git_head = git_result.stdout.strip() if git_result.returncode == 0 else None
+    except FileNotFoundError:
+        git_head = None  # ZIP发布没有.git；源码内容哈希仍为权威身份。
     frozen = dict(schema_version='perpetual-audit-v1', git_head=git_head, code_sha256=code,
                   plan_sha256=hashlib.sha256(plan_path.read_bytes()).hexdigest(), plan=plan,
                   candidates=candidates(), new_test_status=plan['sample_status'],

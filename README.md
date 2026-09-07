@@ -1,3 +1,17 @@
+# v2 滚动研究交付：Research RC
+
+当前维护版本为 **0.3.0rc2 / 框架B6 / 滚动策略_v2**。未批准实盘，也没有把历史回测冠军升级为默认策略。此前冻结v4仅作参考基准。完整结论以 `docs/滚动验证与修改说明_v2.md`、`config/发布状态_v2.json` 为准。
+
+```bash
+python scripts/环境核验_v2.py --strict
+python scripts/滚动审计复现_v2.py --output outputs/滚动研究_v2
+python scripts/回放制品核验_v2.py outputs/滚动研究_v2
+```
+
+需保留原始附件的 `processed_data/`；行情SHA256由协议核验，禁止静默替换。输出目录必须不存在。旧CLI保留兼容，不等于获得实盘认证。增量覆盖不能自行删除文件，执行 `python scripts/旧实验清理_v2.py --apply` 才会移除内容与v1哈希完全匹配的11个旧实验入口；冲突时停止并保留本地工作。
+
+---
+
 # inv-trend-trading-core
 
 多资产日线趋势/突破研究与每日预警系统。项目以受治理、可版本化的 OHLCV 为输入，生成可复现的策略证据、趋势判断、执行候选、正式执行决策、审计制品和可重试通知。
