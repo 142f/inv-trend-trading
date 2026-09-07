@@ -6,6 +6,10 @@ from pathlib import Path
 
 
 def verify_research(directory: str | Path) -> dict:
+    from .研究结果_v3 import store_for
+    if store_for(directory):
+        from .滚动核验_v3 import verify_database_research
+        return verify_database_research(directory)
     root = Path(directory).resolve(strict=True)
     identity = json.loads((root / '实验协议冻结.json').read_text(encoding='utf-8'))
     count = files = 0

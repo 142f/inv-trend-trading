@@ -62,12 +62,14 @@ def histogram(values,title):
 
 
 def read_csv(path):
-    try:return pd.read_csv(path)
+    from inv_trend.storage.研究结果_v3 import read_research_csv
+    try:return read_research_csv(path)
     except pd.errors.EmptyDataError:return pd.DataFrame()
 
 
 def render_report(output,path):
-    output,path=Path(output),Path(path)
+    from inv_trend.storage.研究结果_v3 import research_path
+    output,path=research_path(output),Path(path)
     load=lambda name:json.loads((output/name).read_text(encoding='utf-8'))
     identity=load('实验协议冻结.json');cfg=identity['protocol'];records=load('完整迭代摘要.json')
     windows=load('窗口划分.json');training=load('完整训练摘要.json');gate=load('发布门禁.json')

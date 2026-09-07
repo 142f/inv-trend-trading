@@ -14,6 +14,12 @@ def digest(value):
 
 
 def immutable_json(path, value):
+    from inv_trend.storage.研究结果_v3 import store_for
+    store = store_for(path)
+    if store is not None:
+        payload = json.dumps(value, ensure_ascii=False, indent=2, allow_nan=False, default=str).encode()
+        store.put_document(path, payload, kind="research_audit", idempotent=False)
+        return hashlib.sha256(payload).hexdigest()
     path = Path(path)
     payload = json.dumps(value, ensure_ascii=False, indent=2, allow_nan=False, default=str).encode()
     path.parent.mkdir(parents=True, exist_ok=True)

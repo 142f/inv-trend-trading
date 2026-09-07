@@ -23,11 +23,17 @@ from inv_trend.application.滚动评估 import summarize, daily_returns
 
 
 def load_data(root, config):
-    path = Path(root) / config['dataset']
-    actual = hashlib.sha256(path.read_bytes()).hexdigest()
-    if actual != config['dataset_sha256']:
-        raise ValueError('行情文件SHA256与协议不一致，必须新建数据版本而不是复用实验')
-    raw = pd.read_csv(path, float_precision='round_trip')
+    from inv_trend.storage.结构化存储_v3 import UnifiedStore, DB_RELATIVE
+    from inv_trend.storage.研究结果_v3 import load_market_frame
+    data_root = Path(root) / 'data'
+    if (data_root / DB_RELATIVE).is_file():
+        raw = load_market_frame(UnifiedStore(data_root), config['dataset_sha256'])
+    else:
+        path = Path(root) / config['dataset']
+        actual = hashlib.sha256(path.read_bytes()).hexdigest()
+        if actual != config['dataset_sha256']:
+            raise ValueError('行情文件SHA256与协议不一致，必须新建数据版本而不是复用实验')
+        raw = pd.read_csv(path, float_precision='round_trip')
     raw['date'] = pd.to_datetime(raw['date'], utc=True, errors='raise')
     clean = clean_ohlcv_frame(raw, duplicate_policy='error')
     if len(clean) != len(raw):
@@ -103,6 +109,13 @@ def simulate(data, config, candidate, start, end, *, schedule=None, cost_multipl
 
 
 def write_run(folder, result, metadata):
+    from inv_trend.storage.研究结果_v3 import store_for, ResultRepository
+    store = store_for(folder)
+    if store is not None:
+        frames = {'权益曲线':result.equity_curve, '交易记录':result.trades, '订单记录':result.orders,
+                  '分笔明细':result.trade_details, '资金流水':result.cash_ledger,
+                  '策略证据':result.decisions, '品种归因':result.attribution}
+        return ResultRepository(store).publish(folder, frames, metadata)
     folder = Path(folder)
     folder.mkdir(parents=True, exist_ok=False)
     files = {}
@@ -166,7 +179,17 @@ def fold_metrics(result, windows):
 
 def run_research(root, output, *, iterations=None, candidate_limit=None, execution_override=None,
                  framework_label=None, skip_stress=False):
-    root,output = Path(root),Path(output)
+    from inv_trend.storage.研究结果_v3 import research_path
+    root=Path(root).resolve()
+    from inv_trend.storage.结构化存储_v3 import DB_RELATIVE
+    target=Path(output).resolve()
+    if (root/'data'/DB_RELATIVE).is_file() and root/'data' not in target.parents:
+        raise ValueError('v3长期研究结果必须写入 data/backtests；使用 scripts/结构化研究_v3.py')
+    output=research_path(target)
+    from inv_trend.storage.研究结果_v3 import store_for
+    output_store=store_for(output)
+    if output_store and output_store.rows('SELECT 1 FROM studies_v3 WHERE study_id=?',(output_store.key(output),)):
+        raise FileExistsError('数据库研究ID已存在；即使没有物理目录也禁止覆盖')
     config=json.loads((root/'config/滚动验证协议_v2.json').read_text(encoding='utf-8'))
     if execution_override:
         config['execution'].update(execution_override)
@@ -254,7 +277,8 @@ def run_research(root, output, *, iterations=None, candidate_limit=None, executi
     from inv_trend.application.滚动统计 import family_bootstrap, promotion_decision
     returns={}
     for record in results:
-        eq=pd.read_csv(output/'样本外证据'/record['iteration']/'权益曲线.csv.gz',index_col=0,parse_dates=True).iloc[:,0]
+        from inv_trend.storage.研究结果_v3 import read_research_csv
+        eq=read_research_csv(output/'样本外证据'/record['iteration']/'权益曲线.csv.gz',index_col=0,parse_dates=True).iloc[:,0]
         returns[record['iteration']]=daily_returns(eq)
     params=config['statistical_audit']
     statistics=family_bootstrap(returns,repetitions=params['bootstrap_replicates'],
