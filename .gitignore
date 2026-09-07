@@ -37,11 +37,11 @@ config.local.*
 !/data/README.md
 processed_data/*
 !processed_data/README.md
-outputs/*
-!outputs/README.md
-!outputs/us_trend_alerts/
-outputs/us_trend_alerts/*
-!outputs/us_trend_alerts/README.md
+# outputs/*
+# !outputs/README.md
+# !outputs/us_trend_alerts/
+# outputs/us_trend_alerts/*
+# !outputs/us_trend_alerts/README.md
 logs/
 重构验证/
 重构验证 忽略/
@@ -53,5 +53,6 @@ logs/
 .tmp/
 test-temp/
 deliverables/
-
+# docs/
+# tests/
 # Keep source, tests, documentation, examples, and research scripts tracked.
