@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "inv-trend-trading"
-version = "0.3.0rc3"
-description = "Multi-asset Turtle trend-following research system"
+version = "0.4.0rc1"
+description = "Modular multi-strategy causal walk-forward research system"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
@@ -14,6 +14,7 @@ dependencies = [
   "pyarrow>=15,<22",
   "PyYAML>=6,<7",
   "rich>=13,<15",
+  "tzdata>=2024.1",
   "openpyxl>=3.1,<4",
   "duckdb>=1,<2",
 ]
@@ -41,8 +42,8 @@ turtle-daily = "inv_trend.cli.daily:main"
 turtle-backtest = "inv_trend.cli.backtest:main"
 strategy-backtest = "inv_trend.cli.backtest:main"
 market-data = "inv_trend.cli.market_data:main"
-storage = "inv_trend.cli.存储治理:main"
-research-stages = "inv_trend.cli.分阶段研究:main"
+storage = "inv_trend.cli.存储治理_v1:main"
+research-stages = "inv_trend.cli.分阶段研究_v1:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
