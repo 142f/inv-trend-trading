@@ -1,0 +1,146 @@
+--- src/inv_trend/application/标准阶段_v1.py@工程v1
++++ src/inv_trend/application/标准阶段_v1.py@工程v2
+@@ -149,8 +149,10 @@
+ class EvaluationStage(StageBase):
+     name, previous_stage, input_type = "evaluate", "backtest", AccountSnapshot
+ 
+-    def __init__(self, initial_equity=None):
++    def __init__(self, initial_equity=None, initial_fees=0.0, initial_slippage=0.0):
+         self.initial_equity = initial_equity
++        self.initial_fees = initial_fees
++        self.initial_slippage = initial_slippage
+         self.previous_equity = None
+         self.peak = None
+         self.n = 0
+@@ -180,14 +182,14 @@
+         self.drawdown = max(self.drawdown, 1 - s.equity / self.peak)
+         self.fills += sum(abs(f.quantity) > 0 for f in s.fills)
+         sd = math.sqrt(max(0, self.m2 / (self.n - 1))) if self.n > 1 else 0.0
+-        years = max((timestamp(s.as_of) - timestamp(self.first_time)).total_seconds()
+-                    / (365.2425 * 86400), 1 / 252)
++        years = self.n / 252  # same D1_CLOSE_252 basis as the research summary
+         metrics = {"total_return": s.equity / self.initial_equity - 1,
+                    "annualized_return": (s.equity / self.initial_equity) ** (1 / years) - 1
+-                   if s.equity > 0 and self.n > 20 else None,
++                   if s.equity > 0 else -1.0,
+                    "max_drawdown": self.drawdown,
+                    "sharpe_ratio": self.average / sd * math.sqrt(252) if sd > 1e-14 else None,
+-                   "fill_count": self.fills, "fees": s.fees, "slippage_cost": s.slippage_cost,
++                   "fill_count": self.fills, "fees": s.fees - self.initial_fees,
++                   "slippage_cost": s.slippage_cost - self.initial_slippage,
+                    "terminal_equity": s.equity, "open_quantity": s.quantity,
+                    "pending_orders": s.pending_orders, "bars": self.n}
+         self.previous_equity, self.last_time = s.equity, s.as_of
+@@ -197,13 +199,13 @@
+                                     ("risk uses D1 close marks/252 bars; no live certification",)))
+ 
+     def snapshot(self) -> dict:
+-        keys = ("initial_equity", "previous_equity", "peak", "n", "average", "m2", "drawdown", "fills",
++        keys = ("initial_equity", "initial_fees", "initial_slippage", "previous_equity", "peak", "n", "average", "m2", "drawdown", "fills",
+                 "first_time", "last_time")
+         return {**super().snapshot(), **{k: getattr(self, k) for k in keys}}
+ 
+     def restore(self, state: dict) -> None:
+         super().restore(state)
+-        for key in ("initial_equity", "previous_equity", "peak", "n", "average", "m2", "drawdown", "fills",
++        for key in ("initial_equity", "initial_fees", "initial_slippage", "previous_equity", "peak", "n", "average", "m2", "drawdown", "fills",
+                     "first_time", "last_time"):
+             setattr(self, key, state[key])
+ 
+--- src/inv_trend/application/多方法研究_v1.py@工程v1
++++ src/inv_trend/application/多方法研究_v1.py@工程v2
+@@ -96,7 +96,8 @@
+         self.chain = list(stages(context, candidate, broker.config))
+         self.chain[4].engine = broker
+         self.initial = broker.cash + broker.quantity * (broker.last_bar.close if broker.last_bar else 0)
+-        self.chain[5] = EvaluationStage(initial_equity=self.initial)
++        self.chain[5] = EvaluationStage(initial_equity=self.initial, initial_fees=broker.fees,
++                                        initial_slippage=broker.slippage_cost)
+         for b in warmup:
+             self.chain[3].engine.update(self.chain[2].engine.update(b))
+         self.snapshots = []
+@@ -205,7 +206,7 @@
+                             broker = brokers[(family, scenario)]
+                             context = RunContext(f"{study_id}/{symbol}/{family}/{window['id']}/{scenario}",
+                                                  dataset_version, "在线三方法_v1", version,
+-                                                 digest({"parameters": asdict(candidate), "lock": lock_hash}),
++                                                 digest({"parameters": asdict(candidate), "execution": asdict(broker.config), "lock": lock_hash}),
+                                                  "OOS" if scenario == "base" else "STRESS")
+                             runtimes[(family, scenario)] = WindowRuntime(context, candidate, broker, history[-126:])
+                     # All locks have committed. Even the coordinator never materializes a future window.
+--- src/inv_trend/cli/分阶段研究_v1.py@工程v1
++++ src/inv_trend/cli/分阶段研究_v1.py@工程v2
+@@ -41,6 +41,30 @@
+     if not receipt["passed"]:
+         raise RuntimeError("定向门禁失败，禁止进入实验：\n" + json.dumps(receipt, ensure_ascii=False))
+     return receipt
++
++
++
++def resolve_configuration(repository, packet, candidate_id=None):
++    if packet.context.code_version != code_hash():
++        raise ValueError("输入代码版本与当前实现不一致；须使用匹配实现或新建run，不得冒用旧版本")
++    candidate = next((c for c in candidate_grid() if digest(c) == packet.context.parameters_hash), None)
++    execution = ExecutionConfig()
++    states = repository.store.rows("SELECT stage,state_json FROM stage_checkpoints_v1 WHERE run_id=? ORDER BY as_of",
++                                    (packet.context.run_id,))
++    for row in states:
++        state = json.loads(row["state_json"])
++        if row["stage"] in ("indicators", "signal"):
++            saved = Candidate(**state["engine"]["candidate"])
++            if candidate is not None and saved != candidate:
++                raise ValueError("同一run存在冲突的候选参数")
++            candidate = saved
++        elif row["stage"] == "backtest":
++            execution = ExecutionConfig(**state["engine"]["config"])
++    if candidate is None:
++        raise ValueError("无法从不可变输入解析策略配置；禁止采用隐式默认参数")
++    if candidate_id is not None and candidate.id != candidate_id:
++        raise ValueError("请求参数与上游锁定参数不一致；请创建独立run")
++    return candidate, execution
+ 
+ 
+ def main(argv=None):
+@@ -119,7 +143,10 @@
+                 parser.error("非 acquire 阶段必须提供 --input-id")
+             input = repository.load(args.input_id)
+             context = input.context
+-        chain = stages(context, candidate, ExecutionConfig())
++        execution = ExecutionConfig()
++        if args.stage != "acquire":
++            candidate, execution = resolve_configuration(repository, input, args.candidate_id)
++        chain = stages(context, candidate, execution)
+         selected = next(stage for stage in chain if stage.name == args.stage)
+         if args.checkpoint_as_of:
+             selected.restore(repository.checkpoint(context.run_id, args.stage, args.checkpoint_as_of))
+--- src/inv_trend/storage/研究核验_v1.py@工程v1
++++ src/inv_trend/storage/研究核验_v1.py@工程v2
+@@ -117,6 +117,18 @@
+             packet = repository.load(row["artifact_id"])
+             require(packet.context.dataset_version == study["dataset_version"], "artifact data version mismatch")
+             require(packet.context.code_version == study["code_version"], "artifact code version mismatch")
++            if packet.stage in ("evaluate", "report"):
++                matching = next((r for r in results if packet.context.run_id ==
++                    f"{study_id}/{r['symbol']}/{r['family']}/{r['window_id']}/{r['scenario']}"), None)
++                if matching:
++                    stage_metrics = dict(packet.payload.metrics)
++                    summary_metrics = json.loads(matching["metrics_json"])
++                    for name in ("total_return", "annualized_return", "max_drawdown", "sharpe_ratio",
++                                 "fees", "slippage_cost", "terminal_equity", "bars", "fill_count"):
++                        left, right = stage_metrics[name], summary_metrics[name]
++                        require(left is None and right is None or left is not None and right is not None
++                                and math.isclose(left, right, rel_tol=1e-8, abs_tol=1e-8),
++                                "stage/summary metric mismatch: " + name)
+             for parent_id in packet.parent_ids:
+                 parent = repository.load(parent_id)
+                 require(packet.input_hash == parent.output_hash, "upstream payload hash mismatch")
+--- pyproject.toml@工程v1
++++ pyproject.toml@工程v2
+@@ -14,6 +14,7 @@
+   "pyarrow>=15,<22",
+   "PyYAML>=6,<7",
+   "rich>=13,<15",
++  "tzdata>=2024.1",
+   "openpyxl>=3.1,<4",
+   "duckdb>=1,<2",
+ ]

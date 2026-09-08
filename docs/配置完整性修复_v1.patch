@@ -1,0 +1,16 @@
+--- src/inv_trend/cli/分阶段研究_v1.py@v2
++++ src/inv_trend/cli/分阶段研究_v1.py@v3
+@@ -49,10 +49,12 @@
+         raise ValueError("输入代码版本与当前实现不一致；须使用匹配实现或新建run，不得冒用旧版本")
+     candidate = next((c for c in candidate_grid() if digest(c) == packet.context.parameters_hash), None)
+     execution = ExecutionConfig()
+-    states = repository.store.rows("SELECT stage,state_json FROM stage_checkpoints_v1 WHERE run_id=? ORDER BY as_of",
++    states = repository.store.rows("SELECT stage,state_json,state_hash FROM stage_checkpoints_v1 WHERE run_id=? ORDER BY as_of",
+                                     (packet.context.run_id,))
+     for row in states:
+         state = json.loads(row["state_json"])
++        if digest(state) != row["state_hash"]:
++            raise ValueError("配置检查点完整性校验失败")
+         if row["stage"] in ("indicators", "signal"):
+             saved = Candidate(**state["engine"]["candidate"])
+             if candidate is not None and saved != candidate:

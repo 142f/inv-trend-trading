@@ -152,8 +152,7 @@ def import_market_csv(store,data,source_name,expected_hash):
     frame=pd.read_csv(io.BytesIO(data),float_precision='round_trip')
     expected=['date','symbol','open','high','low','close','volume','spread','source','timeframe']
     if list(frame.columns)!=expected:raise StoreError('固定回测行情Schema发生变化')
-    from inv_trend.core.阶段契约 import frame_fingerprint
-    frame_hash=frame_fingerprint(frame)
+    frame_hash=digest(canonical(encode_frame(frame)))
     key=f'metadata/固定输入/{expected_hash}.csv'
     with store.connect() as db:
         if db.execute('SELECT 1 FROM market_datasets_v3 WHERE dataset_hash=?',(expected_hash,)).fetchone():return
@@ -178,6 +177,11 @@ def load_market_frame(store,dataset_hash):
     data=store.rows('SELECT date,symbol,open,high,low,close,volume,spread,source,timeframe FROM market_bars_v3 WHERE dataset_id=? ORDER BY ordinal',(spec['dataset_id'],))
     frame=pd.DataFrame(data,columns=['date','symbol','open','high','low','close','volume','spread','source','timeframe'])
     for c,dtype in json.loads(spec['schema_json']).items():frame[c]=frame[c].astype(dtype)
-    from inv_trend.core.阶段契约 import frame_fingerprint
-    if len(frame)!=spec['row_count'] or frame_fingerprint(frame)!=spec['frame_hash']:raise StoreError('结构化行情与原始DataFrame不一致')
+    # 与已通过 SHA256 核验的原始字节逐字段精确比较；不依赖缺失的历史指纹算法。
+    original=pd.read_csv(io.BytesIO(store.document_bytes(spec['source_document'])),float_precision='round_trip')
+    try:
+        pd.testing.assert_frame_equal(frame,original,check_exact=True)
+    except AssertionError as exc:
+        raise StoreError('结构化行情与原始DataFrame不一致') from exc
+    if len(frame)!=spec['row_count']:raise StoreError('结构化行情行数不一致')
     return frame

@@ -1,0 +1,176 @@
+{
+  "base_archive_sha256": "d57d71be33fda3a4c79be20de83e5488541e78f34fe8ba19b03897b0b94e6df4",
+  "files": [
+    {
+      "path": "README.md",
+      "action": "modified",
+      "old_sha256": "54601ebe6977ff770cb9b32dfda5102d416cc8c4771980972f30f5325f1e8e66",
+      "new_sha256": "68cd9cae37447d4e087881345f0b1cb6e29847bdb06820686b30ea948e9b55a9"
+    },
+    {
+      "path": "docs/修改说明_v1.md",
+      "action": "added",
+      "old_sha256": null,
+      "new_sha256": "634884b0f9fc7f305d72f1e453dee5bdce90d15b858fa737a277f8e22c4acd0f"
+    },
+    {
+      "path": "docs/原包删除清单_v1.json",
+      "action": "added",
+      "old_sha256": null,
+      "new_sha256": "d1073eab9b843c4439fcb519b2ecd70e68c13379c53f84fa5191360d5afaa1f4"
+    },
+    {
+      "path": "docs/口径修复审计_v1.patch",
+      "action": "added",
+      "old_sha256": null,
+      "new_sha256": "61b8ee76e3ad86f4988a2511a40ee58f81f4941320a9411722e3dc453ac75166"
+    },
+    {
+      "path": "docs/研究方法依据_v1.md",
+      "action": "added",
+      "old_sha256": null,
+      "new_sha256": "959ba64f93db272b29503375eca59de8c64630788623c0bacee88b6dd696e6e4"
+    },
+    {
+      "path": "docs/配置完整性修复_v1.patch",
+      "action": "added",
+      "old_sha256": null,
+      "new_sha256": "84707f6baf7ea05d523e23ecc91d150902a6189d0b8de71af67acaee1e9e5a66"
+    },
+    {
+      "path": "docs/重构验收报告_v1.md",
+      "action": "added",
+      "old_sha256": null,
+      "new_sha256": "cbd832f28f6b4f8998fc70b42569e829271b09ea629b0cf0111b25dc5dce7354"
+    },
+    {
+      "path": "docs/阶段数据库定义_v1.sql",
+      "action": "added",
+      "old_sha256": null,
+      "new_sha256": "0b46a0f227fbeb49fcd98f8982661c6a9ff8a8493ed11c6f07016d894f04f9b7"
+    },
+    {
+      "path": "docs/阶段输入输出规范_v1.md",
+      "action": "added",
+      "old_sha256": null,
+      "new_sha256": "1fed772fc94d44d3b056693c9ce5b9b5d96c316b48ff3513ad5da8aacf84c43f"
+    },
+    {
+      "path": "pyproject.toml",
+      "action": "modified",
+      "old_sha256": "e7a00fc018919a0c6314f58e4fd1c430bc16bc0b2fdf3e68b14fee75aa34a50f",
+      "new_sha256": "956e8871547b8712c672e9a25ac7c880c883f0d4ae1d8e450c0a25f0100ce3e7"
+    },
+    {
+      "path": "research/d1_suite/scripts/d1_backtest_common.py",
+      "action": "modified",
+      "old_sha256": "fbf295930e1bb5dd6a6e3eda6e73134b1f08b3ba5d00b550e149ace4c7b96234",
+      "new_sha256": "13386815e31b29dbb497d6a227218c184f14bb1b4794c3c43dc96d1f7f6ff138"
+    },
+    {
+      "path": "scripts/性能核验_v1.py",
+      "action": "added",
+      "old_sha256": null,
+      "new_sha256": "d3d9ce69ccb94aef6ecdbbdcb2eb3c47f9a25255bc86581cb47b3d9e885681c4"
+    },
+    {
+      "path": "scripts/目录治理_v1.py",
+      "action": "added",
+      "old_sha256": null,
+      "new_sha256": "8265058f0dc69bb87e49ea6ebbe29a160069a0ced8480698a1e60f9b85d3b693"
+    },
+    {
+      "path": "src/inv_trend/application/多方法研究_v1.py",
+      "action": "added",
+      "old_sha256": null,
+      "new_sha256": "c5c2aeeca5732a9571b4d4c06022917f62a40c0541b6ccf02fee9e56d5a8ff23"
+    },
+    {
+      "path": "src/inv_trend/application/标准阶段_v1.py",
+      "action": "added",
+      "old_sha256": null,
+      "new_sha256": "538095641b6e02cf6f543ce65f559fd5927104dfb1285cea692dd78210a43319"
+    },
+    {
+      "path": "src/inv_trend/application/研究评分_v1.py",
+      "action": "added",
+      "old_sha256": null,
+      "new_sha256": "8197fd79d5ad75676a9bdfda1534a931c70cbbfa35a232aa39a33a3f7f541bc1"
+    },
+    {
+      "path": "src/inv_trend/cli/分阶段研究_v1.py",
+      "action": "added",
+      "old_sha256": null,
+      "new_sha256": "dd8527bef0d47452153a066cffe9331f089f8449b2e0a8247a5f703345164916"
+    },
+    {
+      "path": "src/inv_trend/cli/存储治理_v1.py",
+      "action": "added",
+      "old_sha256": null,
+      "new_sha256": "277199920bc8df27e42025428113201b09dc741debbc3abc7c1e5bae0f1fdea0"
+    },
+    {
+      "path": "src/inv_trend/core/事件账户_v1.py",
+      "action": "added",
+      "old_sha256": null,
+      "new_sha256": "f3a743eb5c68683a671e0de8aa372f9c0ad361974cf2a0e20a809fc345186593"
+    },
+    {
+      "path": "src/inv_trend/core/在线策略_v1.py",
+      "action": "added",
+      "old_sha256": null,
+      "new_sha256": "e9b338a374582c56a5b32d8492d446bdb0cdc192ebb6b18667e17d4766a2bd9a"
+    },
+    {
+      "path": "src/inv_trend/core/阶段协议_v1.py",
+      "action": "added",
+      "old_sha256": null,
+      "new_sha256": "a5a94c8a799eb3e1fb65eae0457c87fc0ee58babaf9a3b177951f45181162255"
+    },
+    {
+      "path": "src/inv_trend/data/时点行情_v1.py",
+      "action": "added",
+      "old_sha256": null,
+      "new_sha256": "c7777b48a941d59d6c951aad02b6d9ef7c2cc1844e485d35e82a840577e7fda0"
+    },
+    {
+      "path": "src/inv_trend/observability/研究评审_v1.py",
+      "action": "added",
+      "old_sha256": null,
+      "new_sha256": "e4e8b4d66bf30453bb19f937719b1a9dfcf6c7ce0b1edd22ad76f81b21021d07"
+    },
+    {
+      "path": "src/inv_trend/storage/研究核验_v1.py",
+      "action": "added",
+      "old_sha256": null,
+      "new_sha256": "d8043e584302eba5ba8c79c528b5d126f8c59ae6493752785132837958229cf1"
+    },
+    {
+      "path": "src/inv_trend/storage/阶段运行_v1.py",
+      "action": "added",
+      "old_sha256": null,
+      "new_sha256": "aa091b5353db38c6b721b1fbd97360f2b88aed3435c806051a6dd17e7c2a27a2"
+    },
+    {
+      "path": "tests/test_时点存储_v1.py",
+      "action": "added",
+      "old_sha256": null,
+      "new_sha256": "083cce255c9d7875b38086d89d46efec4500561eb45adcbf76c472c630f1c1a8"
+    },
+    {
+      "path": "tests/test_标准阶段_v1.py",
+      "action": "added",
+      "old_sha256": null,
+      "new_sha256": "ac977d7caf876afd12e06672163cd715abf9bf9fff37db346dea1e14f761829c"
+    },
+    {
+      "path": "tests/test_目录治理_v1.py",
+      "action": "added",
+      "old_sha256": null,
+      "new_sha256": "e6009eb3c8e55b834a8141b5c203f277c361a301d7b8ae7db4402244a7999b50"
+    }
+  ],
+  "deleted_files_manifest": "docs/原包删除清单_v1.json",
+  "no_database_or_market_data_in_patch": true,
+  "source_code_version": "a0842f120fd9d5eb048db1646cbb5253b9467af7fa2ec78a190c1444c58e0248"
+}
