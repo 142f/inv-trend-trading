@@ -1,0 +1,570 @@
+{
+  "schema_version": 2,
+  "strategy_version": "滚动策略_v2",
+  "registered_at": "2026-09-07T06:14:30.848193+00:00",
+  "dataset": "processed_data/backtest_ready/metal_tech_core/metal_tech_core_d1_backtest_ready.csv",
+  "dataset_sha256": "7f232ee80f02e0df8d86699cbf7e26a0c71a6e7ebaf43f22547d7cf49b90f962",
+  "data_max_label": "2026-04-20",
+  "history_previously_inspected": true,
+  "production_enabled": false,
+  "windows": {
+    "first_test_start": "2020-01-01",
+    "last_test_end_exclusive": "2026-04-21",
+    "train_years": 3,
+    "test_months": 6,
+    "gap_calendar_days": 7,
+    "inner_slices": 3,
+    "warmup_bars": null,
+    "warmup_policy": "保留训练和执行时刻之前全部已完成历史，Wilder固定初始种子"
+  },
+  "selection": {
+    "min_trades": 5,
+    "min_positive_inner_ratio": 0.6666666666666666,
+    "max_inner_drawdown": 0.4,
+    "score": "median(Sharpe)+0.5*median(Calmar)-std(Sharpe)-max(DD)",
+    "tie_break": "预注册候选顺序优先，其次候选ID",
+    "fallback": "现金",
+    "candidate_pool": "仅该迭代已加入的预注册候选",
+    "outer_results_not_used": true
+  },
+  "upgrade": {
+    "requires_genuinely_unseen_data": true,
+    "requires_positive_net_return": true,
+    "requires_return_not_worse": true,
+    "requires_drawdown_not_worse": true,
+    "requires_sharpe_not_worse": true,
+    "requires_calmar_not_worse": true,
+    "min_positive_fold_ratio": 0.6,
+    "requires_cost_stress_positive": true,
+    "requires_corrected_pvalue_below": 0.05,
+    "requires_execution_certification": true
+  },
+  "execution": {
+    "event_clock": true,
+    "price_slippage": true,
+    "max_gross_leverage": 1.0,
+    "financing_bps_per_year": 300.0,
+    "short_borrow_bps_per_year": 300.0,
+    "volume_participation": 0.01,
+    "enforce_capital": true,
+    "enforce_volume": true,
+    "charge_calendar_carry": true,
+    "certified": false
+  },
+  "specs": {
+    "AMD": {
+      "asset_class": "equity",
+      "cluster": "equity",
+      "qty_step": 1.0,
+      "cost_bps": 1.0,
+      "slippage_bps": 2.0
+    },
+    "AMZN": {
+      "asset_class": "equity",
+      "cluster": "equity",
+      "qty_step": 1.0,
+      "cost_bps": 1.0,
+      "slippage_bps": 2.0
+    },
+    "AVGO": {
+      "asset_class": "equity",
+      "cluster": "equity",
+      "qty_step": 1.0,
+      "cost_bps": 1.0,
+      "slippage_bps": 2.0
+    },
+    "MSFT": {
+      "asset_class": "equity",
+      "cluster": "equity",
+      "qty_step": 1.0,
+      "cost_bps": 1.0,
+      "slippage_bps": 2.0
+    },
+    "NVDA": {
+      "asset_class": "equity",
+      "cluster": "equity",
+      "qty_step": 1.0,
+      "cost_bps": 1.0,
+      "slippage_bps": 2.0
+    },
+    "ORCL": {
+      "asset_class": "equity",
+      "cluster": "equity",
+      "qty_step": 1.0,
+      "cost_bps": 1.0,
+      "slippage_bps": 2.0
+    },
+    "QQQ": {
+      "asset_class": "equity",
+      "cluster": "equity",
+      "qty_step": 1.0,
+      "cost_bps": 1.0,
+      "slippage_bps": 2.0
+    },
+    "TSM": {
+      "asset_class": "equity",
+      "cluster": "equity",
+      "qty_step": 1.0,
+      "cost_bps": 1.0,
+      "slippage_bps": 2.0
+    },
+    "XAGUSD_DUKAS": {
+      "asset_class": "metal",
+      "cluster": "metal",
+      "qty_step": 0.001,
+      "cost_bps": 1.0,
+      "slippage_bps": 2.0
+    },
+    "XAUUSD_DUKAS": {
+      "asset_class": "metal",
+      "cluster": "metal",
+      "qty_step": 0.001,
+      "cost_bps": 1.0,
+      "slippage_bps": 2.0
+    }
+  },
+  "candidates": [
+    {
+      "id": "候选01",
+      "name": "基准v4",
+      "rules": {
+        "entry_ma_period": 60,
+        "entry_adx_min": 20,
+        "entry_confirmation_bars": 3,
+        "entry_atr_percentile_max": 0.9,
+        "max_total_leverage": 1.0,
+        "max_direction_leverage": 0.8,
+        "default_cluster_leverage": 0.7,
+        "max_total_1n_risk_pct": 0.06,
+        "max_direction_1n_risk_pct": 0.04,
+        "default_cluster_1n_risk_pct": 0.03
+      },
+      "spec_overrides": {},
+      "take_profit_n": 0.0,
+      "hypothesis": "保持原先冻结v4，不按旧测试期收益更换基准"
+    },
+    {
+      "id": "候选02",
+      "name": "短均线",
+      "rules": {
+        "entry_ma_period": 40,
+        "entry_adx_min": 20,
+        "entry_confirmation_bars": 3,
+        "entry_atr_percentile_max": 0.9,
+        "max_total_leverage": 1.0,
+        "max_direction_leverage": 0.8,
+        "default_cluster_leverage": 0.7,
+        "max_total_1n_risk_pct": 0.06,
+        "max_direction_1n_risk_pct": 0.04,
+        "default_cluster_1n_risk_pct": 0.03
+      },
+      "spec_overrides": {},
+      "take_profit_n": 0.0,
+      "hypothesis": "训练内检验趋势响应速度"
+    },
+    {
+      "id": "候选03",
+      "name": "长均线",
+      "rules": {
+        "entry_ma_period": 80,
+        "entry_adx_min": 20,
+        "entry_confirmation_bars": 3,
+        "entry_atr_percentile_max": 0.9,
+        "max_total_leverage": 1.0,
+        "max_direction_leverage": 0.8,
+        "default_cluster_leverage": 0.7,
+        "max_total_1n_risk_pct": 0.06,
+        "max_direction_1n_risk_pct": 0.04,
+        "default_cluster_1n_risk_pct": 0.03
+      },
+      "spec_overrides": {},
+      "take_profit_n": 0.0,
+      "hypothesis": "训练内检验过滤滞后与稳健性"
+    },
+    {
+      "id": "候选04",
+      "name": "弱趋势阈值",
+      "rules": {
+        "entry_ma_period": 60,
+        "entry_adx_min": 15,
+        "entry_confirmation_bars": 3,
+        "entry_atr_percentile_max": 0.9,
+        "max_total_leverage": 1.0,
+        "max_direction_leverage": 0.8,
+        "default_cluster_leverage": 0.7,
+        "max_total_1n_risk_pct": 0.06,
+        "max_direction_1n_risk_pct": 0.04,
+        "default_cluster_1n_risk_pct": 0.03
+      },
+      "spec_overrides": {},
+      "take_profit_n": 0.0,
+      "hypothesis": "预设邻域下界，检验阈值敏感性"
+    },
+    {
+      "id": "候选05",
+      "name": "强趋势阈值",
+      "rules": {
+        "entry_ma_period": 60,
+        "entry_adx_min": 25,
+        "entry_confirmation_bars": 3,
+        "entry_atr_percentile_max": 0.9,
+        "max_total_leverage": 1.0,
+        "max_direction_leverage": 0.8,
+        "default_cluster_leverage": 0.7,
+        "max_total_1n_risk_pct": 0.06,
+        "max_direction_1n_risk_pct": 0.04,
+        "default_cluster_1n_risk_pct": 0.03
+      },
+      "spec_overrides": {},
+      "take_profit_n": 0.0,
+      "hypothesis": "预设邻域上界，检验样本稀疏性"
+    },
+    {
+      "id": "候选06",
+      "name": "单根确认",
+      "rules": {
+        "entry_ma_period": 60,
+        "entry_adx_min": 20,
+        "entry_confirmation_bars": 1,
+        "entry_atr_percentile_max": 0.9,
+        "max_total_leverage": 1.0,
+        "max_direction_leverage": 0.8,
+        "default_cluster_leverage": 0.7,
+        "max_total_1n_risk_pct": 0.06,
+        "max_direction_1n_risk_pct": 0.04,
+        "default_cluster_1n_risk_pct": 0.03
+      },
+      "spec_overrides": {},
+      "take_profit_n": 0.0,
+      "hypothesis": "检验连续确认造成的入场延迟"
+    },
+    {
+      "id": "候选07",
+      "name": "突破缓冲",
+      "rules": {
+        "entry_ma_period": 60,
+        "entry_adx_min": 20,
+        "entry_confirmation_bars": 3,
+        "entry_atr_percentile_max": 0.9,
+        "max_total_leverage": 1.0,
+        "max_direction_leverage": 0.8,
+        "default_cluster_leverage": 0.7,
+        "max_total_1n_risk_pct": 0.06,
+        "max_direction_1n_risk_pct": 0.04,
+        "default_cluster_1n_risk_pct": 0.03,
+        "breakout_buffer_n": 0.25
+      },
+      "spec_overrides": {},
+      "take_profit_n": 0.0,
+      "hypothesis": "检验小幅假突破，固定缓冲不追加搜索"
+    },
+    {
+      "id": "候选08",
+      "name": "仅慢系统",
+      "rules": {
+        "entry_ma_period": 60,
+        "entry_adx_min": 20,
+        "entry_confirmation_bars": 3,
+        "entry_atr_percentile_max": 0.9,
+        "max_total_leverage": 1.0,
+        "max_direction_leverage": 0.8,
+        "default_cluster_leverage": 0.7,
+        "max_total_1n_risk_pct": 0.06,
+        "max_direction_1n_risk_pct": 0.04,
+        "default_cluster_1n_risk_pct": 0.03,
+        "fast_system_enabled": false
+      },
+      "spec_overrides": {},
+      "take_profit_n": 0.0,
+      "hypothesis": "检验系统组合的复杂度收益"
+    },
+    {
+      "id": "候选09",
+      "name": "半风险",
+      "rules": {
+        "entry_ma_period": 60,
+        "entry_adx_min": 20,
+        "entry_confirmation_bars": 3,
+        "entry_atr_percentile_max": 0.9,
+        "max_total_leverage": 1.0,
+        "max_direction_leverage": 0.8,
+        "default_cluster_leverage": 0.7,
+        "max_total_1n_risk_pct": 0.06,
+        "max_direction_1n_risk_pct": 0.04,
+        "default_cluster_1n_risk_pct": 0.03
+      },
+      "spec_overrides": {
+        "unit_1n_risk_pct": 0.0025
+      },
+      "take_profit_n": 0.0,
+      "hypothesis": "用固定减半风险检验资金曲线与成本非线性"
+    },
+    {
+      "id": "候选10",
+      "name": "波动缩仓",
+      "rules": {
+        "entry_ma_period": 60,
+        "entry_adx_min": 20,
+        "entry_confirmation_bars": 3,
+        "entry_atr_percentile_max": 0.9,
+        "max_total_leverage": 1.0,
+        "max_direction_leverage": 0.8,
+        "default_cluster_leverage": 0.7,
+        "max_total_1n_risk_pct": 0.06,
+        "max_direction_1n_risk_pct": 0.04,
+        "default_cluster_1n_risk_pct": 0.03,
+        "risk_atr_fraction_target": 0.02
+      },
+      "spec_overrides": {},
+      "take_profit_n": 0.0,
+      "hypothesis": "风险目标只减仓，不放大低波动杠杆"
+    },
+    {
+      "id": "候选11",
+      "name": "宽止损单仓",
+      "rules": {
+        "entry_ma_period": 60,
+        "entry_adx_min": 20,
+        "entry_confirmation_bars": 3,
+        "entry_atr_percentile_max": 0.9,
+        "max_total_leverage": 1.0,
+        "max_direction_leverage": 0.8,
+        "default_cluster_leverage": 0.7,
+        "max_total_1n_risk_pct": 0.06,
+        "max_direction_1n_risk_pct": 0.04,
+        "default_cluster_1n_risk_pct": 0.03,
+        "stop_n": 3.0
+      },
+      "spec_overrides": {
+        "max_units": 1
+      },
+      "take_profit_n": 0.0,
+      "hypothesis": "检验止损和加仓交互效应，控制复杂度"
+    },
+    {
+      "id": "候选12",
+      "name": "固定五N止盈",
+      "rules": {
+        "entry_ma_period": 60,
+        "entry_adx_min": 20,
+        "entry_confirmation_bars": 3,
+        "entry_atr_percentile_max": 0.9,
+        "max_total_leverage": 1.0,
+        "max_direction_leverage": 0.8,
+        "default_cluster_leverage": 0.7,
+        "max_total_1n_risk_pct": 0.06,
+        "max_direction_1n_risk_pct": 0.04,
+        "default_cluster_1n_risk_pct": 0.03
+      },
+      "spec_overrides": {},
+      "take_profit_n": 5.0,
+      "hypothesis": "旧holdout已看过的规则；仅训练内候选，不再称独立发现"
+    }
+  ],
+  "iterations": [
+    {
+      "id": "策略迭代01",
+      "added_candidate": "候选01",
+      "pool": [
+        "候选01"
+      ],
+      "change": "保持原先冻结v4，不按旧测试期收益更换基准"
+    },
+    {
+      "id": "策略迭代02",
+      "added_candidate": "候选02",
+      "pool": [
+        "候选01",
+        "候选02"
+      ],
+      "change": "训练内检验趋势响应速度"
+    },
+    {
+      "id": "策略迭代03",
+      "added_candidate": "候选03",
+      "pool": [
+        "候选01",
+        "候选02",
+        "候选03"
+      ],
+      "change": "训练内检验过滤滞后与稳健性"
+    },
+    {
+      "id": "策略迭代04",
+      "added_candidate": "候选04",
+      "pool": [
+        "候选01",
+        "候选02",
+        "候选03",
+        "候选04"
+      ],
+      "change": "预设邻域下界，检验阈值敏感性"
+    },
+    {
+      "id": "策略迭代05",
+      "added_candidate": "候选05",
+      "pool": [
+        "候选01",
+        "候选02",
+        "候选03",
+        "候选04",
+        "候选05"
+      ],
+      "change": "预设邻域上界，检验样本稀疏性"
+    },
+    {
+      "id": "策略迭代06",
+      "added_candidate": "候选06",
+      "pool": [
+        "候选01",
+        "候选02",
+        "候选03",
+        "候选04",
+        "候选05",
+        "候选06"
+      ],
+      "change": "检验连续确认造成的入场延迟"
+    },
+    {
+      "id": "策略迭代07",
+      "added_candidate": "候选07",
+      "pool": [
+        "候选01",
+        "候选02",
+        "候选03",
+        "候选04",
+        "候选05",
+        "候选06",
+        "候选07"
+      ],
+      "change": "检验小幅假突破，固定缓冲不追加搜索"
+    },
+    {
+      "id": "策略迭代08",
+      "added_candidate": "候选08",
+      "pool": [
+        "候选01",
+        "候选02",
+        "候选03",
+        "候选04",
+        "候选05",
+        "候选06",
+        "候选07",
+        "候选08"
+      ],
+      "change": "检验系统组合的复杂度收益"
+    },
+    {
+      "id": "策略迭代09",
+      "added_candidate": "候选09",
+      "pool": [
+        "候选01",
+        "候选02",
+        "候选03",
+        "候选04",
+        "候选05",
+        "候选06",
+        "候选07",
+        "候选08",
+        "候选09"
+      ],
+      "change": "用固定减半风险检验资金曲线与成本非线性"
+    },
+    {
+      "id": "策略迭代10",
+      "added_candidate": "候选10",
+      "pool": [
+        "候选01",
+        "候选02",
+        "候选03",
+        "候选04",
+        "候选05",
+        "候选06",
+        "候选07",
+        "候选08",
+        "候选09",
+        "候选10"
+      ],
+      "change": "风险目标只减仓，不放大低波动杠杆"
+    },
+    {
+      "id": "策略迭代11",
+      "added_candidate": "候选11",
+      "pool": [
+        "候选01",
+        "候选02",
+        "候选03",
+        "候选04",
+        "候选05",
+        "候选06",
+        "候选07",
+        "候选08",
+        "候选09",
+        "候选10",
+        "候选11"
+      ],
+      "change": "检验止损和加仓交互效应，控制复杂度"
+    },
+    {
+      "id": "策略迭代12",
+      "added_candidate": "候选12",
+      "pool": [
+        "候选01",
+        "候选02",
+        "候选03",
+        "候选04",
+        "候选05",
+        "候选06",
+        "候选07",
+        "候选08",
+        "候选09",
+        "候选10",
+        "候选11",
+        "候选12"
+      ],
+      "change": "旧holdout已看过的规则；仅训练内候选，不再称独立发现"
+    }
+  ],
+  "stress": [
+    {
+      "name": "双倍交易成本",
+      "cost_multiple": 2.0,
+      "delay": 1
+    },
+    {
+      "name": "四倍交易成本",
+      "cost_multiple": 4.0,
+      "delay": 1
+    },
+    {
+      "name": "延迟两根",
+      "cost_multiple": 1.0,
+      "delay": 2
+    },
+    {
+      "name": "延迟三根",
+      "cost_multiple": 1.0,
+      "delay": 3
+    },
+    {
+      "name": "双成本双延迟",
+      "cost_multiple": 2.0,
+      "delay": 2
+    }
+  ],
+  "limitations": [
+    "全部历史数据此前已被研究者查看；外层窗口仅算法不可见，非研究者盲测",
+    "固定事后选定的十品种池，无点时成份与退市样本，不能消除幸存者偏差",
+    "日线会话与价格复权合同未被提供者认证，US常规时段仅保守研究假设",
+    "金属成交量可能为tick量，无可用真实成交量或完整合约保证金表",
+    "OHLC内触发顺序未知：跳空先按开盘，双触发止损优先，区间触发在收盘确认入账",
+    "禁止假定有借券；股票默认不做空；融资费是假设，不是历史券商账单"
+  ],
+  "statistical_audit": {
+    "seed": 20260907,
+    "bootstrap_replicates": 1000,
+    "block_calendar_days": 20,
+    "alpha": 0.05,
+    "family": "本轮12个预注册累计候选池；不声称修正未知的历史搜索次数"
+  }
+}
