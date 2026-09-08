@@ -19,6 +19,14 @@ class StorageIntegrityError(RuntimeError):
 
 
 class Storage:
+    def __new__(cls, root="."):
+        if cls is Storage:
+            from .结构化存储_v3 import DB_RELATIVE
+            if (Path(root).resolve() / "data" / DB_RELATIVE).is_file():
+                from .统一仓库适配_v3 import DatabaseStorage
+                return object.__new__(DatabaseStorage)
+        return object.__new__(cls)
+
     def __init__(self, root="."):
         self.root = Path(root).resolve()
         self.system = self.root / "outputs" / "系统"

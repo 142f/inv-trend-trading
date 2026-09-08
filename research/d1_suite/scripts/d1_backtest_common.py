@@ -154,9 +154,10 @@ def _resolve_equity_symbol_path(equity_data_dir: Path, symbol: str) -> Path | No
 
 
 def load_csv(path: Path) -> pd.DataFrame:
-    sample = pd.read_csv(path, nrows=1)
-    time_col = "time" if "time" in sample.columns else "date"
-    df = pd.read_csv(path, parse_dates=[time_col])
+    # One parse instead of an initial sampling read plus a complete reread.
+    # This compatibility loader remains an offline research helper, not a causal feed.
+    df = pd.read_csv(path)
+    time_col = "time" if "time" in df.columns else "date"
     df[time_col] = pd.to_datetime(df[time_col], utc=True)
     return df.set_index(time_col).sort_index()[["open", "high", "low", "close", "volume", "spread"]]
 

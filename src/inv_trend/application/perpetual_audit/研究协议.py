@@ -101,7 +101,7 @@ def neighborhood(center):
 
 
 class ExperimentRegistry:
-    """SQLite owns experiment state; JSONL is read-only migration input."""
+    """SQLite是唯一写入口；JSONL仅为可校验、可再生的兼容审计投影。"""
     def __init__(self, path, *, root=None):
         from inv_trend.storage.实验登记 import SQLiteRegistry
         self.path = Path(path)
@@ -110,10 +110,28 @@ class ExperimentRegistry:
             self.backend.import_jsonl(digest)
 
     def append(self, event):
-        return self.backend.append(event, digest)
+        self.read()  # 修改前先拒绝损坏的权威链或投影，不能静默掩盖篡改。
+        result = self.backend.append(event, digest)
+        from inv_trend.storage.基础 import atomic_write
+        # SQLite事务完成后才导出。崩溃留下旧前缀仍可读取完整SQLite权威链。
+        with self.backend.store.lock():
+            rows = self.backend.read()
+            atomic_write(self.path, ("\n".join(json.dumps(x,ensure_ascii=False,sort_keys=True) for x in rows)+"\n").encode())
+        return result
 
     def read(self):
-        return self.backend.read()
+        from inv_trend.storage.仓库 import StorageIntegrityError
+        try:
+            rows = self.backend.read()
+            if self.path.exists():
+                projected=[]
+                for line in self.path.read_text(encoding="utf-8").splitlines():
+                    if line.strip():projected.append(json.loads(line))
+                if len(projected)>len(rows) or projected != rows[:len(projected)]:
+                    raise ValueError("experiment journal projection integrity failure")
+            return rows
+        except StorageIntegrityError as exc:
+            raise ValueError("experiment journal integrity failure") from exc
 
     def start(self, spec, *, code_hash, data_hash, sample_status, parent=None, kind='RESEARCH'):
         if sample_status not in SAMPLE_STATES:

@@ -31,6 +31,15 @@ def require_parquet() -> None:
 class DataLake:
     """Append-only local data lake with recoverable current-version activation."""
 
+    def __new__(cls, root: str | Path = "data"):
+        # v3 data roots have one explicit database authority; legacy roots remain readable.
+        if cls is DataLake:
+            from inv_trend.storage.结构化存储_v3 import DB_RELATIVE
+            if (Path(root) / DB_RELATIVE).is_file():
+                from .数据湖适配_v3 import DatabaseDataLake
+                return object.__new__(DatabaseDataLake)
+        return object.__new__(cls)
+
     def __init__(self, root: str | Path = "data") -> None:
         self.root = Path(root)
         for folder in (
