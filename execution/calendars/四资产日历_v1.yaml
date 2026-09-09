@@ -1,0 +1,13 @@
+version: research-calendar-v1
+database_timezone: UTC
+alignment_policy: union_events_mark_last_observed_close_no_fill_on_absent_bar
+crypto: {session: 24x7, cutoff: '00:00:00 UTC', quality_status: CURATED}
+metals:
+  session: UNVERIFIED
+  cutoff: UNVERIFIED
+  quality_status: UNVERIFIED
+research_assumption:
+  metals_cutoff: provider_date_plus_1_calendar_day_at_00_UTC
+  missing_bar: 不生成可成交bar；沿用最后已知收盘估值，并记录价格年龄。
+  risk_grid: UTC日历日；休市估值收益为0，复市跳空完整计入；年化365.25。
+  warning: 来源日期不代表已认证会话；周末标签保留，不清洗为工作日。
