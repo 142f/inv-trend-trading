@@ -1,0 +1,16 @@
+universe_id: BTC_ETH_XAU_XAG
+version: '1.0'
+core: [BTC, ETH, XAU, XAG]
+reporting_currency: USD
+formal_mode: fail_closed_until_historical_contract_calendar_fx_verified
+asset_config: src/inv_trend/data/config/assets.yaml
+required_fields: [instrument_id, asset_class, market_type, base_currency, quote_currency, timezone, calendar, price_source, execution_model, contract_spec_version, cost_model_version]
+assets:
+  BTC: {instrument_id: BTCUSDT.BINANCE.SPOT, asset_class: crypto, market_type: spot, base_currency: BTC, quote_currency: USDT, timezone: UTC, calendar: 24x7, price_source: binance, execution_model: UNVERIFIED, contract_spec_version: historical-unverified-v1, cost_model_version: UNVERIFIED}
+  ETH: {instrument_id: ETHUSDT.BINANCE.SPOT, asset_class: crypto, market_type: spot, base_currency: ETH, quote_currency: USDT, timezone: UTC, calendar: 24x7, price_source: binance, execution_model: UNVERIFIED, contract_spec_version: historical-unverified-v1, cost_model_version: UNVERIFIED}
+  XAU: {instrument_id: XAUUSD.DUKAS.BID.CFD, asset_class: precious_metal, market_type: cfd, base_currency: XAU, quote_currency: USD, timezone: UTC, calendar: UNVERIFIED, price_source: external_dukas_label, execution_model: UNVERIFIED, contract_spec_version: historical-unverified-v1, cost_model_version: UNVERIFIED}
+  XAG: {instrument_id: XAGUSD.DUKAS.BID.CFD, asset_class: precious_metal, market_type: cfd, base_currency: XAG, quote_currency: USD, timezone: UTC, calendar: UNVERIFIED, price_source: external_dukas_label, execution_model: UNVERIFIED, contract_spec_version: historical-unverified-v1, cost_model_version: UNVERIFIED}
+robustness:
+  assets: [SPY, TLT]
+  purpose: validation_only_never_replace_core
+  status: BLOCKED_UNVERIFIED_INPUTS
