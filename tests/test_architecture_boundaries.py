@@ -27,6 +27,28 @@ def test_core_does_not_depend_on_io_or_application_packages() -> None:
     assert violations == []
 
 
+def test_domain_has_no_infrastructure_or_framework_dependencies() -> None:
+    root = Path(__file__).parents[1] / "src" / "inv_trend" / "domain"
+    banned = {
+        "inv_trend.core", "inv_trend.data", "inv_trend.application",
+        "inv_trend.adapters", "inv_trend.storage", "inv_trend.observability",
+        "pandas", "numpy", "duckdb", "pyarrow", "sqlite3", "requests",
+    }
+    violations = []
+    for source in root.rglob("*.py"):
+        tree = ast.parse(source.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            names = []
+            if isinstance(node, ast.Import):
+                names = [alias.name for alias in node.names]
+            elif isinstance(node, ast.ImportFrom) and node.module:
+                names = [node.module]
+            for name in names:
+                if _is_banned(name, banned):
+                    violations.append(f"{source.name}: {name}")
+    assert violations == []
+
+
 def test_application_does_not_depend_on_cli_or_presentation_packages() -> None:
     root = Path(__file__).parents[1] / "src" / "inv_trend" / "application"
     banned = {"argparse", "rich", "webbrowser", "inv_trend.cli", "inv_trend.observability"}
@@ -131,7 +153,10 @@ def test_historical_data_does_not_depend_on_strategy_or_application_packages() -
 def test_source_has_one_canonical_package_namespace() -> None:
     repository = Path(__file__).parents[1]
     source = repository / "src" / "inv_trend"
-    assert {"core", "data", "application", "adapters", "integrations", "observability", "cli"} <= {
+    assert {
+        "domain", "core", "data", "application", "adapters", "integrations",
+        "observability", "cli",
+    } <= {
         path.name for path in source.iterdir() if path.is_dir()
     }
     assert all(

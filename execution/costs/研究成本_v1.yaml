@@ -1,0 +1,7 @@
+version: research-cost-v1
+quality_status: RESEARCH_ASSUMPTION
+disclaimer: 这是研究假设，不是正式交易所历史规格。
+base: {fee_bps: 10, slippage_bps: 10, carry_bps_year: 100, delay_bars: 1}
+liquidity_policy: 每个已知价格单位最多使用前一收盘时组合权益的100%；并非真实市场成交量。可配置更低容量测试部分成交。
+fx_policy: USDT/USD固定为1，仅供研究，不是历史汇率。
+funding_policy: 固定预声明日历日持有成本；不声称重建CFD隔夜费或永续funding。

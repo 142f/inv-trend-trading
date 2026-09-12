@@ -1,0 +1,10 @@
+version: historical-unverified-v1
+quality_status: UNVERIFIED
+policy: 必须提供覆盖回测区间的独立历史证据；不得以当前网页规格回填历史。
+schema: inv_trend.core.四资产合同_v1.ContractSpec
+assets:
+  BTC: {instrument_id: BTCUSDT.BINANCE.SPOT, quality_status: UNVERIFIED}
+  ETH: {instrument_id: ETHUSDT.BINANCE.SPOT, quality_status: UNVERIFIED}
+  XAU: {instrument_id: XAUUSD.DUKAS.BID.CFD, quality_status: UNVERIFIED}
+  XAG: {instrument_id: XAGUSD.DUKAS.BID.CFD, quality_status: UNVERIFIED}
+unknown_fields: [contract_multiplier, price_tick, quantity_step, min_quantity, margin_model, initial_margin, maintenance_margin, trading_hours, settlement_rule, funding_rule, fee_rule, slippage_rule, effective_from]
