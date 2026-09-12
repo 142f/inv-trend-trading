@@ -26,8 +26,13 @@ class BacktestArtifactWriter:
         *,
         lineage: Mapping[str, Mapping[str, Any]],
     ) -> dict[str, str]:
-        from inv_trend.storage.制品 import backtest_publish
-        return backtest_publish(self, batch, lineage)
+        """Write the stable v2 contract owned by the backtest application.
+
+        The v3 object store remains readable for historical artifacts, but it
+        must not silently replace the public layout returned by this writer.
+        """
+
+        return self.export_v2(batch, lineage=lineage)
 
     def export_v2(
         self,

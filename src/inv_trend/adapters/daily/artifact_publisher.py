@@ -49,8 +49,14 @@ class DailyRunArtifactWriter:
         *,
         render_html: bool = True,
     ) -> DailyArtifactPublication:
-        from inv_trend.storage.制品 import daily_publish
-        return daily_publish(self, snapshot, bool(render_html))
+        """Publish through this adapter's versioned filesystem contract.
+
+        Keeping the implementation here preserves the application port's
+        expected layout and avoids routing an adapter back through the legacy
+        storage facade.
+        """
+
+        return self.export_v2(snapshot, render_html=render_html)
 
     def export_v2(
         self,

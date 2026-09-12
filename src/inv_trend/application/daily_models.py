@@ -4,42 +4,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 import hashlib
-import json
-from types import MappingProxyType
 from typing import Any, Mapping
 
 from inv_trend.core.explanations import AnomalyEvent, RuleEvaluation, StateTransition
-
-
-def _freeze(value: Any) -> Any:
-    """Recursively detach stage results from mutable caller-owned payloads."""
-
-    if isinstance(value, Mapping):
-        return MappingProxyType({str(key): _freeze(item) for key, item in value.items()})
-    if isinstance(value, (list, tuple, set, frozenset)):
-        return tuple(_freeze(item) for item in value)
-    return value
-
-
-def _thaw(value: Any) -> Any:
-    """Return a JSON-safe ordinary container from a frozen stage payload."""
-
-    if isinstance(value, Mapping):
-        return {str(key): _thaw(item) for key, item in value.items()}
-    if isinstance(value, tuple):
-        return [_thaw(item) for item in value]
-    return value
-
-
-def _canonical_json(payload: Mapping[str, Any]) -> bytes:
-    return json.dumps(
-        _thaw(payload),
-        ensure_ascii=False,
-        allow_nan=False,
-        sort_keys=True,
-        separators=(",", ":"),
-        default=str,
-    ).encode("utf-8")
+from inv_trend.core.serializers import (
+    canonical_json_bytes as _canonical_json,
+    freeze_json as _freeze,
+    thaw_json as _thaw,
+)
 
 
 @dataclass(frozen=True)

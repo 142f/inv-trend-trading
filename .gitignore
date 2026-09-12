@@ -53,6 +53,7 @@ logs/
 .tmp/
 test-temp/
 deliverables/
+outputs/
 # docs/
 # tests/
 # Keep source, tests, documentation, examples, and research scripts tracked.
