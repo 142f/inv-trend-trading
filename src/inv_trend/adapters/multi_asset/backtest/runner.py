@@ -12,6 +12,7 @@ import pandas as pd
 
 from .data_store import BacktestDataStore
 from inv_trend.core.执行约束 import ExecutionPolicy
+from inv_trend.domain.walk_forward import BarEvent, order_bar_events
 from ..models.domain import (
     LONG,
     SHORT,
@@ -46,6 +47,7 @@ class BacktestResult:
     cash_ledger: pd.DataFrame = field(default_factory=pd.DataFrame)
     carry_cost: float = 0.0
     attribution: pd.DataFrame = field(default_factory=pd.DataFrame)
+    open_trade_details: pd.DataFrame = field(default_factory=pd.DataFrame)
 
 
 def _resolve_rules(
@@ -162,7 +164,7 @@ class TurtleBacktester:
     def _events(self, dates):
         """唯一事件时钟：旧入口为逻辑开/收盘，新入口要求显式UTC时间。"""
         explicit = self.execution_policy is not None and self.execution_policy.event_clock
-        events = {}
+        events: list[BarEvent] = []
         previous_ends = {}
         for label in dates:
             for symbol in self.market_data.symbols:
@@ -186,9 +188,11 @@ class TurtleBacktester:
                     opened = closed = label
                 # 连续市场相同时间戳按上一Bar收盘→下一Bar开盘的事件序执行。
                 for phase, when in (("open", opened), ("close", closed)):
-                    priority = (0 if phase == "close" else 1) if explicit else (0 if phase == "open" else 1)
-                    events.setdefault((when, priority, phase), {})[symbol] = label
-        for (when, _, phase), active in sorted(events.items()):
+                    events.append(BarEvent(when=when, phase=phase, symbol=symbol, label=label))
+        grouped: dict[tuple[Any, str], dict[str, Any]] = {}
+        for event in order_bar_events(events, explicit_clock=bool(explicit)):
+            grouped.setdefault((event.when, event.phase), {})[event.symbol] = event.label
+        for (when, phase), active in grouped.items():
             yield when, phase, active
 
     def _row_at_event(self, symbol, date):
@@ -223,7 +227,7 @@ class TurtleBacktester:
             self._cancel_intents(when, reservations, order_rows, "walk_forward_policy_replaced")
             self.rules = TurtleRules(**item["rules"])
             self.specs = dict(item.get("specs", self.specs))
-            self.strategy = MultiAssetTurtleStrategy(self.specs, self.rules, audit_decisions=self.audit_execution)
+            self.strategy = MultiAssetTurtleStrategy(self.specs, self.rules)
             self.market_data = BacktestDataStore(self._raw_data, self.rules)
             self.take_profit_n = float(item.get("take_profit_n", 0.0))
             self._policy_id = item.get("candidate_id", "锁定参数")
@@ -364,11 +368,23 @@ class TurtleBacktester:
         self._event_time = None
         equity_curve = pd.Series([p[1] for p in equity_points], index=[p[0] for p in equity_points], name="equity")
         trades = pd.DataFrame(trade_rows)
+        open_details = []
+        for symbol, position in state.positions.items():
+            mark = self._known_prices.get(symbol, position.avg_entry_price)
+            for unit in position.units:
+                open_details.append({"symbol": symbol, "side": position.side,
+                    "entry_reason": unit.reason, "entry_time": unit.entry_time,
+                    "qty": unit.qty, "entry_price": unit.entry_price, "mark_price": mark,
+                    "pnl": position.side*unit.qty*(mark-unit.entry_price)*self.specs[symbol].point_value
+                        -unit.entry_cost-unit.carry_cost,
+                    "mark_time": self._known_rows.get(symbol, {}).get("bar_end"),
+                    "status": "OPEN_MARK_TO_MARKET"})
         return BacktestResult(equity_curve=equity_curve, trades=trades, trade_details=pd.DataFrame(detail_rows),
             orders=pd.DataFrame(order_rows), metrics=compute_backtest_metrics(equity_curve, trades),
             open_position_count=len(state.positions), unrealized_pnl=self._terminal_unrealized_pnl(dates[-1], state),
             pending_intent_count=len(reservations.intents), decisions=pd.DataFrame(decision_rows),
-            cash_ledger=pd.DataFrame(ledger_rows), carry_cost=carry_total, attribution=pd.DataFrame(attribution_rows))
+            cash_ledger=pd.DataFrame(ledger_rows), carry_cost=carry_total, attribution=pd.DataFrame(attribution_rows),
+            open_trade_details=pd.DataFrame(open_details))
 
     def _execute_pending_intents(
         self,
@@ -472,7 +488,9 @@ class TurtleBacktester:
             fields.update(signal_bar_time=intent.signal_bar_time, signal_delay_bars=self.signal_delay_bars)
             if self.execution_policy is not None:
                 fields.update(signal_time=intent.created_at, fill_phase=self._event_phase,
-                              candidate_id=self._policy_id)
+                              candidate_id=intent.order.metadata.get(
+                                  "candidate_id", self._policy_id
+                              ))
         return fields
 
     def _mark_equity_at_open(
@@ -556,6 +574,14 @@ class TurtleBacktester:
                 position = state.positions.get(order.symbol)
                 if position is None:
                     continue
+                selected_reasons = order.metadata.get("unit_reasons")
+                remaining_units = []
+                if selected_reasons is not None:
+                    remaining_units = [u for u in position.units if u.reason not in selected_reasons]
+                    selected_units = [u for u in position.units if u.reason in selected_reasons]
+                    if not selected_units:
+                        continue
+                    position = replace(position, units=selected_units)
                 order = replace(order, qty=position.total_qty, side=position.side, system=position.system)
             elif order.action in {"open", "add"}:
                 position = state.positions.get(order.symbol)
@@ -618,9 +644,7 @@ class TurtleBacktester:
                 cash -= cost
                 self._apply_entry_fill(date, order, fill_price, cost, state)
             elif order.action == "exit":
-                position = state.positions.get(order.symbol)
-                if position is None:
-                    continue
+                # The selected lot subset was frozen above; ordinary exits still close all units.
                 pnl = position.unrealized_pnl(fill_price, spec.point_value)
                 if self.cash_model == "cash":
                     cash += position.side * position.total_qty * fill_price * spec.point_value
@@ -629,7 +653,18 @@ class TurtleBacktester:
                 cash -= cost
                 if position.system == "fast":
                     state.last_fast_trade_won[order.symbol] = pnl - position.entry_cost - cost - position.carry_cost > 0
-                del state.positions[order.symbol]
+                if remaining_units:
+                    # Removing an earlier stage changes list indices. Preserve each
+                    # surviving unit's carry clock instead of charging since entry again.
+                    old_units = state.positions[order.symbol].units
+                    clocks = {id(unit): self._carry_clock.get(
+                        (order.symbol, unit.entry_time, index), unit.entry_time)
+                        for index, unit in enumerate(old_units)}
+                    for index, unit in enumerate(remaining_units):
+                        self._carry_clock[(order.symbol, unit.entry_time, index)] = clocks[id(unit)]
+                    state.positions[order.symbol].units = remaining_units
+                else:
+                    del state.positions[order.symbol]
                 self._record_completed_trade(
                     date,
                     order,
@@ -659,6 +694,10 @@ class TurtleBacktester:
             if order.side == LONG
             else fill_price + self.rules.stop_n * order.n_at_signal
         )
+        if order.metadata.get("protective_stop") is False:
+            if order.side != LONG:
+                raise ValueError("unprotected passive holdings must be long")
+            stop = 0.0
         self._entry_labels[(order.symbol, date)] = self._label_at_event(order.symbol, date)
         self._carry_clock[(order.symbol, date)] = date
         unit = PositionUnit(
@@ -735,6 +774,12 @@ class TurtleBacktester:
                     signal_price=stop_price,
                     n_at_signal=position.units[-1].n_at_entry,
                     forced_fill_price=stop_price,
+                    metadata={
+                        "trigger": "开盘跳空止损" if open_only else reason,
+                        "trigger_level": position.stop_price,
+                        "trigger_phase": "open" if open_only else "intraday_range",
+                        "unit_reasons": [unit.reason for unit in position.units],
+                    },
                 )
             )
         if not stop_orders:
@@ -778,8 +823,22 @@ class TurtleBacktester:
             reference = fill_price / (1 + direction*spec.slippage_bps/10000.) if self._price_slippage_enabled() else fill_price
             extra = {"reference_price":reference, "fee_cost":cost,
                 "slippage_cost":abs(row_qty*(fill_price-reference)*spec.point_value) if self._price_slippage_enabled() else 0.,
-                "fill_phase":self._event_phase, "candidate_id":self._policy_id,
+                "fill_phase":self._event_phase,
+                "candidate_id":order.metadata.get("candidate_id", self._policy_id),
                 "fill_time_precision":"会话开盘或收盘入账；区间触发时刻未知"}
+        trace = {}
+        if getattr(self.strategy, "emit_order_trace", False):
+            trace = {
+                "decision_id": order.metadata.get("decision_id"),
+                "trigger": order.metadata.get("trigger", order.reason),
+                "metadata_json": json.dumps(
+                    dict(order.metadata),
+                    ensure_ascii=False,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                    default=str,
+                ),
+            }
         return {
             **extra,
             "time": date,
@@ -796,6 +855,7 @@ class TurtleBacktester:
             "n_at_signal": order.n_at_signal,
             "stop_price": order.stop_price,
             "notional": abs(row_qty * fill_price * spec.point_value),
+            **trace,
         }
 
     def _record_completed_trade(

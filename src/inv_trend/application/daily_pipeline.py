@@ -15,14 +15,14 @@ from uuid import uuid4
 
 from inv_trend.data import HistoricalDataService, create_default_providers
 from inv_trend.core.signals import CORRECTED_STRATEGY_VERSION, SignalEvent
-from inv_trend.core.strategy.daily.signals import build_daily_signal_events
+from inv_trend.core.strategy.daily.signals import (
+    build_daily_signal_events,
+    normalize_completed_daily_bars,
+)
 
 from inv_trend.adapters.detector.alerts.daily_notifier import LogNotifier, SignalNotifier
 from inv_trend.adapters.daily.data_lineage import CurrentLineageAdapter
 from inv_trend.adapters.detector.freshness import FreshnessPolicy
-from inv_trend.adapters.detector.indicators.daily_signals import (
-    normalize_completed_daily_bars,
-)
 from inv_trend.adapters.detector.models import AssetConfig
 from inv_trend.adapters.detector.storage.daily_signal_repository import SQLiteDailySignalRepository
 from inv_trend.adapters.daily.composition import create_daily_run_artifact_writer

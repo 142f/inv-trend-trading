@@ -32,7 +32,7 @@ class ExpiryPolicy:
             return ExpiryResult("pending")
         if intent.fill_attempts_completed >= self.max_fill_attempts:
             return ExpiryResult("expired", "maximum completed fill attempts")
-        if previous_bar is not None:
+        if previous_bar is not None and intent.order.metadata.get("validate_channel", True):
             close = _finite(previous_bar.get("close"))
             channel = _finite(previous_bar.get(f"high_{intent.entry_period}" if intent.order.side == LONG else f"low_{intent.entry_period}"))
             n = _finite(previous_bar.get("n"))
