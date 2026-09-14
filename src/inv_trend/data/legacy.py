@@ -7,13 +7,13 @@ import pandas as pd
 
 from .models import InstrumentConfig
 from .processing import normalize_bars
-from .storage import DataLake
+from .storage import open_data_lake
 
 
 def migrate_legacy_csv(source_dir: str | Path, root: str | Path = "data") -> dict[str, object]:
     """Import legacy processed CSV files without claiming unavailable raw lineage."""
     source = Path(source_dir)
-    lake = DataLake(root)
+    lake = open_data_lake(root)
     candidates = sorted((source / "cleaned").rglob("*.csv")) if (source / "cleaned").exists() else sorted(source.rglob("*.csv"))
     selected: dict[tuple[str, str], tuple[Path, pd.DataFrame]] = {}
     for path in candidates:

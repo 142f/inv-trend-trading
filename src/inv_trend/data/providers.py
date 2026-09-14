@@ -51,7 +51,12 @@ class AdapterDefaults:
             raise ValueError(f"{self.name}: response missing columns {sorted(missing)}")
         for column in ("open", "high", "low", "close", "volume"):
             if column in frame:
-                pd.to_numeric(frame[column], errors="coerce")
+                numeric = pd.to_numeric(frame[column], errors="coerce")
+                if numeric.isna().any():
+                    raise ValueError(f"{self.name}: response contains non-numeric {column}")  # type: ignore[attr-defined]
+        stamps = pd.to_datetime(frame["timestamp"], errors="coerce", utc=True)
+        if stamps.isna().any():
+            raise ValueError(f"{self.name}: response contains invalid timestamps")  # type: ignore[attr-defined]
 
 
 def get_bytes_with_retry(

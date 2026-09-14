@@ -12,6 +12,11 @@
 
 ## 2. 模块与依赖方向
 
+`DataLake` 是稳定的历史行情业务接口，并不代表独立于 v3 的领域 Schema。新代码应通过
+`open_data_lake(root, backend="auto")` 显式选择后端：v3 数据根由 `UnifiedStore` 提供唯一
+元数据权威；旧 v2 根仅用于兼容读取和离线迁移。Detector 的 `AssetConfig` 与多资产数据列
+均是边界视图，权威 instrument identity 始终来自 `InstrumentConfig`。
+
 ```text
 historical_data.cli
         ↓
@@ -39,6 +44,11 @@ HistoricalDataService                    # 用例编排
 | `processing.py` | Schema、去重冲突、质量评估和隔离规则 |
 
 核心策略代码不需要知道 Provider、Catalog 后端或文件路径；统一通过 `load_bars()` 读取已发布数据。
+
+新代码必须通过 `open_data_lake(root, backend="auto")` 打开数据仓库；`backend`
+仅允许 `auto`、`legacy`、`v3`。直接使用 `DataLake(root)` 暂时兼容，但隐式切换到
+v3 时会发出弃用警告。字段职责、模型投影和时间格式见
+`docs/数据契约与字段映射_v1.md`。
 
 ## 3. 数据流
 

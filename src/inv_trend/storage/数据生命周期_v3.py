@@ -53,6 +53,21 @@ def ready_to_replace(store,*,strict_parquet=False):
     import importlib.util
     store=store if isinstance(store,UnifiedStore) else UnifiedStore(store)
     result=store.validate()
+    if not result['ok']:
+        raise StoreError(f"存储基础校验失败: {result['issues'][:5]}")
+    schema_versions=[r['version'] for r in store.rows('SELECT version FROM store_migrations ORDER BY version')]
+    if schema_versions != [1,2,3]:raise StoreError(f'Schema迁移链不连续: {schema_versions}')
+    blocking=store.rows("SELECT * FROM migration_issues WHERE severity='ERROR' AND resolved=0")
+    if blocking:raise StoreError(f'迁移存在未解决错误: {blocking[:5]}')
+    broken=store.rows("SELECT * FROM lineage_links WHERE status<>'VERIFIED'")
+    curated_broken=[]
+    for row in broken:
+        owner=store.rows("SELECT 1 FROM dataset_versions WHERE channel='curated' AND manifest_path=?",
+                         (row['document_path'],))
+        if owner:curated_broken.append(row)
+    if curated_broken:raise StoreError(f'正式数据血缘未通过: {curated_broken[:5]}')
+    incomplete=store.rows("SELECT version FROM dataset_versions WHERE channel='curated' AND (manifest_path IS NULL OR quality_path IS NULL)")
+    if incomplete:raise StoreError(f'正式版本缺少Manifest或质量报告: {incomplete[:5]}')
     from .研究结果_v3 import load_market_frame,ResultRepository
     for r in store.rows('SELECT dataset_hash FROM market_datasets_v3'):load_market_frame(store,r['dataset_hash'])
     ResultRepository(store).validate()
@@ -68,4 +83,5 @@ def ready_to_replace(store,*,strict_parquet=False):
                 raise StoreError('真实Parquet解码行数不一致')
         result['parquet_decode_verified']=True
     result['original_lineage_warnings']=store.rows('SELECT category,count(*) count FROM migration_issues GROUP BY category')
+    result['schema_migrations']=schema_versions
     return result
