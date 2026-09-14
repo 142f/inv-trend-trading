@@ -1,7 +1,15 @@
 from __future__ import annotations
 
 import ast
+from datetime import datetime, timezone
 from pathlib import Path
+
+from inv_trend.application.daily import (
+    BoundDailyStage,
+    DailyStage,
+    STAGE_ORDER,
+    StageExecutionTracker,
+)
 
 
 def test_core_does_not_depend_on_io_or_application_packages() -> None:
@@ -47,6 +55,49 @@ def test_domain_has_no_infrastructure_or_framework_dependencies() -> None:
                 if _is_banned(name, banned):
                     violations.append(f"{source.name}: {name}")
     assert violations == []
+
+
+def test_daily_stages_implement_stage_protocol() -> None:
+    calls = {name: 0 for name in STAGE_ORDER}
+
+    def executor(name: str):
+        def execute() -> str:
+            calls[name] += 1
+            return name
+
+        return execute
+
+    stages = tuple(
+        BoundDailyStage(name, executor(name), lambda: False)
+        for name in STAGE_ORDER
+    )
+
+    assert tuple(stage.stage_name for stage in stages) == STAGE_ORDER
+    assert len(set(STAGE_ORDER)) == len(STAGE_ORDER) == 6
+    assert all(isinstance(stage, DailyStage) for stage in stages)
+    assert tuple(stage.execute() for stage in stages) == STAGE_ORDER
+    assert calls == {name: 1 for name in STAGE_ORDER}
+
+
+def test_stage_execution_tracker_records_success_and_failure() -> None:
+    def now() -> datetime:
+        return datetime(2026, 9, 14, tzinfo=timezone.utc)
+
+    tracker = StageExecutionTracker(now=now)
+    tracker.run(BoundDailyStage("data-update", lambda: "ok", lambda: True))
+
+    def fail() -> None:
+        raise RuntimeError("broken")
+
+    try:
+        tracker.run(BoundDailyStage("strategy-screen", fail, lambda: False))
+    except RuntimeError:
+        pass
+
+    assert [(row.stage_name, row.status, row.recovered, row.error_type) for row in tracker.records] == [
+        ("data-update", "COMPLETED", True, None),
+        ("strategy-screen", "FAILED", False, "RuntimeError"),
+    ]
 
 
 def test_application_does_not_depend_on_cli_or_presentation_packages() -> None:

@@ -222,10 +222,27 @@ def test_staged_daily_workflow_keeps_read_stages_side_effect_free(tmp_path: Path
     assert set(delivery["delivery"]) == {"notified", "errors", "recovered"}
     retried_publication = workflow.publish(run_id=run_id, report_date=report_date)
     assert retried_publication.run_directory == publication.run_directory
+    assert all(
+        workflow._can_resume_stage(name, run_id=run_id, report_date=report_date)
+        for name in ("data-update", "strategy-screen", "trend-decide", "commit", "publish")
+    )
+    assert not workflow._can_resume_stage(
+        "deliver", run_id=run_id, report_date=report_date
+    )
 
     chained = workflow.run(symbols=("AAA",), bootstrap_days=80)
     assert chained.snapshot["run_id"] != run_id
     assert chained.artifact_publication is not None
+    assert [row.stage_name for row in workflow.stage_executions] == [
+        "data-update",
+        "strategy-screen",
+        "trend-decide",
+        "commit",
+        "publish",
+        "deliver",
+    ]
+    assert all(row.status == "COMPLETED" for row in workflow.stage_executions)
+    assert workflow.stage_executions[-1].recovered is False
 
 
 def test_staged_screen_reads_the_pinned_version_after_current_moves(tmp_path: Path) -> None:

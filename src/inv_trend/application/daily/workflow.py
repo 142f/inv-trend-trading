@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, replace
 from datetime import datetime, timezone
+import hashlib
 import json
 from pathlib import Path
 from typing import Any, Iterable, Mapping
@@ -26,6 +27,7 @@ from ..daily_models import (
 )
 from ..strategy_config import DailyChecksConfig, TrendDecisionConfig
 from .artifact_publication import ArtifactPublicationService
+from ._stage_protocol import BoundDailyStage, StageExecutionRecord, StageExecutionTracker
 from .compatibility import create_legacy_runtime
 from .notification_delivery import NotificationDeliveryService
 from .ports import DailyWorkflowRuntimePort
@@ -69,6 +71,13 @@ class DailyWorkflow:
         # The normal CLI still uses the old composition root through this
         # adapter.  The workflow itself only sees dependency ports.
         self._runtime: DailyWorkflowRuntimePort = runtime or create_legacy_runtime(**kwargs)
+        self._stage_tracker = StageExecutionTracker()
+
+    @property
+    def stage_executions(self) -> tuple[StageExecutionRecord, ...]:
+        """Operational records for the latest full workflow invocation."""
+
+        return self._stage_tracker.records
 
     @property
     def output_dir(self) -> Path:
@@ -100,29 +109,50 @@ class DailyWorkflow:
         """Run all explicit stages in the canonical order."""
 
         started_at = _aware_utc(self._runtime.now())
+        self._stage_tracker = StageExecutionTracker()
         run_id = uuid4().hex
         report_date = started_at.astimezone(BEIJING).date().isoformat()
-        self.data_update(
-            run_id=run_id,
-            report_date=report_date,
-            symbols=symbols,
-            started_at=started_at,
-            bootstrap_days=bootstrap_days,
-            research_mode=research_mode,
-            strategy_version=strategy_version,
-            backfill_signals=backfill_signals,
-            chart_bars=chart_bars,
+        self._run_bound_stage(
+            "data-update",
+            run_id,
+            report_date,
+            lambda: self.data_update(
+                run_id=run_id,
+                report_date=report_date,
+                symbols=symbols,
+                started_at=started_at,
+                bootstrap_days=bootstrap_days,
+                research_mode=research_mode,
+                strategy_version=strategy_version,
+                backfill_signals=backfill_signals,
+                chart_bars=chart_bars,
+            ),
         )
-        self.strategy_screen(run_id=run_id, report_date=report_date)
-        self.trend_decide(run_id=run_id, report_date=report_date)
-        self.commit(run_id=run_id, report_date=report_date)
-        publication = self.publish(
-            run_id=run_id, report_date=report_date, render_html=render_html
+        self._run_bound_stage(
+            "strategy-screen", run_id, report_date,
+            lambda: self.strategy_screen(run_id=run_id, report_date=report_date),
+        )
+        self._run_bound_stage(
+            "trend-decide", run_id, report_date,
+            lambda: self.trend_decide(run_id=run_id, report_date=report_date),
+        )
+        self._run_bound_stage(
+            "commit", run_id, report_date,
+            lambda: self.commit(run_id=run_id, report_date=report_date),
+        )
+        publication = self._run_bound_stage(
+            "publish", run_id, report_date,
+            lambda: self.publish(
+                run_id=run_id, report_date=report_date, render_html=render_html
+            ),
         )
         # Publication is immutable.  Delivery intentionally follows it and
         # writes a separate receipt, so retrying a notifier never rewrites a
         # canonical report or changes its decision evidence.
-        self.deliver(run_id=run_id, report_date=report_date)
+        self._run_bound_stage(
+            "deliver", run_id, report_date,
+            lambda: self.deliver(run_id=run_id, report_date=report_date),
+        )
         # The return value mirrors the immutable compatibility JSON rather
         # than the later delivery receipt.  Delivery is an independent retry
         # stage and never mutates published business artifacts.
@@ -746,6 +776,88 @@ class DailyWorkflow:
             raise ValueError(f"loaded D1 bars do not match staged dataset version for {asset.symbol}")
         return bars
 
+    def _run_bound_stage(
+        self,
+        stage_name: str,
+        run_id: str,
+        report_date: str,
+        executor: Any,
+    ) -> Any:
+        stage = BoundDailyStage(
+            stage_name=stage_name,
+            executor=executor,
+            resume_check=lambda: self._can_resume_stage(
+                stage_name, run_id=run_id, report_date=report_date
+            ),
+        )
+        return self._stage_tracker.run(stage)
+
+    def _can_resume_stage(
+        self,
+        stage_name: str,
+        *,
+        run_id: str,
+        report_date: str,
+    ) -> bool:
+        """Validate existing hand-off evidence without mutating external state."""
+
+        if stage_name == "deliver":
+            # Delivery must always re-check both this run and the shared retry queue.
+            return False
+        workspace = self._workspace(report_date, run_id)
+        if not workspace.context_path.exists():
+            return False
+        try:
+            context = workspace.read_context()
+            symbols = _context_symbols(context)
+            if stage_name == "data-update":
+                for symbol in symbols:
+                    payload = workspace.read_stage(symbol, "data_update")
+                    result = data_update_result(payload)
+                    validate_result_hash(payload, result, "data-update")
+                    self._validate_context_identity(context, symbol, result)
+                return True
+            if stage_name == "strategy-screen":
+                for symbol in symbols:
+                    data_payload = workspace.read_stage(symbol, "data_update")
+                    screening_payload = workspace.read_stage(symbol, "strategy_screening")
+                    data = data_update_result(data_payload)
+                    screening = strategy_screening_result(screening_payload)
+                    validate_result_hash(data_payload, data, "data-update")
+                    validate_result_hash(screening_payload, screening, "strategy-screen")
+                    validate_hash_chain(data, screening, symbol=symbol)
+                    self._validate_context_identity(context, symbol, data, screening)
+                return True
+            if stage_name == "trend-decide":
+                self._verify_staged_hash_chain(
+                    workspace, symbols, validate_configured_identity=False
+                )
+                return True
+            if stage_name in {"commit", "publish"}:
+                if not workspace.commit_receipt_path.exists():
+                    return False
+                receipt = workspace.read_commit_receipt()
+                self._verify_commit_receipt(
+                    workspace, receipt, validate_configured_identity=False
+                )
+                if stage_name == "commit":
+                    return True
+                publication = _mapping(receipt.get("publication"))
+                required = (
+                    publication.get("run_directory"),
+                    publication.get("compatibility_json"),
+                )
+                if not all(value and Path(str(value)).exists() for value in required):
+                    return False
+                html = publication.get("compatibility_html")
+                if html is not None and not Path(str(html)).exists():
+                    return False
+                _validate_published_hash_ledgers(Path(str(required[0])), symbols)
+                return True
+        except FileNotFoundError:
+            return False
+        raise ValueError(f"unsupported daily stage: {stage_name}")
+
     def _workspace(self, report_date: str, run_id: str) -> DailyStagingWorkspace:
         return DailyStagingWorkspace(self.output_dir, report_date, run_id)
 
@@ -932,6 +1044,36 @@ def _replay_positions(
         if timestamp.isoformat() > cursor_before
     )
     return positions or (len(completed) - 1,)
+
+
+def _validate_published_hash_ledgers(run_directory: Path, symbols: Iterable[str]) -> None:
+    """Verify the four canonical JSON files against each published hash ledger."""
+
+    filenames = (
+        "data_update_result.json",
+        "strategy_screening_result.json",
+        "trend_decision_result.json",
+        "complete_analysis_result.json",
+    )
+    for symbol in symbols:
+        symbol_root = run_directory / symbol
+        ledger_path = symbol_root / "04_audit" / "artifact_hashes.json"
+        if not ledger_path.is_file():
+            raise ValueError(f"published daily run is missing its hash ledger: {ledger_path}")
+        ledger = json.loads(ledger_path.read_text(encoding="utf-8"))
+        if not isinstance(ledger, dict):
+            raise ValueError(f"published daily hash ledger must be an object: {ledger_path}")
+        for filename in filenames:
+            artifact = symbol_root / "01_canonical" / filename
+            actual = (
+                "sha256:" + hashlib.sha256(artifact.read_bytes()).hexdigest()
+                if artifact.is_file()
+                else ""
+            )
+            if str(ledger.get(filename) or "") != actual:
+                raise ValueError(
+                    f"published daily canonical artifact hash mismatch: {artifact}"
+                )
 
 
 def _context_symbols(context: Mapping[str, Any]) -> list[str]:
