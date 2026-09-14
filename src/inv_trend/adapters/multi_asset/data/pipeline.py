@@ -10,7 +10,7 @@ import pandas as pd
 
 from .cleaner import clean_ohlcv_frame
 from .loader import load_local_csv
-from .normalizer import CANONICAL_COLUMNS, normalize_ohlcv_frame
+from .normalizer import MULTI_ASSET_BAR_COLUMNS, normalize_ohlcv_frame
 from .validator import validate_alignment, validate_ohlcv_frame
 
 
@@ -127,9 +127,9 @@ def resample_ohlcv(df: pd.DataFrame, timeframe: str) -> pd.DataFrame:
         agg["symbol"] = symbol
         agg["source"] = str(part["source"].iloc[0]) if "source" in part.columns else ""
         agg["timeframe"] = target
-        frames.append(agg[CANONICAL_COLUMNS])
+        frames.append(agg[MULTI_ASSET_BAR_COLUMNS])
     if not frames:
-        return pd.DataFrame(columns=CANONICAL_COLUMNS)
+        return pd.DataFrame(columns=MULTI_ASSET_BAR_COLUMNS)
     return pd.concat(frames, ignore_index=True)
 
 
@@ -143,9 +143,9 @@ def align_assets(frames: dict[str, pd.DataFrame]) -> tuple[dict[str, pd.DataFram
 
 def merge_assets(frames: dict[str, pd.DataFrame]) -> pd.DataFrame:
     if not frames:
-        return pd.DataFrame(columns=CANONICAL_COLUMNS)
+        return pd.DataFrame(columns=MULTI_ASSET_BAR_COLUMNS)
     merged = pd.concat(frames.values(), ignore_index=True, sort=False)
-    keep = [column for column in CANONICAL_COLUMNS if column in merged.columns]
+    keep = [column for column in MULTI_ASSET_BAR_COLUMNS if column in merged.columns]
     return merged[keep].sort_values(["symbol", "date"]).reset_index(drop=True)
 
 
@@ -177,8 +177,8 @@ def quality_report_row(report: DataQualityReport) -> dict[str, object]:
 
 
 def data_columns(df: pd.DataFrame) -> list[str]:
-    return [column for column in CANONICAL_COLUMNS if column in df.columns] + [
-        column for column in df.columns if column not in CANONICAL_COLUMNS
+    return [column for column in MULTI_ASSET_BAR_COLUMNS if column in df.columns] + [
+        column for column in df.columns if column not in MULTI_ASSET_BAR_COLUMNS
     ]
 
 

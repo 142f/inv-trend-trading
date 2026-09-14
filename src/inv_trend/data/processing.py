@@ -307,8 +307,23 @@ def _missing_interval_rows(
 
 
 def compare_sources(primary: pd.DataFrame, secondary: pd.DataFrame) -> pd.DataFrame:
+    required = {"timestamp", "close"}
+    for label, frame in (("primary", primary), ("secondary", secondary)):
+        missing = required - set(frame)
+        if missing:
+            raise ValueError(f"{label} source missing columns: {sorted(missing)}")
+        stamps = pd.to_datetime(frame["timestamp"], errors="raise")
+        if stamps.dt.tz is None:
+            raise ValueError(f"{label} source timestamps must be timezone-aware")
+        if stamps.duplicated().any():
+            raise ValueError(f"{label} source contains duplicate timestamps")
+        prices = pd.to_numeric(frame["close"], errors="coerce")
+        if prices.isna().any() or (prices <= 0).any():
+            raise ValueError(f"{label} source contains invalid close prices")
     left = primary[["timestamp", "close"]].rename(columns={"close": "primary_close"})
     right = secondary[["timestamp", "close"]].rename(columns={"close": "secondary_close"})
+    left["timestamp"] = pd.to_datetime(left["timestamp"], utc=True)
+    right["timestamp"] = pd.to_datetime(right["timestamp"], utc=True)
     out = left.merge(right, on="timestamp", how="inner")
     out["deviation_bps"] = (
         (out["primary_close"] - out["secondary_close"]).abs()

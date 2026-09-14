@@ -15,9 +15,11 @@ import threading
 import time
 from uuid import uuid4
 
+from inv_trend.data.models import parse_utc_datetime, to_rfc3339_utc
+
 
 def now():
-    return datetime.now(timezone.utc).isoformat()
+    return to_rfc3339_utc(datetime.now(timezone.utc))
 
 
 def redact(value):
@@ -172,7 +174,7 @@ def lease_active(path):
             return True
         if identity != "DEAD" and identity == row["process_started_at"]:
             return not bool(row.get("released_at"))
-        age = (datetime.now(timezone.utc) - datetime.fromisoformat(row["heartbeat_at"])).total_seconds()
+        age = (datetime.now(timezone.utc) - parse_utc_datetime(row["heartbeat_at"])).total_seconds()
         return age < 120
     except (OSError, ValueError, KeyError, TypeError):
         return True

@@ -10,7 +10,7 @@ import pandas as pd
 from .cleaner import clean_ohlcv_frame
 from .exporter import ensure_processed_layout, export_csv, export_json, export_metadata_rows
 from .loader import load_local_csv
-from .normalizer import CANONICAL_COLUMNS, normalize_ohlcv_frame
+from .normalizer import MULTI_ASSET_BAR_COLUMNS, normalize_ohlcv_frame
 from .sources import DataSource, discover_processed_sources
 from .validator import validate_alignment, validate_ohlcv_frame
 
@@ -98,7 +98,7 @@ def build_unified_processed_data(
     alignment_rows: list[dict] = []
     for (dataset, source_name, timeframe), frames in grouped_frames.items():
         merged = pd.concat(frames.values(), ignore_index=True, sort=False)
-        merged = merged[CANONICAL_COLUMNS].sort_values(["symbol", "date"]).reset_index(drop=True)
+        merged = merged[MULTI_ASSET_BAR_COLUMNS].sort_values(["symbol", "date"]).reset_index(drop=True)
         filename = data_filename(
             list(frames),
             merged,
@@ -141,7 +141,7 @@ def build_unified_processed_data(
             "source_count": len(sources),
             "cleaned_file_count": len(cleaned_rows),
             "backtest_ready_file_count": len(backtest_ready_rows),
-            "field_schema": CANONICAL_COLUMNS,
+            "field_schema": MULTI_ASSET_BAR_COLUMNS,
             "alignment_policy": "asset_independent_no_forward_fill",
         },
         paths["metadata"] / "build_config.json",

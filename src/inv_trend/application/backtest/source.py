@@ -10,7 +10,7 @@ import pandas as pd
 
 from inv_trend.config import load_strategy_mapping
 from inv_trend.data.lineage import load_versioned_lineage
-from inv_trend.data.storage import DataLake
+from inv_trend.data.storage import open_data_lake
 
 from .models import BacktestPlan, BacktestSourceBundle, SourceInstrument
 
@@ -25,9 +25,9 @@ def load_source_bundle(source_run: str | Path, plan: BacktestPlan) -> BacktestSo
     v3_path = root / "审计" / "运行清单_v3.json"
     v3 = None
     if v3_path.exists():
-        from inv_trend.storage import Storage
+        from inv_trend.storage import open_storage
         from inv_trend.storage.仓库 import project_root
-        store = Storage(project_root(root))
+        store = open_storage(project_root(root))
         v3 = store.manifest(root.name)
         store._verify_manifest(v3)
     for symbol in plan.symbols:
@@ -85,7 +85,7 @@ def load_versioned_data(
     source: BacktestSourceBundle,
     data_root: str | Path,
 ) -> tuple[dict[str, pd.DataFrame], dict[str, Mapping[str, Any]]]:
-    lake = DataLake(data_root)
+    lake = open_data_lake(data_root)
     data: dict[str, pd.DataFrame] = {}
     lineage: dict[str, Mapping[str, Any]] = {}
     for instrument in source.instruments:

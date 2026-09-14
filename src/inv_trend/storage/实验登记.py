@@ -7,7 +7,7 @@ import hashlib
 from pathlib import Path
 
 from .基础 import encoded, now, redact
-from .仓库 import Storage, project_root, StorageIntegrityError
+from .仓库 import open_storage, project_root, StorageIntegrityError
 
 
 class SQLiteRegistry:
@@ -21,7 +21,7 @@ class SQLiteRegistry:
             if resolved is not None and resolved != selected:
                 raise StorageIntegrityError("registry root conflicts with its stored binding")
             resolved = selected
-        self.store = Storage(resolved if resolved is not None else project_root(self.path))
+        self.store = open_storage(resolved if resolved is not None else project_root(self.path))
         self.registry_id = str(self.path)
         if hasattr(self.store, "catalog"):
             try:

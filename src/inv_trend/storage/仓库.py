@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 import os
 import sqlite3
+import warnings
 from uuid import uuid4
 
 from inv_trend.data.locking import FileLock
@@ -18,11 +19,41 @@ class StorageIntegrityError(RuntimeError):
     pass
 
 
+def open_storage(root=".", *, backend="auto"):
+    """Open the legacy or v3 result authority explicitly."""
+    if backend not in {"auto", "legacy", "v3"}:
+        raise ValueError("backend must be 'auto', 'legacy' or 'v3'")
+    from .结构化存储_v3 import DB_RELATIVE
+
+    project_root = Path(root).resolve()
+    has_v3 = (project_root / "data" / DB_RELATIVE).is_file()
+    selected = "v3" if backend == "auto" and has_v3 else backend
+    if selected == "auto":
+        selected = "legacy"
+    if selected == "v3":
+        if not has_v3:
+            raise StorageIntegrityError(
+                f"v3 authority is missing: {project_root / 'data' / DB_RELATIVE}"
+            )
+        from .统一仓库适配_v3 import DatabaseStorage
+        return DatabaseStorage(project_root)
+    if has_v3:
+        raise StorageIntegrityError("legacy backend cannot be opened over a v3 authority")
+    instance = object.__new__(Storage)
+    Storage.__init__(instance, project_root)
+    return instance
+
+
 class Storage:
     def __new__(cls, root="."):
         if cls is Storage:
             from .结构化存储_v3 import DB_RELATIVE
             if (Path(root).resolve() / "data" / DB_RELATIVE).is_file():
+                warnings.warn(
+                    "implicit Storage backend selection is deprecated; use open_storage()",
+                    DeprecationWarning,
+                    stacklevel=2,
+                )
                 from .统一仓库适配_v3 import DatabaseStorage
                 return object.__new__(DatabaseStorage)
         return object.__new__(cls)

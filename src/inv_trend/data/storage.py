@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import sqlite3
 from typing import Any
+import warnings
 from uuid import uuid4
 
 import pandas as pd
@@ -28,6 +29,33 @@ def require_parquet() -> None:
         ) from exc
 
 
+def open_data_lake(root: str | Path = "data", *, backend: str = "auto") -> "DataLake":
+    """Open one explicit data authority without silently falling back.
+
+    ``auto`` recognizes a verified v3 database by its fixed authority path;
+    otherwise the legacy catalog performs its existing marker validation.
+    """
+    if backend not in {"auto", "legacy", "v3"}:
+        raise ValueError("backend must be 'auto', 'legacy' or 'v3'")
+    from inv_trend.storage.结构化存储_v3 import DB_RELATIVE
+
+    root_path = Path(root)
+    has_v3 = (root_path / DB_RELATIVE).is_file()
+    selected = "v3" if backend == "auto" and has_v3 else backend
+    if selected == "auto":
+        selected = "legacy"
+    if selected == "v3":
+        if not has_v3:
+            raise DataLineageError(f"v3 authority is missing: {root_path / DB_RELATIVE}")
+        from .数据湖适配_v3 import DatabaseDataLake
+        return DatabaseDataLake(root_path)
+    if has_v3:
+        raise DataLineageError("legacy backend cannot be opened over a v3 authority")
+    instance = object.__new__(DataLake)
+    DataLake.__init__(instance, root_path)
+    return instance
+
+
 class DataLake:
     """Append-only local data lake with recoverable current-version activation."""
 
@@ -36,6 +64,11 @@ class DataLake:
         if cls is DataLake:
             from inv_trend.storage.结构化存储_v3 import DB_RELATIVE
             if (Path(root) / DB_RELATIVE).is_file():
+                warnings.warn(
+                    "implicit DataLake backend selection is deprecated; use open_data_lake()",
+                    DeprecationWarning,
+                    stacklevel=2,
+                )
                 from .数据湖适配_v3 import DatabaseDataLake
                 return object.__new__(DatabaseDataLake)
         return object.__new__(cls)

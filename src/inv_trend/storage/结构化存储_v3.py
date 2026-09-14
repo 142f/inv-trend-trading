@@ -15,6 +15,8 @@ import sqlite3
 import tempfile
 import zlib
 
+from inv_trend.data.models import parse_utc_datetime, to_rfc3339_utc
+
 DB_RELATIVE = Path('metadata') / '研究目录_v3.sqlite3'
 STAGES = ('raw', 'processed', 'features/indicators', 'signals', 'backtests', 'reports', 'metadata')
 
@@ -24,11 +26,17 @@ class StoreError(RuntimeError):
 
 
 def utcnow():
-    return datetime.now(timezone.utc).isoformat(timespec='microseconds')
+    return to_rfc3339_utc(datetime.now(timezone.utc))
 
 
 def digest(data):
     return hashlib.sha256(data).hexdigest()
+
+
+SCHEMA_MIGRATION_MARKERS = {
+    1: digest(b"v1:content-addressed-store"),
+    2: digest(b"v2:dataset-heads-and-versions"),
+}
 
 
 def canonical(value):
@@ -65,15 +73,39 @@ class UnifiedStore:
                 db.executescript(schema)
                 db.execute('INSERT OR IGNORE INTO store_meta VALUES(?,?)', ('layout_version', '3'))
                 db.execute('INSERT OR IGNORE INTO store_meta VALUES(?,?)', ('authority', 'sqlite'))
-                db.execute('INSERT OR IGNORE INTO store_migrations VALUES(3,?,?)', (digest(schema.encode()), utcnow()))
+                self._apply_schema_migrations(db, schema)
                 db.execute('PRAGMA user_version=3')
             if indexes:
                 self.add_indexes()
         else:
-            with self.connect(readonly=True) as db:
+            with self.connect() as db:
                 row = db.execute("SELECT value FROM store_meta WHERE key='layout_version'").fetchone()
                 if not row or row[0] != '3':
                     raise StoreError('不支持的数据库版本')
+                schema = Path(__file__).with_name('数据结构_v3.sql').read_text(encoding='utf-8')
+                self._apply_schema_migrations(db, schema)
+
+    @staticmethod
+    def _apply_schema_migrations(db, schema):
+        """Register ordered layout milestones and reject rewritten history."""
+        expected = {**SCHEMA_MIGRATION_MARKERS, 3: digest(schema.encode())}
+        rows = {int(row[0]): row[1] for row in db.execute(
+            'SELECT version,checksum FROM store_migrations ORDER BY version'
+        )}
+        unknown = sorted(set(rows) - set(expected))
+        if unknown:
+            raise StoreError(f'存在未知 Schema 迁移版本: {unknown}')
+        for version, checksum in rows.items():
+            if checksum != expected[version]:
+                raise StoreError(f'Schema 迁移校验和不一致: version={version}')
+        for version in sorted(expected):
+            db.execute('INSERT OR IGNORE INTO store_migrations VALUES(?,?,?)',
+                       (version, expected[version], utcnow()))
+        versions = [row[0] for row in db.execute(
+            'SELECT version FROM store_migrations ORDER BY version'
+        )]
+        if versions != [1, 2, 3]:
+            raise StoreError(f'Schema 迁移链不连续: {versions}')
 
     @contextmanager
     def connect(self, *, readonly=False):
@@ -197,7 +229,7 @@ class UnifiedStore:
             if not db.execute('SELECT 1 FROM studies_v3 WHERE study_id=?',(study,)).fetchone():
                 raise StoreError('参数锁必须关联先于它发布的冻结研究协议')
             def stamp(value):
-                t=datetime.fromisoformat(str(value).replace('Z','+00:00'))
+                t=parse_utc_datetime(str(value))
                 if t.tzinfo is None:raise StoreError('窗口时间必须包含时区')
                 return t.astimezone(timezone.utc).isoformat()
             bounds=[stamp(obj[k]) for k in ('train_start','train_end','test_start','test_end_exclusive')]
@@ -354,6 +386,10 @@ class UnifiedStore:
 # 只读旧路径适配器：文档由数据库提供，Parquet 映射到真实文件，绝不恢复散落 JSON。
 # 业务代码应优先调用 UnifiedStore；此适配器仅维持 v2 的 Path 读取合同。
 class CatalogPath(type(Path())):
+    def __str__(self):
+        """Expose portable logical-style text while retaining native filesystem access."""
+        return super().__str__().replace('\\', '/')
+
     def _store(self):
         p=Path(str(self))
         for root in (p,*p.parents):

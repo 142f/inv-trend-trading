@@ -8,7 +8,7 @@ import numpy as np
 import pandas as pd
 
 from .基础 import digest, encoded
-from .仓库 import Storage
+from .仓库 import open_storage
 
 
 def _scalar(value):
@@ -53,7 +53,7 @@ def decode_frame(value):
 
 class StageStore:
     def __init__(self, root='.'):
-        self.storage = Storage(root)
+        self.storage = open_storage(root)
 
     def publish(self, stage, body, *, parameters=None):
         parameters = parameters or {}
