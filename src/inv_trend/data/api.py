@@ -24,7 +24,7 @@ from .processing import FRAME_DELTAS, RULE_VERSION, NormalizationResult, assess_
 from .providers import BarsProvider, HoldingsCsvProvider, QqqHoldingsCsvProvider
 from .registry import InstrumentRegistry
 from .review import ReviewApprovalCoordinator
-from .storage import DataLake
+from .storage import open_data_lake
 
 _DEFAULT_ROOT = Path("data")
 _OVERLAPS = {"D1": 10, "H4": 20, "H1": 48}
@@ -34,7 +34,7 @@ class HistoricalDataService:
     def __init__(self, root: str | Path = _DEFAULT_ROOT, *,
                  instruments: Mapping[str, InstrumentConfig] | None = None,
                  providers: Mapping[str, BarsProvider] | None = None) -> None:
-        self.lake = DataLake(root)
+        self.lake = open_data_lake(root)
         self.instruments = dict(instruments or load_instruments())
         if instruments is None:
             for symbol, instrument in self._snapshot_instruments().items():

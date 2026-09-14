@@ -7,6 +7,13 @@ and behaviour.
 """
 
 from .artifact_publication import ArtifactPublicationService, DailyArtifactPublication
+from ._stage_protocol import (
+    BoundDailyStage,
+    DailyStage,
+    STAGE_ORDER,
+    StageExecutionRecord,
+    StageExecutionTracker,
+)
 from .data_update import DataUpdateResult, DataUpdateStage, DailyDataUpdateService
 from .notification_delivery import NotificationDeliveryService
 from .ports import (
@@ -43,6 +50,8 @@ __all__ = [
     "DailyStagingWorkspace",
     "DailyWorkflow",
     "DailyWorkflowRuntimePort",
+    "DailyStage",
+    "BoundDailyStage",
     "DailyStateRepositoryPort",
     "DailyMarketScanResult",
     "DataUpdateResult",
@@ -57,6 +66,9 @@ __all__ = [
     "SignalNotifier",
     "SignalCommitOutcome",
     "SignalCommitService",
+    "STAGE_ORDER",
+    "StageExecutionRecord",
+    "StageExecutionTracker",
     "StrategyScreeningResult",
     "StrategyScreeningService",
     "StrategyScreeningStage",
