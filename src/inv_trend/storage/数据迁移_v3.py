@@ -76,7 +76,8 @@ def migrate(source, destination, *, round_id=1, compress=True, indexes=True):
         if row and row[0]['value']==fingerprint and status and status[0]['value']=='COMPLETE':
             check=existing.validate(source=source)
             if not check['ok']:raise StoreError('已迁移目录核验失败')
-            return {'reused':True,**check}
+            from .数据生命周期_v3 import ready_to_replace
+            return {'reused':True,'readiness':ready_to_replace(existing),**check}
         raise FileExistsError('目标已存在且来源版本不一致，拒绝覆盖')
     started=time.perf_counter()
     store=UnifiedStore(destination,create=True,compress=compress,indexes=indexes)
@@ -116,6 +117,8 @@ def migrate(source, destination, *, round_id=1, compress=True, indexes=True):
         if indexes:store.add_indexes()
         check=store.validate(source=source)
         if not check['ok']:raise StoreError(str(check['issues'][:5]))
+        from .数据生命周期_v3 import ready_to_replace
+        readiness=ready_to_replace(store,strict_parquet=False)
         with store.connect() as db:
             db.execute("UPDATE store_meta SET value='COMPLETE' WHERE key='migration_status'")
             store.audit('MIGRATION_COMPLETE',fingerprint,{'source_files':len(files),'verified':True},db=db)
@@ -123,7 +126,7 @@ def migrate(source, destination, *, round_id=1, compress=True, indexes=True):
         return {'reused':False,'seconds':time.perf_counter()-started,'source_files':len(files),
                 'source_bytes':sum(x.stat().st_size for x in files),'target_files':sum(p.is_file() for p in destination.rglob('*')),
                 'target_bytes':sum(p.stat().st_size for p in destination.rglob('*') if p.is_file()),
-                'source_fingerprint':fingerprint,**check}
+                'source_fingerprint':fingerprint,'readiness':readiness,**check}
     except BaseException:
         # Do not delete evidence after a failed attempt; it cannot pass validation/cutover.
         with store.connect() as db:

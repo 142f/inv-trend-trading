@@ -17,11 +17,11 @@ from .calendar import classify_missing
 from .config import load_instruments
 from .processing import FRAME_DELTAS
 from .integrity import sha256_file
-from .storage import DataLake
+from .storage import open_data_lake
 
 
 def audit_dataset(root: str | Path, symbol: str, timeframe: str = "D1") -> dict[str, object]:
-    lake = DataLake(root)
+    lake = open_data_lake(root)
     current = lake.current_version(symbol.upper(), timeframe.upper())
     if current is None:
         return {"symbol": symbol.upper(), "timeframe": timeframe.upper(), "status": "NO_CURRENT_POINTER"}

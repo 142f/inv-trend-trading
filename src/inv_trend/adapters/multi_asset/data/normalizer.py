@@ -5,7 +5,7 @@ from __future__ import annotations
 import pandas as pd
 
 
-CANONICAL_COLUMNS = [
+MULTI_ASSET_BAR_COLUMNS = [
     "date",
     "symbol",
     "open",
@@ -17,7 +17,6 @@ CANONICAL_COLUMNS = [
     "source",
     "timeframe",
 ]
-
 
 def normalize_ohlcv_frame(
     df: pd.DataFrame,
@@ -50,4 +49,46 @@ def normalize_ohlcv_frame(
     out["symbol"] = symbol
     out["source"] = source
     out["timeframe"] = timeframe.upper()
-    return out[CANONICAL_COLUMNS]
+    return out[MULTI_ASSET_BAR_COLUMNS]
+
+
+def to_persistent_bars(
+    frame: pd.DataFrame,
+    instrument,
+    *,
+    timeframe: str | None = None,
+) -> pd.DataFrame:
+    """Convert the multi-asset boundary view to the authoritative persisted schema."""
+    from inv_trend.data.models import CANONICAL_COLUMNS as PERSISTENT_COLUMNS
+
+    out = frame.copy()
+    if "timestamp" not in out:
+        if "date" not in out:
+            raise ValueError("expected date or timestamp")
+        out["timestamp"] = out.pop("date")
+    out["timestamp"] = pd.to_datetime(out["timestamp"], utc=True)
+    if "data_source" not in out:
+        out["data_source"] = out.pop("source") if "source" in out else instrument.primary_source
+    selected_timeframe = (timeframe or (out["timeframe"].iloc[0] if "timeframe" in out and len(out) else "")).upper()
+    if not selected_timeframe:
+        raise ValueError("timeframe is required")
+    deltas = {"D1": "1D", "H4": "4h", "H1": "1h", "W1": "7D"}
+    if selected_timeframe not in deltas:
+        raise ValueError(f"unsupported timeframe: {selected_timeframe}")
+    defaults = {
+        "symbol": instrument.symbol, "instrument_id": instrument.instrument_id,
+        "asset_class": instrument.asset_class, "market": instrument.market,
+        "instrument_type": instrument.instrument_type, "source_symbol": instrument.source_symbol,
+        "timeframe": selected_timeframe, "bar_end": out["timestamp"] + pd.Timedelta(deltas[selected_timeframe]),
+        "timezone": "UTC", "adjusted_close": out["close"], "currency": instrument.currency,
+        "quote_currency": instrument.quote_currency, "price_basis": instrument.price_basis,
+        "adjustment_method": instrument.adjustment_method, "is_complete": True,
+        "quality_status": "PENDING", "quality_score": float("nan"), "quality_flags": "",
+        "raw_file_hash": "", "request_id": "", "raw_snapshot_id": "", "source_run_id": "",
+        "dataset_version": "", "curated_version": "", "ingested_at": pd.Timestamp.now(tz="UTC"),
+    }
+    for name, value in defaults.items():
+        if name not in out:
+            out[name] = value
+    ordered = list(PERSISTENT_COLUMNS) + (["spread"] if "spread" in out else [])
+    return out.loc[:, ordered]

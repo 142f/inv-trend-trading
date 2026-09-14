@@ -114,7 +114,7 @@ def test_binary_path_compatible(store):
     import os
     p=store.put_object('normalized/a.parquet',b'PAR1examplePAR1')
     assert Path(os.fspath(p)).read_bytes()==b'PAR1examplePAR1'
-    assert str(p).endswith('normalized/a.parquet')
+    assert Path(p).parts[-2:] == ("normalized", "a.parquet")
 
 
 def test_source_payload_corruption_detected(store):

@@ -6,13 +6,13 @@ from pathlib import Path
 import pandas as pd
 
 from .基础 import encoded, redact
-from .仓库 import Storage, parquet_bytes, project_root
+from .仓库 import open_storage, parquet_bytes, project_root
 
 
 def backtest_publish(writer, batch, lineage):
     from inv_trend.application.backtest.reporting import build_report_model, render_backtest_html
     root = project_root(writer.output_root)
-    storage = Storage(root)
+    storage = open_storage(root)
     payload = batch.to_dict()
     files, detail_tables = {}, {}
     combinations = payload["combinations"]
@@ -75,7 +75,7 @@ def read_backtest(path):
         return raw
     # Locate the manifest through its indexed blob; never trust a latest view.
     root = project_root(path)
-    storage = Storage(root)
+    storage = open_storage(root)
     run_id = raw["run_id"]
     manifest = storage.manifest(run_id)
     storage._verify_manifest(manifest)
@@ -96,7 +96,7 @@ def read_backtest(path):
 
 def daily_publish(writer, snapshot, render_html):
     from inv_trend.adapters.daily.artifact_publisher import _complete_result, _stage, _publication
-    storage = Storage(project_root(writer.artifact_root))
+    storage = open_storage(project_root(writer.artifact_root))
     files, complete = {}, {}
     for row in snapshot.get("symbols", []):
         symbol = str(row.get("symbol", "UNKNOWN"))
@@ -123,7 +123,7 @@ def read_daily(path):
     raw = json.loads(Path(path).read_text(encoding="utf-8"))
     if raw.get("storage_version") != 3:
         return raw
-    storage = Storage(project_root(path))
+    storage = open_storage(project_root(path))
     manifest = storage.manifest(raw["run_id"])
     storage._verify_manifest(manifest)
     paths = {f["logical_name"]: storage.root / f["path"] for f in manifest["files"]}
