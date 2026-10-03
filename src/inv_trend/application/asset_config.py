@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Iterable, Mapping
 
 from inv_trend.data.config import load_instruments
 from inv_trend.adapters.detector.models import AssetConfig
@@ -30,7 +31,23 @@ def load_detector_asset_configs(path: str | Path | None = None) -> dict[str, Ass
         return load_asset_configs(path)
     assets: dict[str, AssetConfig] = {}
     for symbol, instrument in load_instruments().items():
-        if instrument.asset_class not in {"crypto", "precious_metal", "equity"}:
+        if instrument.status != "ACTIVE" or instrument.asset_class not in {
+            "crypto", "precious_metal", "equity",
+        }:
             continue
         assets[symbol] = detector_asset_from_instrument(instrument)
     return assets
+
+
+def select_detector_assets(
+    assets: Mapping[str, AssetConfig], symbols: Iterable[str] | None,
+) -> tuple[AssetConfig, ...]:
+    """Select D1 assets with the same ordering and validation in both daily flows."""
+    d1_assets = {name: asset for name, asset in assets.items() if "D1" in asset.timeframes}
+    if symbols is None:
+        return tuple(d1_assets[name] for name in sorted(d1_assets))
+    wanted = tuple(dict.fromkeys(str(symbol).upper() for symbol in symbols))
+    unknown = sorted(set(wanted) - set(d1_assets))
+    if unknown:
+        raise ValueError(f"symbols are not configured for D1: {unknown}")
+    return tuple(d1_assets[symbol] for symbol in wanted)

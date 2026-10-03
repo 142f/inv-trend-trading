@@ -19,7 +19,7 @@ from inv_trend.adapters.detector.models import AssetConfig
 from inv_trend.core.signals import SignalEvent
 from inv_trend.data import HistoricalDataService, create_default_providers
 
-from ..asset_config import load_detector_asset_configs
+from ..asset_config import load_detector_asset_configs, select_detector_assets
 from ..daily_pipeline import DailyMarketScanService
 from ..strategy_config import DailyChecksConfig, TrendDecisionConfig, load_resolved_run_config
 from .artifact_publication import ArtifactPublicationService
@@ -183,16 +183,7 @@ class PreCommitDailyRuntimeAdapter:
         return self._now()
 
     def select_assets(self, symbols: Iterable[str] | None) -> tuple[AssetConfig, ...]:
-        d1_assets = {
-            name: asset for name, asset in self.assets.items() if "D1" in asset.timeframes
-        }
-        if symbols is None:
-            return tuple(d1_assets[name] for name in sorted(d1_assets))
-        wanted = tuple(dict.fromkeys(str(symbol).upper() for symbol in symbols))
-        unknown = sorted(set(wanted) - set(d1_assets))
-        if unknown:
-            raise ValueError(f"symbols are not configured for D1: {unknown}")
-        return tuple(d1_assets[symbol] for symbol in wanted)
+        return select_detector_assets(self.assets, symbols)
 
     def signal_events(
         self,

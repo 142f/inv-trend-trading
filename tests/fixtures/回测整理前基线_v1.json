@@ -1,0 +1,16 @@
+{
+  "source_batch_result_hash": "3d41af102ba6edbb394d1190ac55244ea41fc431821c2da28bb4efe98787f32a",
+  "combination_id": "组合-d10d5cebd5e1",
+  "parameters": {
+    "assets.BTC.unit_1n_risk_pct": 0.003,
+    "assets.ETH.unit_1n_risk_pct": 0.003,
+    "rules.fast_entry": 20,
+    "rules.slow_entry": 60,
+    "rules.stop_n": 2.0
+  },
+  "normalization": "orders exclude operational intent_id",
+  "execution_result_hash": "daf2e7da76e19bcb93e98ad48f99ede277e4e7dc91bd0212017f659d5813d26e",
+  "orders_hash": "66bc8d6a9777feea4ca9b4c95050060bb768d832fb727fb704bd6eafbd892c1b",
+  "trades_hash": "1a38731dcf5bb272f3e0d6a213a047ce2947f435726b3abe4513219450dbcb80",
+  "equity_hash": "189de26fbf5ecff7013fc52357a672d3ea7889ed0eb5e3bbe6187819bb9521ee"
+}

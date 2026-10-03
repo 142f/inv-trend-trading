@@ -22,8 +22,22 @@ class Config:
     fee: float = 0.0005
     slippage: float = 0.0005
     short_carry: float = 0.03
+    position_mode: str = "staged"
+    rebalance_band: float = 0.02
 
     def __post_init__(self):
+        if self.position_mode not in ("staged", "confirmed"):
+            raise ValueError("invalid position mode")
+        if not all(np.isfinite(v) for v in (*self.weights, self.cap, self.risk,
+                self.stop_atr, self.quality_scale, self.short_scale, self.fee,
+                self.slippage, self.short_carry, self.rebalance_band)):
+            raise ValueError("non-finite strategy configuration")
+        if type(self.confirmation) is not int:
+            raise ValueError("integer confirmation required")
+        if self.position_mode == "confirmed" and (self.disabled or self.independent):
+            raise ValueError("confirmed mode requires all three EMA relations")
+        if not 0 <= self.rebalance_band < 1:
+            raise ValueError("invalid rebalance band")
         if (self.confirmation < 0 or len(self.weights) != 3 or min(self.weights) < 0
                 or sum(self.weights) > 1.0000001 or not 0 < self.cap <= 1
                 or self.risk <= 0 or self.stop_atr <= 0
@@ -58,12 +72,60 @@ class Relation:
         return state
 
 
+def relation_states(frame, confirmation):
+    """Reuse causal EMA arrays; confirmation does not change price indicators."""
+    return {(side, j): [rel.step(v) for v in
+            (side * (frame[f"ema{a}"] - frame[f"ema{b}"])).to_numpy()]
+            for side in (1, -1) for j, (a, b) in enumerate(PAIRS)
+            for rel in (Relation(confirmation),)}
+
+
+def confirmed_targets(rows, cfg):
+    """Signed gross weights; unspent risk budgets remain cash, never redistributed."""
+    directions, evidence = {}, {}
+    for symbol, row in rows.items():
+        states = {side: [row[f"state_{side}_{j}" if cfg.confirmation == 3 else
+                            f"c{cfg.confirmation}_{side}_{j}"] for j in range(3)]
+                  for side in (1, -1)}
+        price, atr = float(row["close"]), float(row["atr"])
+        ready = (int(row["ordinal"]) >= 165 and np.isfinite(price) and price > 0
+                 and np.isfinite(atr) and atr > 0)
+        valid = [side for side, values in states.items()
+                 if ready and all(v in ("确认成功", "持续有效") for v in values)]
+        directions[symbol] = valid[0] if len(valid) == 1 else 0
+        evidence[symbol] = {"ema_states": states, "direction": directions[symbol]}
+    active = sum(side != 0 for side in directions.values())
+    for symbol, side in directions.items():
+        row = rows[symbol]
+        raw = cfg.cap / active if side else 0.
+        weight, reasons = raw, []
+        if side:
+            limit = cfg.risk / active / (cfg.stop_atr * float(row["atr"]) / float(row["close"]))
+            if limit < weight:
+                weight = limit
+                reasons.append("stop_risk")
+            weak = ((cfg.quality == "macd" and row["macd"] * side <= 0)
+                    or (cfg.quality == "adx" and row["adx"] < 20)
+                    or (cfg.quality == "volume" and not row["volume_ratio"] >= 1))
+            if weak:
+                weight *= cfg.quality_scale
+                reasons.append("quality")
+            if side < 0 and cfg.short_scale < 1:
+                weight *= cfg.short_scale
+                reasons.append("short_scale")
+        else:
+            reasons.append("no_confirmed_direction")
+        evidence[symbol].update(target_weight=side * weight, raw_target_weight=side * raw,
+                                risk_reasons=reasons)
+    return evidence
+
+
 def signals(frame, cfg=Config()):
     f = frame.copy().reset_index(drop=True)
     if len(f) < 60:
         raise ValueError("at least 60 daily bars required")
     t = pd.to_datetime(f.timestamp, utc=True)
-    if t.duplicated().any() or not t.is_monotonic_increasing:
+    if t.isna().any() or t.duplicated().any() or not t.is_monotonic_increasing:
         raise ValueError("duplicate or unsorted bars")
     p = f[["open", "high", "low", "close"]].to_numpy(float)
     if (not np.isfinite(p).all() or (p <= 0).any()
@@ -71,8 +133,12 @@ def signals(frame, cfg=Config()):
             or (f.low > f[["open", "close"]].min(axis=1)).any()):
         raise ValueError("invalid OHLC")
     f["timestamp"] = t
-    if "available_at" in f and (pd.to_datetime(f.available_at, utc=True) > t.shift(-1)).any():
-        raise ValueError("bar unavailable at next open")
+    if not np.isfinite(f.volume.to_numpy(float)).all() or (f.volume < 0).any():
+        raise ValueError("invalid volume")
+    if "available_at" in f:
+        available = pd.to_datetime(f.available_at, utc=True)
+        if available.isna().any() or (available <= t).any() or (available > t.shift(-1)).any():
+            raise ValueError("bar unavailable at next open")
     for n in (10, 12, 20, 26, 55):
         f[f"ema{n}"] = f.close.ewm(span=n, adjust=False).mean()
     tr = pd.concat([f.high-f.low, (f.high-f.close.shift()).abs(),
@@ -86,12 +152,8 @@ def signals(frame, cfg=Config()):
     f["adx"] = (100*(plus-minus).abs()/(plus+minus).replace(0, np.nan)).ewm(
         alpha=1/14, adjust=False).mean().fillna(0)
     f["volume_ratio"] = f.volume/f.volume.rolling(20, min_periods=20).mean().replace(0, np.nan)
-    for side in (1, -1):
-        for j, (a, b) in enumerate(PAIRS):
-            rel = Relation(cfg.confirmation)
-            values = (side*(f[f"ema{a}"]-f[f"ema{b}"])).to_numpy()
-            # Warm-up relationships are tracked but never traded before bar 165.
-            f[f"state_{side}_{j}"] = [rel.step(v) for v in values]
+    for (side, j), values in relation_states(f, cfg.confirmation).items():
+        f[f"state_{side}_{j}"] = values
     return f
 
 
@@ -101,6 +163,8 @@ def backtest(features, cfg, start, end):
     Each fold starts flat, indicators retain causal warm-up. Terminal liquidation is
     a predeclared market-on-close research assumption with costs charged.
     """
+    if cfg.position_mode != "staged":
+        raise ValueError("confirmed portfolio mode requires application.EMA统一基准.run")
     f = features
     times = pd.DatetimeIndex(f.timestamp)
     indices = np.flatnonzero((times >= pd.Timestamp(start)) & (times < pd.Timestamp(end)))
