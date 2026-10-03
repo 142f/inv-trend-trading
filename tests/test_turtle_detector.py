@@ -72,6 +72,7 @@ def test_default_assets_pin_actual_instruments_and_sources() -> None:
     assert assets["XAU"].instrument == "XAUUSD.DUKAS.BID.CFD"
     assert assets["XAG"].data_source == "dukascopy"
     assert assets["NVDA"].adjustment == "back_adjusted"
+    assert "600519" not in assets  # Reserved instruments cannot enter a live detector scan.
     assert load_strategy_config().confirmation_mode == "close"
 
 
