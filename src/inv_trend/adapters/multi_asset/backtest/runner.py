@@ -109,6 +109,7 @@ class TurtleBacktester:
         self._wf_retiring = set()
         self._margin_retiring = set()
         self._realized_by_symbol = {}
+        self._volume_used = {}
         for item in self.policy_schedule:
             if _as_utc_timestamp(item["trained_through"]) >= _as_utc_timestamp(item["effective_at"]):
                 raise ValueError("参数训练截止时间必须严格早于生效时间")
@@ -260,6 +261,7 @@ class TurtleBacktester:
         self._wf_retiring, self._margin_retiring = set(), set()
         self._policy_id = "固定策略"
         self._known_prices, self._known_rows = {}, {}
+        self._volume_used = {}
         self._raw_data = self.data
         events = list(self._events(dates))
         explicit = self.execution_policy is not None and self.execution_policy.event_clock
@@ -275,6 +277,8 @@ class TurtleBacktester:
             self._event_active, self._event_time, self._event_phase = active, when, phase
             # 相同时戳的上一Bar收盘属于旧合同；下一次开盘才激活新合同。
             if phase == "open":
+                for symbol in active:
+                    self._volume_used[symbol] = 0.
                 self._apply_scheduled_policy(when, state, reservations, order_rows)
             before_carry = cash
             cash = self._accrue_calendar_cost(when, cash, state)
@@ -321,6 +325,10 @@ class TurtleBacktester:
             cap = self.execution_policy.max_gross_leverage if self.execution_policy else self.rules.max_total_leverage
             margin_call = bool(self.execution_policy and self.execution_policy.enforce_capital and gross>0
                                and equity < .75 * gross / cap)
+            exposure_breach = bool(equity > 0 and gross > equity * cap + 1e-7)
+            if exposure_breach and self.execution_policy and self.execution_policy.reduce_excess_leverage:
+                self._margin_retiring.update(state.positions)
+                self._cancel_intents(when, reservations, order_rows, "gross_leverage_breach")
             if margin_call:
                 self._margin_retiring.update(state.positions)
                 self._cancel_intents(when, reservations, order_rows, "margin_call")
@@ -337,6 +345,8 @@ class TurtleBacktester:
                 "fee_cost_cumulative":self._cumulative_fees,"slippage_cost_cumulative":self._cumulative_slippage,
                 "open_positions": len(state.positions), "carry_cost_cumulative": carry_total,
                 "bankrupt_latched": bankrupt, "candidate_id": self._policy_id})
+            if self.execution_policy and self.execution_policy.reduce_excess_leverage:
+                ledger_rows[-1]["exposure_breach"] = exposure_breach
             if last or bankrupt:
                 continue
             snapshots = dict(self._known_rows)
@@ -347,6 +357,15 @@ class TurtleBacktester:
                     snapshots, state, equity, tradable_symbols=tradable))
             decision_rows.extend({"time": when, "candidate_id": self._policy_id, **item}
                 for item in getattr(self.strategy, "last_decisions", []))
+            targets = getattr(self.strategy, "target_by_symbol", {})
+            for intent_id, intent in list(reservations.intents.items()):
+                order = intent.order
+                if order.metadata.get("target_mode") and order.action != "exit" and (
+                        targets.get(order.symbol, 0.) * order.side <= 0):
+                    order_rows.append({**self._order_row(when, order, order.signal_price, 0.,
+                        self.specs[order.symbol]), "status": "cancelled",
+                        "resolution": "confirmed trend invalidated", **self._intent_audit_fields(intent)})
+                    reservations.release(intent_id)
             pending_symbols = {intent.order.symbol for intent in reservations.intents.values()}
             for order in new_orders:
                 if order.symbol in pending_symbols:
@@ -400,7 +419,10 @@ class TurtleBacktester:
     ) -> float:
         """Fill at this bar's open, using no current-bar close for risk checks."""
         prices_at_open = self._causal_prices_at_open(date)
-        for intent_id, intent in list(reservations.intents.items()):
+        pending = list(reservations.intents.items())
+        if any(intent.order.metadata.get("target_mode") for _, intent in pending):
+            pending.sort(key=lambda pair: (pair[1].order.action != "exit", pair[1].order.symbol))
+        for intent_id, intent in pending:
             row = self._row_at_event(intent.order.symbol, date)
             if row is None:
                 continue
@@ -462,6 +484,9 @@ class TurtleBacktester:
                     continue
                 intent.approved_qty = decision.approved_qty
                 order = replace(order, qty=decision.approved_qty)
+                if order.metadata.get("target_mode"):
+                    order = replace(order, metadata={**order.metadata,
+                        "budget_resolution": decision.reason, "signal_requested_qty": intent.requested_qty})
             intent.fill_attempts_completed += 1
             before_rows = len(order_rows)
             cash, unfilled = self._execute_orders(
@@ -576,7 +601,31 @@ class TurtleBacktester:
                     continue
                 selected_reasons = order.metadata.get("unit_reasons")
                 remaining_units = []
-                if selected_reasons is not None:
+                quantity_exit = order.metadata.get("quantity_exit", False) or (
+                    getattr(getattr(self.strategy, "cfg", None), "position_mode", None) == "confirmed")
+                if quantity_exit:
+                    requested = min(order.qty, position.total_qty)
+                    qty = min(requested, self._volume_capacity(order.symbol, date))
+                    qty = _round_down(qty, spec.qty_step)
+                    if qty <= 0:
+                        order_rows.append({**self._order_row(date, order, reference_price, 0., spec),
+                            "status": "rejected", "resolution": "previous volume budget exhausted"})
+                        continue
+                    if position.total_qty - qty < spec.qty_step:
+                        qty = position.total_qty
+                    fraction = min(1., qty / position.total_qty)
+                    selected_units = [replace(u, qty=u.qty * fraction,
+                        entry_cost=u.entry_cost * fraction, carry_cost=u.carry_cost * fraction)
+                        for u in position.units]
+                    if fraction < 1:
+                        remaining_units = [replace(u, qty=u.qty * (1-fraction),
+                            entry_cost=u.entry_cost * (1-fraction), carry_cost=u.carry_cost * (1-fraction))
+                            for u in position.units]
+                    position = replace(position, units=selected_units)
+                    # Proportional splitting preserves original entry-time/index carry keys.
+                    order = replace(order, metadata={**order.metadata, "requested_qty": requested,
+                        "execution_resolution": "participation_scaled" if qty < requested - spec.qty_step else "approved"})
+                elif selected_reasons is not None:
                     remaining_units = [u for u in position.units if u.reason not in selected_reasons]
                     selected_units = [u for u in position.units if u.reason in selected_reasons]
                     if not selected_units:
@@ -597,6 +646,17 @@ class TurtleBacktester:
                     if (order.side == LONG and not spec.can_long) or (order.side == SHORT and not spec.can_short):
                         rejection = "asset permission/borrow unavailable"
                     qty = order.qty
+                    requested = qty
+                    if order.metadata.get("target_mode"):
+                        prices = self._causal_prices_at_open(date)
+                        equity_now = self._mark_equity_at_open(cash, state, prices)
+                        current = position.total_qty if position else 0.
+                        weight = abs(order.metadata["target_weight"])
+                        loss_per_qty = spec.point_value * (abs(fill_price-reference_price)
+                            + fill_price * spec.cost_bps / 10000.)
+                        target_capacity = max(0., weight * equity_now - current * reference_price * spec.point_value)
+                        qty = min(qty, _round_down(target_capacity /
+                            (reference_price * spec.point_value + weight * loss_per_qty), spec.qty_step))
                     if self.execution_policy.enforce_capital:
                         prices = self._causal_prices_at_open(date)
                         equity_now = self._mark_equity_at_open(cash, state, prices)
@@ -607,14 +667,14 @@ class TurtleBacktester:
                         slip_unit = abs(fill_price-reference_price)*spec.point_value
                         denominator = reference_price*spec.point_value+cap*(fee_unit+slip_unit)
                         qty = min(qty, _round_down(max(0.,equity_now*cap-gross)/denominator,spec.qty_step))
-                    if self.execution_policy.enforce_volume and spec.asset_class == "equity":
+                    if self.execution_policy.enforce_volume and spec.asset_class in self.execution_policy.volume_asset_classes:
                         previous = self.market_data.row_at_previous(order.symbol,self._label_at_event(order.symbol,date))
                         volume = float(previous.get("volume",0.)) if previous else 0.
                         # 只能用此前完整Bar的量，不可用本Bar最终成交量决定开盘可成交数量。
                         if not np.isfinite(volume) or volume <= 0:
                             rejection = "previous completed volume unavailable"
                         else:
-                            qty = min(qty,_round_down(volume*self.execution_policy.volume_participation,spec.qty_step))
+                            qty = min(qty, _round_down(self._volume_capacity(order.symbol, date), spec.qty_step))
                     if qty <= 0 or qty < spec.min_qty or qty*fill_price*spec.point_value < spec.min_notional:
                         rejection = rejection or "capital/participation budget exhausted"
                     if rejection:
@@ -622,6 +682,9 @@ class TurtleBacktester:
                             "status":"rejected", "resolution":rejection,"fee_cost":0.,"slippage_cost":0.})
                         continue
                     order = replace(order,qty=qty)
+                    if order.metadata.get("target_mode"):
+                        order = replace(order, metadata={**order.metadata, "requested_qty": requested,
+                            "execution_resolution": "capital/target/participation_scaled" if qty < requested - spec.qty_step else "approved"})
                 if self.cash_model == "cash" and order.side == LONG:
                     charged_bps = spec.cost_bps if self._price_slippage_enabled() else spec.cost_bps + spec.slippage_bps
                     unit_cost = fill_price * spec.point_value * (1 + charged_bps / 10000)
@@ -638,6 +701,9 @@ class TurtleBacktester:
             if self.execution_policy is not None:
                 self._cumulative_fees += cost
                 self._cumulative_slippage += abs(order.qty * (fill_price-reference_price) * spec.point_value)
+                volume_used = getattr(self, "_volume_used", None)
+                if volume_used is not None:
+                    volume_used[order.symbol] = volume_used.get(order.symbol, 0.) + order.qty
             if order.action in {"open", "add"}:
                 if self.cash_model == "cash":
                     cash -= order.side * order.qty * fill_price * spec.point_value
@@ -656,12 +722,13 @@ class TurtleBacktester:
                 if remaining_units:
                     # Removing an earlier stage changes list indices. Preserve each
                     # surviving unit's carry clock instead of charging since entry again.
-                    old_units = state.positions[order.symbol].units
-                    clocks = {id(unit): self._carry_clock.get(
-                        (order.symbol, unit.entry_time, index), unit.entry_time)
-                        for index, unit in enumerate(old_units)}
-                    for index, unit in enumerate(remaining_units):
-                        self._carry_clock[(order.symbol, unit.entry_time, index)] = clocks[id(unit)]
+                    if not quantity_exit:
+                        old_units = state.positions[order.symbol].units
+                        clocks = {id(unit): self._carry_clock.get(
+                            (order.symbol, unit.entry_time, index), unit.entry_time)
+                            for index, unit in enumerate(old_units)}
+                        for index, unit in enumerate(remaining_units):
+                            self._carry_clock[(order.symbol, unit.entry_time, index)] = clocks[id(unit)]
                     state.positions[order.symbol].units = remaining_units
                 else:
                     del state.positions[order.symbol]
@@ -680,6 +747,16 @@ class TurtleBacktester:
                 self._order_row(date, order, fill_price, cost, spec)
             )
         return cash, unfilled
+
+    def _volume_capacity(self, symbol, date):
+        policy = self.execution_policy
+        if not policy or not policy.enforce_volume or self.specs[symbol].asset_class not in policy.volume_asset_classes:
+            return float("inf")
+        previous = self.market_data.row_at_previous(symbol, self._label_at_event(symbol, date))
+        volume = float(previous.get("volume", 0.)) if previous else 0.
+        if not np.isfinite(volume) or volume <= 0:
+            return 0.
+        return max(0., volume * policy.volume_participation - getattr(self, "_volume_used", {}).get(symbol, 0.))
 
     def _apply_entry_fill(
         self,
@@ -839,6 +916,10 @@ class TurtleBacktester:
                     default=str,
                 ),
             }
+        if "execution_resolution" in order.metadata:
+            resolution = order.metadata["execution_resolution"]
+            extra.update(status="partial" if "scaled" in resolution else "filled",
+                         resolution=resolution, requested_qty=order.metadata["requested_qty"])
         return {
             **extra,
             "time": date,

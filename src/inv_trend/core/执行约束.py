@@ -15,6 +15,8 @@ class ExecutionPolicy:
     enforce_volume: bool = True
     charge_calendar_carry: bool = True
     certified: bool = False
+    volume_asset_classes: tuple[str, ...] = ("equity",)
+    reduce_excess_leverage: bool = False
 
     def __post_init__(self):
         for key in ("max_gross_leverage", "volume_participation"):
@@ -27,5 +29,11 @@ class ExecutionPolicy:
             v = getattr(self, key)
             if not math.isfinite(v) or v < 0:
                 raise ValueError(f"{key} 必须为有限非负数")
+        if (not isinstance(self.volume_asset_classes, tuple)
+                or not self.volume_asset_classes
+                or any(not isinstance(value, str) or not value for value in self.volume_asset_classes)):
+            raise ValueError("volume_asset_classes 必须为非空字符串元组")
+        if type(self.reduce_excess_leverage) is not bool:
+            raise ValueError("reduce_excess_leverage 必须为布尔值")
         if self.certified:
             raise ValueError("当前执行合同未获市场/合约认证；不得启用实盘认证")
