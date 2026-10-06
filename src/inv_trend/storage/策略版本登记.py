@@ -1,15 +1,14 @@
 """Immutable strategy contracts, source archives and verifiable result references."""
 
 from datetime import datetime, timezone
-import hashlib
+from inv_trend.data.integrity import sha256_bytes as digest
 import json
 from pathlib import Path
+from inv_trend.data.integrity import sha256_file
 import subprocess
 import zipfile
 
 
-def digest(data):
-    return hashlib.sha256(data).hexdigest()
 
 
 def encoded(value):
@@ -38,7 +37,7 @@ def snapshot(root, target):
             + [root / "pyproject.toml"]
         )
     )
-    manifest = {p.relative_to(root).as_posix(): digest(p.read_bytes()) for p in files}
+    manifest = {p.relative_to(root).as_posix(): sha256_file(p) for p in files}
     source_hash = digest(encoded(manifest))
     target.mkdir(parents=True, exist_ok=True)
     archive = target / f"代码快照_{source_hash}.zip"
@@ -49,7 +48,7 @@ def snapshot(root, target):
     return dict(
         source_hash=source_hash,
         archive=str(archive),
-        archive_hash=digest(archive.read_bytes()),
+        archive_hash=sha256_file(archive),
         files=manifest,
         git_commit=subprocess.check_output(
             ["git", "rev-parse", "HEAD"], cwd=root, text=True
@@ -80,7 +79,7 @@ def register(
         result_summary=summary,
         created_at=datetime.now(timezone.utc).isoformat(),
         differences=differences,
-        results={str(p): digest(Path(p).read_bytes()) for p in results},
+        results={str(p): sha256_file(Path(p)) for p in results},
     )
     record["record_hash"] = digest(encoded(record))
     path = Path(root) / strategy_id / f"{strategy_version}.json"

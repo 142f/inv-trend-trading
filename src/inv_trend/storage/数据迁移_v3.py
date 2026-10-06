@@ -1,9 +1,7 @@
 """可重入、离线、来源只读的数据目录迁移。保存全部唯一数据及原始审计字节。"""
 from __future__ import annotations
-import hashlib
 import json
 from pathlib import Path
-import shutil
 import sqlite3
 import struct
 import time
@@ -167,7 +165,7 @@ def _build_versions(store):
                         db.execute('UPDATE dataset_versions SET parent_version=? WHERE version=?',(parent,r['dataset_version']))
                     else:
                         db.execute('INSERT INTO migration_issues(severity,category,source_path,details) VALUES(?,?,?,?)',('WARNING','MISSING_PARENT',key,parent))
-        for item in store.rows("SELECT logical_path FROM documents WHERE logical_path LIKE 'curated/symbol=%/current.json' OR logical_path LIKE 'legacy/symbol=%/current.json'"):
+        for item in store.rows("SELECT logical_path FROM documents WHERE logical_path LIKE 'curated/symbol=%/current.json' OR logical_path LIKE 'curated/symbol=%/legacy_current.json' OR logical_path LIKE 'legacy/symbol=%/current.json'"):
             key=item['logical_path'];p=store.read_document(key)
             parts=dict(x.split('=',1) for x in key.split('/') if '=' in x)
             rec=db.execute('SELECT * FROM dataset_versions WHERE version=?',(p.get('version'),)).fetchone()
@@ -175,10 +173,19 @@ def _build_versions(store):
                 db.execute('INSERT INTO migration_issues(severity,category,source_path,details) VALUES(?,?,?,?)',('ERROR','MISSING_CURRENT',key,str(p)))
                 continue
             symbol=parts['symbol'];tf=parts['timeframe'];channel=rec['channel']
-            db.execute('INSERT INTO dataset_heads VALUES(?,?,?,?,?,?,?)',(symbol,tf,channel,rec['version'],p.get('run_id','unknown'),1,utcnow()))
+            existing=db.execute('SELECT version,run_id FROM dataset_heads WHERE symbol=? AND timeframe=? AND channel=?',(symbol,tf,channel)).fetchone()
+            if existing and tuple(existing)!=(rec['version'],p.get('run_id','unknown')):
+                raise StoreError('同一通道存在冲突current，拒绝自动选择')
+            if not existing:
+                db.execute('INSERT INTO dataset_heads VALUES(?,?,?,?,?,?,?)',(symbol,tf,channel,rec['version'],p.get('run_id','unknown'),1,utcnow()))
             old=db.execute('SELECT version FROM current_versions WHERE symbol=? AND timeframe=?',(symbol,tf)).fetchone()
             if old and old[0]!=rec['version']:
                 raise StoreError('原始pointer与Catalog不一致，拒绝自动选择')
+            if old and channel=='legacy':
+                previous=db.execute('SELECT * FROM current_versions WHERE symbol=? AND timeframe=?',(symbol,tf)).fetchone()
+                store.audit('DEMOTE_LEGACY_CURRENT',f'{symbol}/{tf}',
+                            {'previous_catalog_row':dict(previous),'migration':True},db=db)
+                db.execute('DELETE FROM current_versions WHERE symbol=? AND timeframe=?',(symbol,tf))
         store.audit('VERSION_INDEX','dataset_versions',{'count':len(records)},db=db)
 
 

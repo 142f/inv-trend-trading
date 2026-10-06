@@ -1,6 +1,6 @@
 """Pinned inputs from the existing authority; no implicit symbol/calendar/FX conversion."""
 from dataclasses import dataclass
-import hashlib
+from .integrity import sha256_file
 
 import numpy as np
 import pandas as pd
@@ -91,7 +91,7 @@ def load_bundle(data_root="data", *, mode="FORMAL"):
             path = (store.root / row["path"]).resolve()
             if not path.is_relative_to(store.root):
                 raise ValueError("source path outside data root")
-            actual = hashlib.sha256(path.read_bytes()).hexdigest()
+            actual = sha256_file(path)
             if actual != row["stored_sha256"]:
                 raise ValueError("source revision/hash mismatch")
             f = pd.read_parquet(path)

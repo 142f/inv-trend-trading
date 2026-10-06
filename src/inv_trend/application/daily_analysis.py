@@ -8,13 +8,15 @@ for downstream callers.
 
 from __future__ import annotations
 
-import hashlib
-import math
+from inv_trend.core.math_utils import finite_float as _number
+
 from typing import Any, Iterable, Mapping
 
 import pandas as pd
 
 from inv_trend.core.strategy.daily.analysis import (
+    _stable_id as _stable_id,
+    _stop_position as _stop_position,
     PreparedDailyAnalysis,
     analyze_prepared_daily_analysis,
     build_rule_evaluations,
@@ -615,13 +617,14 @@ def _series_payload(frame: pd.DataFrame) -> list[dict[str, Any]]:
         "gap_atr_ratio",
         "range_atr_ratio",
     )
-    rows: list[dict[str, Any]] = []
-    for timestamp, values in frame.iterrows():
-        row: dict[str, Any] = {"timestamp": timestamp.isoformat()}
-        for column in columns:
-            row[column] = _number(values.get(column))
-        rows.append(row)
-    return rows
+    # Avoid constructing a pandas Series for every chart row. Column order and
+    # missing/non-finite values retain the report's existing JSON contract.
+    values = frame.reindex(columns=columns).itertuples(index=False, name=None)
+    return [
+        {"timestamp": timestamp.isoformat(),
+         **{column: _number(value) for column, value in zip(columns, row)}}
+        for timestamp, row in zip(frame.index, values)
+    ]
 
 
 def _analysis_parameters(config: Any) -> dict[str, Any]:
@@ -673,27 +676,6 @@ def _analysis_parameters(config: Any) -> dict[str, Any]:
             ],
         },
     }
-
-
-def _number(value: Any) -> float | None:
-    try:
-        number = float(value)
-    except (TypeError, ValueError):
-        return None
-    return number if math.isfinite(number) else None
-
-
-def _stop_position(frame: pd.DataFrame, position: int) -> int:
-    stop = position + 1 if position >= 0 else len(frame) + position + 1
-    if stop < 1 or stop > len(frame):
-        raise IndexError("daily analysis position is outside the prepared frame")
-    return stop
-
-
-def _stable_id(*parts: Any) -> str:
-    return hashlib.sha256("|".join(map(str, parts)).encode("utf-8")).hexdigest()[:24]
-
-
 __all__ = [
     "PreparedDailyAnalysis",
     "analyze_prepared_daily_analysis",

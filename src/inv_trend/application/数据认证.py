@@ -2,8 +2,6 @@
 from __future__ import annotations
 import importlib.util
 from importlib.metadata import version, PackageNotFoundError
-import numpy as np
-import pandas as pd
 
 
 def environment_status():

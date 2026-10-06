@@ -5,7 +5,7 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 import fnmatch
 import gzip
-import hashlib
+from inv_trend.data.integrity import sha256_bytes as digest
 import io
 import json
 import os
@@ -16,6 +16,7 @@ import tempfile
 import zlib
 
 from inv_trend.data.models import parse_utc_datetime, to_rfc3339_utc
+from inv_trend.data.目录故障 import catalog_access
 
 DB_RELATIVE = Path('metadata') / '研究目录_v3.sqlite3'
 STAGES = ('raw', 'processed', 'features/indicators', 'signals', 'backtests', 'reports', 'metadata')
@@ -29,8 +30,6 @@ def utcnow():
     return to_rfc3339_utc(datetime.now(timezone.utc))
 
 
-def digest(data):
-    return hashlib.sha256(data).hexdigest()
 
 
 SCHEMA_MIGRATION_MARKERS = {
@@ -109,23 +108,24 @@ class UnifiedStore:
 
     @contextmanager
     def connect(self, *, readonly=False):
-        if readonly:
-            db = sqlite3.connect(self.path.as_uri() + '?mode=ro', uri=True, timeout=30)
-        else:
-            db = sqlite3.connect(self.path, timeout=30)
-        db.row_factory = sqlite3.Row
-        db.execute('PRAGMA foreign_keys=ON')
-        db.execute('PRAGMA busy_timeout=30000')
-        try:
-            yield db
-            if not readonly:
-                db.commit()
-        except BaseException:
-            if not readonly:
-                db.rollback()
-            raise
-        finally:
-            db.close()
+        with catalog_access((sqlite3.DatabaseError,), (sqlite3.IntegrityError,)):
+            if readonly:
+                db = sqlite3.connect(self.path.as_uri() + '?mode=ro', uri=True, timeout=30)
+            else:
+                db = sqlite3.connect(self.path, timeout=30)
+            try:
+                db.row_factory = sqlite3.Row
+                db.execute('PRAGMA foreign_keys=ON')
+                db.execute('PRAGMA busy_timeout=30000')
+                yield db
+                if not readonly:
+                    db.commit()
+            except BaseException:
+                if not readonly:
+                    db.rollback()
+                raise
+            finally:
+                db.close()
 
     def rows(self, sql, args=()):
         with self.connect(readonly=True) as db:

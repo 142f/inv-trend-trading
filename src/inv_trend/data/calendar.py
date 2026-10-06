@@ -18,6 +18,91 @@ import pandas as pd
 # early closes or future holiday changes; those are classified UNKNOWN.
 RULE_BASED_NYSE_CALENDAR = True
 
+# Verified early closes, not a guessed recurrence. NYSE 2026–2028:
+# https://www.nyse.com/trade/hours-calendars
+# Nasdaq 2026: https://www.nasdaq.com/market-activity/stock-market-holiday-schedule
+# Other years use the conservative regular close until their calendar is verified.
+_EARLY_CLOSES = {
+    'xnys': frozenset({date(2026, 11, 27), date(2026, 12, 24), date(2027, 11, 26),
+                       date(2028, 7, 3), date(2028, 11, 24)}),
+    'xnas': frozenset({date(2026, 11, 27), date(2026, 12, 24)}),
+}
+
+
+def us_session_bounds(day: date, *, market: str) -> tuple[pd.Timestamp, pd.Timestamp] | None:
+    if market not in {'xnas', 'xnys'}:
+        raise ValueError('unsupported US equity calendar')
+    if not is_nyse_trading_day(day):
+        return None
+    opening = pd.Timestamp(f'{day.isoformat()} 09:30', tz='America/New_York')
+    hour = 13 if day in _EARLY_CLOSES[market] else 16
+    closing = pd.Timestamp(f'{day.isoformat()} {hour}:00', tz='America/New_York')
+    return opening.tz_convert('UTC'), closing.tz_convert('UTC')
+
+
+def us_session_bar_starts(day: date, *, market: str, freq: str) -> pd.DatetimeIndex:
+    bounds = us_session_bounds(day, market=market)
+    if bounds is None:
+        return pd.DatetimeIndex([], tz='UTC')
+    return pd.date_range(bounds[0], bounds[1], freq=freq, inclusive='left')
+
+
+def canonical_bar_ends(stamps, *, market: str, session: str, freq: str) -> pd.DatetimeIndex:
+    stamps = pd.DatetimeIndex(stamps)
+    delta = pd.Timedelta(freq)
+    if session != 'regular' or market not in {'xnas', 'xnys'}:
+        return stamps + delta
+    ends = []
+    for stamp in stamps:
+        if pd.isna(stamp):
+            ends.append(pd.NaT)
+            continue
+        # D1 timestamps are session date labels (UTC midnight or native open).
+        day = stamp.tz_convert('UTC').date() if delta >= pd.Timedelta('1D') else stamp.tz_convert('America/New_York').date()
+        bounds = us_session_bounds(day, market=market)
+        if bounds is None or stamp >= bounds[1]:
+            ends.append(pd.NaT)
+        elif delta >= pd.Timedelta('1D'):
+            ends.append(bounds[1])
+        elif stamp not in us_session_bar_starts(day, market=market, freq=freq):
+            ends.append(pd.NaT)
+        else:
+            ends.append(min(stamp + delta, bounds[1]))
+    return pd.DatetimeIndex(pd.to_datetime(ends, utc=True))
+
+
+def latest_completed_us_bar(now, *, market: str, freq: str) -> pd.Timestamp:
+    clock = pd.Timestamp(now).tz_convert('UTC')
+    day = clock.tz_convert('America/New_York').date()
+    delta = pd.Timedelta(freq)
+    for offset in range(32):
+        candidate = day - timedelta(days=offset)
+        bounds = us_session_bounds(candidate, market=market)
+        if bounds is None:
+            continue
+        if delta >= pd.Timedelta('1D'):
+            if bounds[1] <= clock:
+                return pd.Timestamp(candidate, tz='UTC')
+        else:
+            starts = us_session_bar_starts(candidate, market=market, freq=freq)
+            completed = starts[canonical_bar_ends(starts, market=market, session='regular', freq=freq) <= clock]
+            if len(completed):
+                return completed[-1]
+    raise ValueError('no completed US session in calendar search window')
+
+
+def expected_bar_starts(*, market: str, session: str, start, end, freq: str) -> pd.DatetimeIndex:
+    start, end = pd.Timestamp(start), pd.Timestamp(end)
+    if pd.Timedelta(freq) >= pd.Timedelta('1D'):
+        return pd.date_range(start.normalize(), end.normalize(), freq=freq)
+    if session == 'regular' and market in {'xnas', 'xnys'}:
+        days = pd.date_range(start.tz_convert('America/New_York').normalize(),
+                             end.tz_convert('America/New_York').normalize(), freq='D')
+        stamps = [stamp for day in days for stamp in us_session_bar_starts(day.date(), market=market, freq=freq)
+                  if start <= stamp <= end]
+        return pd.DatetimeIndex(stamps, tz='UTC')
+    return pd.date_range(start, end, freq=freq)
+
 
 def _easter(year: int) -> date:
     """Anonymous Gregorian Easter (accurate 1900-2099)."""
@@ -107,13 +192,19 @@ def classify_missing(
     end: pd.Timestamp,
     freq: str,
 ) -> tuple[pd.DatetimeIndex, dict[str, int]]:
-    """Classify expected-but-absent daily timestamps.
+    """Classify expected-but-absent timestamps at the requested resolution.
 
     Returns (absent_dates, breakdown) where breakdown keys are
     weekend / holiday / provider_gap / unknown.
     """
-    expected = pd.date_range(start, end, freq=freq)
-    observed = set(pd.DatetimeIndex(stamps).normalize())
+    expected = expected_bar_starts(market=market, session=session, start=start, end=end, freq=freq)
+    observed_index = pd.DatetimeIndex(stamps)
+    # Daily providers may use different intraday labels for the same session;
+    # hourly bars must retain their exact instants. Normalizing H4/H1 stamps
+    # erases all but midnight and manufactures gaps in a continuous series.
+    if pd.Timedelta(freq) >= pd.Timedelta('1D'):
+        observed_index = observed_index.normalize()
+    observed = set(observed_index)
     absent = [stamp for stamp in expected if stamp not in observed]
     breakdown = {"weekend": 0, "holiday": 0, "provider_gap": 0, "unknown": 0}
     classified: list[pd.Timestamp] = []

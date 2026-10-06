@@ -28,12 +28,28 @@ class DataQualityError(ValueError):
     """Raised when no published data meets the requested quality policy."""
 
 
+class DataUnavailableError(DataQualityError):
+    """No formal published dataset exists; not a failed certification report."""
+
+
 class DataConflictError(ValueError):
     """Raised when conflicting OHLCV bars share one timestamp and cannot be resolved silently."""
 
 
 class DataLineageError(RuntimeError):
     """Raised when a required immutable lineage artifact is missing or inconsistent."""
+
+
+class DataCertificationError(DataLineageError):
+    """Verified data explicitly fails quality certification; still fail closed."""
+
+
+class CatalogBackendConflictError(DataLineageError):
+    """More than one metadata authority is present in a data root."""
+
+
+class CatalogAccessError(DataLineageError):
+    """An owned catalog cannot be opened, queried, or committed reliably."""
 
 
 class ProviderIdentityError(ValueError):

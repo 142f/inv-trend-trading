@@ -12,14 +12,17 @@ from uuid import uuid4
 import pandas as pd
 
 from .config import load_instruments
+from .目录核验 import verify_catalog
+from . import 成分股快照 as holdings_snapshots
+from .成分股快照 import holding_instrument as _holding_instrument
 from .models import (
-    DataLineageError, DataQualityError, DatasetManifest, DownloadRequest,
+    DataLineageError, DataQualityError, DataUnavailableError, DatasetManifest, DownloadRequest,
     HoldingsSnapshot, InstrumentConfig, Manifest, ProviderIdentityError, ProviderResult,
     SurvivorshipBiasError,
     path_text, utc_now,
 )
 from .integrity import sha256_file, stable_hash, strategy_frame_hash
-from .lineage import load_current_lineage, load_versioned_lineage
+from .lineage import _load_current_lineage, _load_update_lineage, load_current_lineage, load_versioned_lineage
 from .processing import FRAME_DELTAS, RULE_VERSION, NormalizationResult, assess_quality, normalize_bars, resample_ohlcv_session
 from .providers import BarsProvider, HoldingsCsvProvider, QqqHoldingsCsvProvider
 from .registry import InstrumentRegistry
@@ -33,8 +36,9 @@ _OVERLAPS = {"D1": 10, "H4": 20, "H1": 48}
 class HistoricalDataService:
     def __init__(self, root: str | Path = _DEFAULT_ROOT, *,
                  instruments: Mapping[str, InstrumentConfig] | None = None,
-                 providers: Mapping[str, BarsProvider] | None = None) -> None:
-        self.lake = open_data_lake(root)
+                 providers: Mapping[str, BarsProvider] | None = None,
+                 startup_check: bool = True) -> None:
+        self.lake = open_data_lake(root, startup_check=startup_check)
         self.instruments = dict(instruments or load_instruments())
         if instruments is None:
             for symbol, instrument in self._snapshot_instruments().items():
@@ -130,6 +134,7 @@ class HistoricalDataService:
     ) -> Manifest:
         raw = result.frame.copy()
         raw_hash = sha256_file(raw_frame_path)
+        existing_curated, current_pointer = self._load_update_base(instrument.symbol, timeframe)
         raw_snapshot_id = hashlib.sha256(raw_hash.encode()).hexdigest()[:24]
         normalized = normalize_bars(raw, instrument, timeframe, result.source)
         clean = normalized.clean.copy()
@@ -138,19 +143,24 @@ class HistoricalDataService:
         clean["raw_snapshot_id"] = raw_snapshot_id
         clean["source_run_id"] = request_id
         outside_window_revisions = self._outside_overlap_revisions(
-            instrument.symbol, instrument, timeframe, clean
+            instrument.symbol, instrument, timeframe, clean, existing=existing_curated
         )
         normalized_paths = self.lake.write_normalized(clean, instrument.asset_class, instrument.instrument_id, timeframe)
         if not normalized.quarantine.empty:
             self.lake.write_frame(normalized.quarantine, Path("quarantine") / f"run_id={request_id}" / "rows.parquet")
-        combined, conflicts, rejected_incoming = self._merge_current(instrument.symbol, timeframe, clean)
+        combined, conflicts, rejected_incoming = self._merge_current(
+            instrument.symbol, timeframe, clean, existing=existing_curated,
+        )
         full_result = NormalizationResult(combined, pd.DataFrame(), normalized.audit, 0, 0,
                                           int(combined.get("quality_flags", pd.Series(dtype=str)).astype(str).str.contains("extreme_jump_review").sum()),
                                           len(conflicts))
         quality = assess_quality(full_result, instrument, timeframe, provider=result.source,
                                  requested_start=start, requested_end=end)
         quality.provider_available_start = str(result.metadata.get("provider_available_start", ""))
-        status = "RESEARCH_ONLY" if result.metadata.get("research_only") else "CURATED"
+        inherited_research_only = bool(
+            combined.get('quality_status', pd.Series(dtype=str)).eq('RESEARCH_ONLY').any()
+        )
+        status = "RESEARCH_ONLY" if result.metadata.get("research_only") or inherited_research_only else "CURATED"
         quality_ok = quality.quality_score >= 50 and quality.backtest_suitable
         if outside_window_revisions or conflicts:
             # A human decision is required; never silently overwrite published bars.
@@ -163,10 +173,6 @@ class HistoricalDataService:
             publishable = True
         config_hash = stable_hash(asdict(instrument))
         metadata_hash = stable_hash(result.metadata)
-        try:
-            existing_curated = self.lake.read_bars(instrument.symbol, timeframe)
-        except FileNotFoundError:
-            existing_curated = pd.DataFrame()
         legacy_partial_in_current = (
             not existing_curated.empty
             and bool((~existing_curated["is_complete"].astype(bool)).any())
@@ -175,7 +181,7 @@ class HistoricalDataService:
         complete_count = int(complete_mask.sum())
         # A rule upgrade (RULE_VERSION) must re-derive the content-addressed
         # version even when the bar content itself is unchanged.
-        current_manifest = self._current_manifest(instrument.symbol, timeframe)
+        current_manifest = self._manifest_for_pointer(current_pointer)
         current_rule_matches = current_manifest is not None and current_manifest.cleaning_rule_version == RULE_VERSION
         unchanged_replay = (
             complete_count > 0
@@ -201,7 +207,6 @@ class HistoricalDataService:
                 status = "QUARANTINED"
                 quality.quality_status = status
         curated_view = combined.loc[complete_mask] if complete_count else combined.iloc[0:0]
-        current_pointer = self.lake.current_version(instrument.symbol, timeframe)
         parent_dataset_version = str(current_pointer["version"]) if current_pointer else None
         is_new_dataset = parent_dataset_version != dataset_version
         curated_path: Path | None = None
@@ -274,15 +279,20 @@ class HistoricalDataService:
                                       "symbol": instrument.symbol, "timeframe": timeframe,
                                       "created_at": utc_now().isoformat()},
                                      candidate_dir / "conflicts.json")
+            self.lake.write_frame(combined, candidate_dir / "bars.parquet")
+            candidate_files = [self.lake.root / candidate_dir / name for name in
+                               ('bars.parquet', 'base.parquet', 'incoming.parquet', 'conflicts.json')
+                               if (self.lake.root / candidate_dir / name).exists()]
             self.lake.write_json({"run_id": request_id, "symbol": instrument.symbol,
                                   "timeframe": timeframe, "instrument_id": instrument.instrument_id,
                                   "dataset_version": dataset_version,
                                   "conflict_count": len(conflicts),
                                   "base_rows": len(existing_curated),
                                   "incoming_rows": len(rejected_incoming),
+                                  "file_hashes": {path_text(path, self.lake.root): sha256_file(path)
+                                                  for path in candidate_files},
                                   "created_at": utc_now().isoformat()},
                                  candidate_dir / "candidate_manifest.json")
-            self.lake.write_frame(combined, candidate_dir / "bars.parquet")
         run_quality_payload = quality.to_dict() | {
             "run_id": request_id, "dataset_version": dataset_version, "instrument_id": instrument.instrument_id,
             "missing_intervals": quality.missing_intervals, "provider_failures": errors,
@@ -297,6 +307,8 @@ class HistoricalDataService:
             if candidate not in paths:
                 paths.append(candidate)
         paths += [*normalized_paths, run_quality_path]
+        if status == 'REVIEW_REQUIRED':
+            paths.append(self.lake.root / candidate_dir / 'candidate_manifest.json')
         root_path = self.lake.root
         manifest = Manifest(
             run_id=request_id, data_source=result.source, requested_symbol=instrument.symbol,
@@ -309,7 +321,10 @@ class HistoricalDataService:
             downloaded_at=utc_now().isoformat(), license=result.license,
             missing_intervals=[str(x) for x in quality.missing_intervals],
             anomaly_count=len(normalized.audit), cleaning_rule_version=RULE_VERSION,
-            quality_passed=publishable, provider_metadata={**result.metadata, "provider_failures": errors},
+            quality_passed=publishable, provider_metadata={
+                **result.metadata, "provider_failures": errors,
+                **({'inherited_research_only': True} if inherited_research_only else {}),
+            },
             instrument_id=instrument.instrument_id, dataset_version=dataset_version,
             quality_score=quality.quality_score, quality_status=status, request_id=request_id,
             raw_snapshot_id=raw_snapshot_id, processing_run_id=request_id, curated_version=dataset_version,
@@ -344,12 +359,11 @@ class HistoricalDataService:
 
     def _outside_overlap_revisions(
         self, symbol: str, instrument: InstrumentConfig, timeframe: str, incoming: pd.DataFrame,
+        *, existing: pd.DataFrame | None = None,
     ) -> list[dict[str, object]]:
         """Return completed-bar corrections preceding the automatic revision window."""
-        try:
-            existing = self.lake.read_bars(symbol, timeframe)
-        except FileNotFoundError:
-            return []
+        if existing is None:
+            existing, _ = self._load_update_base(symbol, timeframe)
         if existing.empty or incoming.empty:
             return []
         overlap = instrument.revision_overlap_bars or _OVERLAPS[timeframe]
@@ -401,7 +415,7 @@ class HistoricalDataService:
                         )
                         result.metadata = {**result.metadata, "derived_from_timeframe": requested_timeframe,
                                            "session_timezone": instrument.session_timezone, "bar_close_rule": instrument.bar_close_rule}
-                    _validate_provider_identity(result, instrument, fallback=is_fallback)
+                    _validate_provider_identity(result, instrument, fallback=is_fallback, timeframe=timeframe)
                     if is_fallback:
                         result.metadata = {
                             **result.metadata,
@@ -466,12 +480,11 @@ class HistoricalDataService:
         symbol: str,
         timeframe: str,
         incoming: pd.DataFrame,
+        *, existing: pd.DataFrame | None = None,
     ) -> tuple[pd.DataFrame, list[dict[str, object]], pd.DataFrame]:
         """Merge bars while quarantining completed-bar OHLCV conflicts."""
-        try:
-            existing = self.lake.read_bars(symbol, timeframe)
-        except FileNotFoundError:
-            existing = pd.DataFrame(columns=incoming.columns)
+        if existing is None:
+            existing, _ = self._load_update_base(symbol, timeframe)
         conflicts: list[dict[str, object]] = []
         rejected: list[pd.Series] = []
         if not existing.empty and not incoming.empty:
@@ -496,17 +509,14 @@ class HistoricalDataService:
                 if old is None or not bool(old.get("is_complete", False)):
                     keep_incoming.append(True)
                     continue
-                if all(
-                    _same_bar_value(old[column], row[column])
-                    for column in value_columns
-                ):
-                    keep_incoming.append(False)
-                    continue
                 changed = [
                     column
                     for column in value_columns
                     if not _same_bar_value(old[column], row[column])
                 ]
+                if not changed:
+                    keep_incoming.append(False)
+                    continue
                 conflicts.append(
                     {
                         "timestamp": row["timestamp"].isoformat(),
@@ -560,10 +570,7 @@ class HistoricalDataService:
         end = pd.Timestamp(_aware_utc(end or utc_now()))
         delta = pd.Timedelta(FRAME_DELTAS[timeframe])
         overlap = instrument.revision_overlap_bars or _OVERLAPS[timeframe]
-        try:
-            existing = self.lake.read_bars(instrument.symbol, timeframe)
-        except FileNotFoundError:
-            existing = pd.DataFrame()
+        existing, _ = self._load_update_base(instrument.symbol, timeframe)
         intervals: list[dict[str, object]] = []
         if existing.empty:
             if not instrument.earliest_valid_date:
@@ -614,7 +621,8 @@ class HistoricalDataService:
         for interval in self.missing_intervals(symbol, timeframe, end=end):
             start, end_point = interval["start"], interval["end"]
             if overlap_bars is not None and interval["classification"] == "tail":
-                last = self.lake.read_bars(instrument.symbol, timeframe)["timestamp"].max().to_pydatetime()
+                base, _ = self._load_update_base(instrument.symbol, timeframe)
+                last = base["timestamp"].max().to_pydatetime()
                 start = last - overlap_bars * pd.Timedelta(FRAME_DELTAS[timeframe]).to_pytimedelta()
             manifests.append(self.ingest(symbol, timeframe, start, end_point, retries=retries))
         if manifests:
@@ -626,15 +634,12 @@ class HistoricalDataService:
 
     def _last_requested_start(self, symbol: str, timeframe: str) -> pd.Timestamp | None:
         """Latest requested_start recorded for this symbol/timeframe, else None."""
-        try:
-            with self.lake._connect() as db:
-                rows = db.execute(
-                    "SELECT run_id FROM datasets WHERE symbol=? AND timeframe=? "
-                    "ORDER BY created_at DESC LIMIT 1",
-                    (symbol.upper(), timeframe.upper()),
-                ).fetchall()
-        except Exception:
-            rows = []
+        with self.lake._connect() as db:
+            rows = db.execute(
+                "SELECT run_id FROM datasets WHERE symbol=? AND timeframe=? "
+                "ORDER BY created_at DESC LIMIT 1",
+                (symbol.upper(), timeframe.upper()),
+            ).fetchall()
         for (run_id,) in rows:
             manifest_file = self.lake.root / "manifests" / f"{run_id}.json"
             if manifest_file.exists():
@@ -644,10 +649,10 @@ class HistoricalDataService:
         return None
 
     def _current_manifest(self, symbol: str, timeframe: str) -> Manifest | None:
-        try:
-            current = self.lake.current_version(symbol.upper(), timeframe.upper())
-        except Exception:
-            return None
+        current = self.lake.current_version(symbol.upper(), timeframe.upper())
+        return self._manifest_for_pointer(current)
+
+    def _manifest_for_pointer(self, current: dict | None) -> Manifest | None:
         if not current:
             return None
         run_id = current.get("run_id")
@@ -656,6 +661,29 @@ class HistoricalDataService:
             if path.exists():
                 return Manifest(**json.loads(path.read_text(encoding="utf-8")))
         return None
+
+    def _load_update_base(self, symbol: str, timeframe: str) -> tuple[pd.DataFrame, dict | None]:
+        """Pin and verify the exact base used by merge and activation's CAS.
+
+        A concurrent head change during validation fails closed. A later head
+        change is rejected by activate_curated(expected_current_version=...).
+        Missing files under an existing pointer are corruption, not a cold start.
+        """
+        pointer = self.lake.current_version(symbol, timeframe)
+        if pointer is None:
+            if self.lake._current_catalog_row(symbol, timeframe) is not None:
+                raise DataLineageError(f'pointer/catalog drift for {symbol}/{timeframe}')
+            return pd.DataFrame(), None
+        try:
+            frame = self.lake.read_bars_version(symbol, timeframe, str(pointer.get('version') or ''))
+        except FileNotFoundError as exc:
+            raise DataLineageError(f'update base artifact is missing for {symbol}/{timeframe}') from exc
+        lineage = _load_update_lineage(self.lake, symbol, timeframe, bars=frame)
+        if lineage.pointer != pointer:
+            raise DataLineageError(f'update base changed during validation for {symbol}/{timeframe}')
+        if lineage.dataset_manifest.get('instrument_id') != self.instrument(symbol).instrument_id:
+            raise DataLineageError('update base instrument identity differs from registered instrument')
+        return frame, pointer
 
     def update_many(self, symbols: list[str], timeframe: str, *, end: datetime | None = None) -> dict[str, object]:
         """Best-effort batch update: one failure never prevents other instruments."""
@@ -686,8 +714,10 @@ class HistoricalDataService:
         try:
             frame = self.lake.read_bars(symbol.upper(), timeframe.upper())
         except FileNotFoundError:
+            if self.lake.current_version(symbol.upper(), timeframe.upper()) is not None:
+                raise DataLineageError(f"published {symbol.upper()}/{timeframe.upper()} artifact is unavailable") from None
             if not allow_legacy:
-                raise DataQualityError(f"no published {symbol.upper()}/{timeframe.upper()} bars meet the quality policy") from None
+                raise DataUnavailableError(f"no published {symbol.upper()}/{timeframe.upper()} bars meet the quality policy") from None
             frame = self.lake.read_legacy_bars(symbol.upper(), timeframe.upper())
             using_legacy = True
         lineage = None
@@ -704,6 +734,8 @@ class HistoricalDataService:
             )
         quality_report = ""
         if lineage is not None:
+            if lineage.dataset_manifest.get('instrument_id') != instrument.instrument_id:
+                raise DataLineageError('dataset instrument identity differs from registered instrument')
             quality_report = str(lineage.quality_report_path)
         return self._strategy_visible_bars(
             frame,
@@ -718,6 +750,7 @@ class HistoricalDataService:
             allow_legacy=allow_legacy,
             min_quality_score=min_quality_score,
             quality_report=quality_report,
+            quality_contract=lineage.quality_report if lineage is not None else None,
         )
 
     def load_bars_version(
@@ -760,6 +793,8 @@ class HistoricalDataService:
             version,
             bars=frame,
         )
+        if lineage.dataset_manifest.get('instrument_id') != instrument.instrument_id:
+            raise DataLineageError('dataset instrument identity differs from registered instrument')
         return self._strategy_visible_bars(
             frame,
             symbol=symbol,
@@ -773,6 +808,7 @@ class HistoricalDataService:
             allow_legacy=False,
             min_quality_score=min_quality_score,
             quality_report=str(lineage.quality_report_path),
+            quality_contract=lineage.quality_report,
         )
 
     @staticmethod
@@ -790,6 +826,7 @@ class HistoricalDataService:
         allow_legacy: bool,
         min_quality_score: float,
         quality_report: str,
+        quality_contract: Mapping[str, object] | None = None,
     ) -> pd.DataFrame:
         """Apply the existing D1 visibility/adjustment policy to verified bars."""
 
@@ -829,6 +866,10 @@ class HistoricalDataService:
                 "data_sources": sorted(frame["data_source"].dropna().unique().tolist()),
                 "dataset_version": str(frame["dataset_version"].iloc[-1]),
                 "quality_report": quality_report,
+                "quality_contract": ({key: quality_contract.get(key) for key in
+                    ('dataset_version', 'instrument_id', 'symbol', 'timeframe', 'quality_status',
+                     'backtest_suitable', 'missing_intervals', 'actual_bars')}
+                    if quality_contract is not None else None),
             }
         )
         return frame
@@ -838,174 +879,19 @@ class HistoricalDataService:
         if not current:
             return {"symbol": symbol.upper(), "timeframe": timeframe.upper(), "status": "MISSING"}
         bars = self.lake.read_bars(symbol.upper(), timeframe.upper())
-        return {"symbol": symbol.upper(), "timeframe": timeframe.upper(), "status": "PUBLISHED", "version": current["version"],
-                "actual_start": bars["timestamp"].min().isoformat(), "actual_end": bars["timestamp"].max().isoformat(),
-                "latest_complete_bar": bars.loc[bars["is_complete"].astype(bool), "timestamp"].max().isoformat()}
+        return _published_status(symbol, timeframe, current, bars)
 
     def verify_catalog(self) -> dict[str, object]:
-        """Audit every catalog row against its manifest and every declared artifact.
+        return verify_catalog(self.lake)
 
-        Reports valid records plus separately missing raw / normalized /
-        quality / curated artifacts, hash mismatches, dangling or
-        legacy-contaminated current pointers, and pointer-vs-catalog drift.
-        A missing file is never hidden behind a "0 hash mismatch" number.
-        """
-        result = {"valid_dataset_records": 0, "missing_manifest_records": [],
-                  "missing_raw_records": [], "missing_normalized_records": [],
-                  "missing_quality_report_records": [], "missing_curated_records": [],
-                  "missing_dataset_manifest_records": [],
-                  "dangling_current_records": [], "hash_mismatch_records": [],
-                  "legacy_records": 0, "total_records": 0,
-                  "legacy_contaminated_current": [], "pointer_catalog_mismatch": [],
-                  "valid_current_records": 0}
-        with self.lake._connect() as db:
-            rows = db.execute(
-                "SELECT run_id, symbol, timeframe, status, version, manifest_path, checksum "
-                "FROM datasets ORDER BY symbol, timeframe"
-            ).fetchall()
-        for run_id, symbol, timeframe, status, version, manifest_path, checksum in rows:
-            result["total_records"] += 1
-            if status == "LEGACY_ONLY":
-                result["legacy_records"] += 1
-                continue
-            manifest_file = self.lake.root / "manifests" / f"{run_id}.json"
-            if not manifest_file.exists():
-                result["missing_manifest_records"].append({"run_id": run_id, "symbol": symbol, "timeframe": timeframe})
-                continue
-            manifest = json.loads(manifest_file.read_text(encoding="utf-8"))
-            bucket = {"raw": [], "normalized": [], "quality": [], "curated": []}
-            for raw_path in manifest.get("file_paths", []):
-                candidate = self._resolve_lake_path(raw_path)
-                portable = raw_path.replace("\\", "/")
-                if portable.startswith("raw/") or "/raw/" in portable:
-                    bucket["raw"].append((raw_path, candidate))
-                elif portable.startswith("normalized/") or "/normalized/" in portable:
-                    bucket["normalized"].append((raw_path, candidate))
-                elif portable.startswith("ingestion_reports/"):
-                    bucket["quality"].append((raw_path, candidate))
-                elif (portable.startswith("curated/") or "/curated/" in portable) and raw_path.endswith("bars.parquet"):
-                    bucket["curated"].append((raw_path, candidate))
-            for kind, key in (("raw", "missing_raw_records"), ("normalized", "missing_normalized_records"),
-                              ("quality", "missing_quality_report_records"), ("curated", "missing_curated_records")):
-                missing = [p for p, resolved in bucket[kind] if not resolved.exists()]
-                if missing and kind == "curated" and status in {"QUARANTINED", "REVIEW_REQUIRED"}:
-                    continue  # quarantined/review rows legitimately have no curated artifact
-                if missing:
-                    result[key].append({"run_id": run_id, "symbol": symbol, "timeframe": timeframe,
-                                        "missing_files": missing, "version": version})
-            bad = []
-            for raw_path in manifest.get("file_paths", []):
-                candidate = self._resolve_lake_path(raw_path)
-                if candidate.exists() and sha256_file(candidate) != manifest["file_hashes"].get(raw_path):
-                    bad.append(raw_path)
-            if bad:
-                result["hash_mismatch_records"].append({"run_id": run_id, "symbol": symbol, "files": bad})
-                continue
-            # A record is valid only when every declared artifact exists and hashes match.
-            all_declared_exist = all(
-                self._resolve_lake_path(p).exists() for p in manifest.get("file_paths", [])
-            )
-            if all_declared_exist:
-                result["valid_dataset_records"] += 1
-        for pointer in (self.lake.root / "curated").glob("symbol=*/timeframe=*/*.json"):
-            payload = json.loads(pointer.read_text(encoding="utf-8"))
-            raw_target = str(payload.get("path", ""))
-            target = self._resolve_lake_path(raw_target)
-            if not target.exists():
-                result["dangling_current_records"].append({
-                    "pointer": str(pointer), "version": payload.get("version"),
-                    "expected_path": raw_target,
-                })
-            elif "/asset_class=legacy/" in raw_target.replace("\\", "/"):
-                result["legacy_contaminated_current"].append({
-                    "pointer": str(pointer), "version": payload.get("version"),
-                    "path": raw_target,
-                })
-        # Pointer vs catalog drift for the formal channel.
-        with self.lake._connect() as db:
-            catalog_current = {
-                (row[0].upper(), row[1].upper()): (row[2], row[3])
-                for row in db.execute("SELECT symbol, timeframe, version, run_id FROM current_versions").fetchall()
-            }
-        for symbol_dir in (self.lake.root / "curated").glob("symbol=*"):
-            symbol = symbol_dir.name.split("=", 1)[1].upper()
-            for timeframe_dir in symbol_dir.glob("timeframe=*"):
-                timeframe = timeframe_dir.name.split("=", 1)[1].upper()
-                pointer = self.lake.current_version(symbol, timeframe)
-                catalog_entry = catalog_current.get((symbol, timeframe))
-                catalog_version = catalog_entry[0] if catalog_entry else None
-                catalog_run_id = catalog_entry[1] if catalog_entry else None
-                if pointer is not None and (
-                    pointer.get("version") != catalog_version or pointer.get("run_id") != catalog_run_id
-                ):
-                    result["pointer_catalog_mismatch"].append({
-                        "symbol": symbol, "timeframe": timeframe,
-                        "pointer_version": pointer.get("version"), "catalog_version": catalog_version,
-                        "pointer_run_id": pointer.get("run_id"), "catalog_run_id": catalog_run_id,
-                    })
-                if pointer is None:
-                    continue
-                dataset_manifest_ref = pointer.get("dataset_manifest_path")
-                dataset_manifest_path = (
-                    self._resolve_lake_path(str(dataset_manifest_ref)) if dataset_manifest_ref
-                    else self.lake.root / "dataset_manifests" / f"{pointer.get('version')}.json"
-                )
-                if not dataset_manifest_path.exists():
-                    result["missing_dataset_manifest_records"].append({
-                        "symbol": symbol, "timeframe": timeframe,
-                        "version": pointer.get("version"), "path": str(dataset_manifest_path),
-                    })
-                    continue
-                dataset_manifest = json.loads(dataset_manifest_path.read_text(encoding="utf-8"))
-                curated = self._resolve_lake_path(str(dataset_manifest.get("curated_path", "")))
-                quality = self._resolve_lake_path(str(dataset_manifest.get("quality_report_path", "")))
-                dataset_ok = bool(
-                    dataset_manifest.get("dataset_version") == pointer.get("version")
-                    and dataset_manifest.get("publication_run_id") == pointer.get("run_id")
-                    and curated.exists() and quality.exists()
-                    and sha256_file(curated) == dataset_manifest.get("curated_sha256")
-                    and sha256_file(quality) == dataset_manifest.get("quality_report_sha256")
-                )
-                if dataset_ok:
-                    report = json.loads(quality.read_text(encoding="utf-8"))
-                    frame = pd.read_parquet(curated, columns=["dataset_version"])
-                    dataset_ok = bool(
-                        report.get("dataset_version") == pointer.get("version")
-                        and not frame.empty
-                        and set(frame["dataset_version"].astype(str)) == {str(pointer.get("version"))}
-                        and len(frame) == int(dataset_manifest.get("row_count", -1))
-                    )
-                if dataset_ok and pointer.get("version") == catalog_version:
-                    result["valid_current_records"] += 1
-                elif not dataset_ok:
-                    result["hash_mismatch_records"].append({
-                        "run_id": pointer.get("run_id"), "symbol": symbol,
-                        "files": [str(dataset_manifest_path)], "kind": "dataset_lineage",
-                    })
-        return result
-
-    def _resolve_lake_path(self, raw_path: str) -> Path:
-        """Resolve a manifest/pointer path against the data root (portable paths).
-
-        Accepts root-relative paths (``curated/...``), project-relative legacy
-        paths (``data\\curated\\...``) and absolute paths for backwards compat.
-        """
-        candidate = Path(raw_path)
-        if candidate.is_absolute():
-            return candidate
-        root_relative = self.lake.root / candidate
-        if root_relative.exists():
-            return root_relative
-        if candidate.exists():
-            return candidate
-        return root_relative
 
     def coverage(self, symbol: str, timeframe: str) -> dict[str, object]:
         """Return coverage only after verifying the complete current lineage."""
-        result = self.status(symbol, timeframe)
-        if result["status"] == "MISSING":
-            return result
+        current = self.lake.current_version(symbol.upper(), timeframe.upper())
+        if not current:
+            return {"symbol": symbol.upper(), "timeframe": timeframe.upper(), "status": "MISSING"}
         bars = self.lake.read_bars(symbol.upper(), timeframe.upper())
+        result = _published_status(symbol, timeframe, current, bars)
         lineage = load_current_lineage(
             self.lake,
             symbol,
@@ -1014,16 +900,32 @@ class HistoricalDataService:
         )
         return result | {
             "quality_report": str(lineage.quality_report_path),
-            "missing_intervals": lineage.quality_report.get(
-                "missing_intervals", []
-            ),
+            "missing_intervals": lineage.quality_report["missing_intervals"],
         }
 
-    def _current_quality_report_path(
-        self, symbol: str, timeframe: str
-    ) -> str:
-        lineage = load_current_lineage(self.lake, symbol, timeframe)
-        return str(lineage.quality_report_path)
+    def diagnose_current(self, symbol: str, timeframe: str) -> dict[str, object]:
+        """Read verified metadata, including explicit rejection, without serving bars.
+
+        This diagnostic cannot grant strategy eligibility. Identity, hashes,
+        pointer/catalog agreement and approval validation remain mandatory.
+        """
+        instrument = self.instrument(symbol)
+        frame = timeframe.upper()
+        if frame not in FRAME_DELTAS:
+            raise ValueError('unsupported diagnostic timeframe')
+        if self.lake.current_version(instrument.symbol, frame) is None:
+            raise DataUnavailableError(f'formal dataset is missing for {instrument.symbol}/{frame}')
+        lineage = _load_current_lineage(self.lake, instrument.symbol, frame,
+                                        bars=None, require_certified=False)
+        if lineage.dataset_manifest['instrument_id'] != instrument.instrument_id:
+            raise DataLineageError('diagnostic manifest instrument does not match registry')
+        report = lineage.quality_report
+        certified = (report['backtest_suitable'] is True and report['quality_status'] == 'CURATED'
+                     and report['missing_intervals'] == [])
+        return {'diagnostic_only': True, 'dataset_version': lineage.dataset_version,
+                'certified': certified, 'quality_report': report,
+                'manifest': lineage.dataset_manifest, 'pointer': lineage.pointer}
+
 
     def repair_current_lineage(self, symbol: str, timeframe: str) -> dict[str, object]:
         """Materialize formal dataset lineage for a pre-separation current pointer."""
@@ -1094,56 +996,22 @@ class HistoricalDataService:
             decision=decision,
         )
 
+    def reject_review(self, run_id: str, reason: str, *, actor: str = '') -> Path:
+        return self.lake.review(run_id, 'rejected', reason, actor=actor)
+
+    def reopen_review(self, run_id: str, reason: str, *, actor: str = '') -> str:
+        return self.review_approvals.reopen(run_id, reason, actor=actor)
+
     def update_holdings(
         self, provider: HoldingsCsvProvider, snapshot_date: str | None = None, *, top: int = 50
     ) -> HoldingsSnapshot:
-        frame = provider.fetch(snapshot_date, top=top)
-        if len(frame) < top:
-            raise ValueError(f"holdings snapshot requires at least {top} unique rows, got {len(frame)}")
-        dates = frame["snapshot_date"].unique()
-        if len(dates) != 1:
-            raise ValueError("one holdings file must represent exactly one snapshot date")
-        fund = str(frame["fund"].iloc[0]).upper()
-        relative = Path("reference") / "universes" / "etf_holdings" / f"fund={fund}" / f"snapshot_date={dates[0]}" / f"top{top}.parquet"
-        path = self.lake.write_frame(frame, relative)
-        return HoldingsSnapshot(fund, str(dates[0]), top, path_text(path, self.lake.root), len(frame))
+        return holdings_snapshots.update_holdings(self.lake, provider, snapshot_date, top=top)
 
     def load_holdings(
         self, funds: tuple[str, ...] = ("QQQ", "SPY"), as_of: str | datetime | None = None,
         *, top: int = 50,
     ) -> pd.DataFrame:
-        frames: list[pd.DataFrame] = []
-        for requested in funds:
-            fund = requested.upper()
-            base = self.lake.root / "reference" / "universes" / "etf_holdings" / f"fund={fund}"
-            paths = list(base.glob(f"snapshot_date=*/top{top}.parquet"))
-            if fund == "QQQ" and not paths and top == 20:
-                paths = list((self.lake.root / "reference" / "universes" / "qqq_holdings").glob("snapshot_date=*/top20.parquet"))
-            snapshots = sorted((p.parent.name.split("=", 1)[1], p) for p in paths)
-            target = snapshots[-1] if snapshots and as_of is None else next(
-                (item for item in reversed(snapshots) if item[0] <= pd.Timestamp(as_of).date().isoformat()), None
-            )
-            if target is None:
-                raise SurvivorshipBiasError(f"no {fund} holdings snapshot on or before requested date")
-            frame = pd.read_parquet(target[1]).head(top).copy()
-            if "fund" not in frame:
-                frame["fund"] = fund
-            if "rank" not in frame:
-                frame["rank"] = range(1, len(frame) + 1)
-            frames.append(frame)
-        combined = pd.concat(frames, ignore_index=True)
-        rows = []
-        for symbol, group in combined.groupby("symbol", sort=False):
-            rows.append({
-                "symbol": symbol,
-                "funds": ",".join(group["fund"].astype(str)),
-                "ranks": ",".join(f"{f}:{int(r)}" for f, r in zip(group["fund"], group["rank"])),
-                "weights": ",".join(f"{f}:{float(w):.6g}" for f, w in zip(group["fund"], group["weight"])),
-                "snapshot_dates": ",".join(f"{f}:{d}" for f, d in zip(group["fund"], group["snapshot_date"])),
-            })
-        result = pd.DataFrame(rows)
-        result.attrs["funds"] = tuple(f.upper() for f in funds)
-        return result
+        return holdings_snapshots.load_holdings(self.lake, funds, as_of, top=top)
 
     def _snapshot_instruments(self) -> dict[str, InstrumentConfig]:
         try:
@@ -1175,22 +1043,10 @@ class HistoricalDataService:
         return report
 
     def update_qqq_holdings(self, provider: QqqHoldingsCsvProvider, snapshot_date: str | None = None) -> Path:
-        frame = provider.fetch(snapshot_date, top=20)
-        dates = frame["snapshot_date"].unique()
-        path = self.lake.write_frame(frame, Path("reference") / "universes" / "qqq_holdings" / f"snapshot_date={dates[0]}" / "top20.parquet")
-        return path
+        return holdings_snapshots.update_qqq_holdings(self.lake, provider, snapshot_date)
 
     def load_qqq_holdings(self, as_of: str | datetime | None = None) -> pd.DataFrame:
-        paths = list((self.lake.root / "reference" / "universes" / "qqq_holdings").glob("snapshot_date=*/top20.parquet"))
-        if not paths:
-            raise FileNotFoundError("no QQQ holdings snapshots available")
-        snapshots = sorted((p.parent.name.split("=", 1)[1], p) for p in paths)
-        target = snapshots[-1] if as_of is None else next((item for item in reversed(snapshots) if item[0] <= pd.Timestamp(as_of).date().isoformat()), None)
-        if target is None:
-            raise SurvivorshipBiasError("no holdings snapshot on or before requested date")
-        frame = pd.read_parquet(target[1])
-        frame.attrs.update({"snapshot_date": target[0], "survivorship_bias_safe": True})
-        return frame
+        return holdings_snapshots.load_qqq_holdings(self.lake, as_of)
 
 
 def load_bars(symbol: str, timeframe: str, start: datetime | None = None, end: datetime | None = None,
@@ -1226,7 +1082,7 @@ def _same_bar_value(left: object, right: object) -> bool:
 
 
 def _validate_provider_identity(
-    result: ProviderResult, instrument: InstrumentConfig, *, fallback: bool
+    result: ProviderResult, instrument: InstrumentConfig, *, fallback: bool, timeframe: str
 ) -> None:
     """Reject a fallback that explicitly reports a different economic series."""
     actual = str(result.actual_symbol).upper().replace("-", "").replace("_", "")
@@ -1235,6 +1091,30 @@ def _validate_provider_identity(
         raise ProviderIdentityError(
             f"provider symbol {result.actual_symbol!r} does not match {instrument.source_symbol!r}"
         )
+    # Validate explicit row identity before normalization overwrites canonical
+    # columns. A provider's request echo cannot override contradictory inputs.
+    expected_columns = {
+        'symbol': instrument.symbol, 'instrument_id': instrument.instrument_id,
+        'source_symbol': instrument.source_symbol, 'timeframe': timeframe,
+        'asset_class': instrument.asset_class, 'market': instrument.market,
+    }
+    aliases = {'1D': 'D1', '4H': 'H4', '1H': 'H1'}
+    for column, expected_value in expected_columns.items():
+        if column not in result.frame:
+            continue
+        values = result.frame[column]
+        if values.isna().any():
+            raise ProviderIdentityError(f'provider row identity {column} is missing')
+        def canonical_identity(value):
+            token = str(value).strip()
+            if column == 'source_symbol':
+                return token.upper().replace('-', '').replace('_', '')
+            if column == 'timeframe':
+                return aliases.get(token.upper(), token.upper())
+            return token.upper()
+        expected_token = canonical_identity(expected_value)
+        if any(canonical_identity(value) != expected_token for value in values):
+            raise ProviderIdentityError(f'provider row identity {column} contradicts requested instrument/timeframe')
     if not fallback:
         return
     reported = result.metadata.get("instrument_identity", {})
@@ -1273,18 +1153,6 @@ def _legacy_instrument(symbol: str) -> InstrumentConfig:
                             timezone="UTC", session="24x7", primary_source="legacy_csv")
 
 
-def _holding_instrument(symbol: str) -> InstrumentConfig:
-    symbol = symbol.upper()
-    return InstrumentConfig(
-        symbol=symbol, source_symbol=symbol.replace(".", "-"), instrument_id=f"{symbol}.US.EQUITY",
-        asset_class="equity", market="xnas", venue="xnas",
-        instrument_type="equity", quote_currency="USD", currency="USD",
-        timezone="America/New_York", session_timezone="America/New_York",
-        session="regular", primary_source="yahoo_chart", fallback_sources=("alpha_vantage",),
-        earliest_valid_date="1970-01-01", adjustment_policy="provider_adjusted_close",
-        adjustment_method="provider_adjusted_close", bar_close_rule="provider_native",
-        license="Yahoo Finance terms", revision_overlap_bars=10,
-    )
 
 
 def _group_consecutive(stamps: pd.DatetimeIndex, delta: pd.Timedelta) -> list[list[pd.Timestamp]]:
@@ -1295,3 +1163,9 @@ def _group_consecutive(stamps: pd.DatetimeIndex, delta: pd.Timedelta) -> list[li
         else:
             groups.append([stamp])
     return groups
+
+
+def _published_status(symbol, timeframe, current, bars):
+    return {"symbol": symbol.upper(), "timeframe": timeframe.upper(), "status": "PUBLISHED", "version": current["version"],
+                "actual_start": bars["timestamp"].min().isoformat(), "actual_end": bars["timestamp"].max().isoformat(),
+                "latest_complete_bar": bars.loc[bars["is_complete"].astype(bool), "timestamp"].max().isoformat()}

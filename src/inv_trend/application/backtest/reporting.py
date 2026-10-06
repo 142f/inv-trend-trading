@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from inv_trend.core.math_utils import finite_float as _finite
+
 from dataclasses import asdict, dataclass
 from html import escape
 import json
@@ -320,12 +322,6 @@ def _side_contribution(best: Mapping[str, Any] | None) -> list[Mapping[str, Any]
     ]
 
 
-def _finite(value: Any) -> float | None:
-    try:
-        number = float(value)
-    except (TypeError, ValueError):
-        return None
-    return number if math.isfinite(number) else None
 
 
 def _legacy_conclusion(

@@ -8,9 +8,10 @@ commit/delivery stages mutate external state.
 
 from __future__ import annotations
 
+from inv_trend.data.integrity import sha256_file
+
 from dataclasses import asdict, replace
-from datetime import datetime, timezone
-import hashlib
+from datetime import datetime
 import json
 from pathlib import Path
 from typing import Any, Iterable, Mapping
@@ -20,6 +21,7 @@ import pandas as pd
 
 from inv_trend.core.signals import CORRECTED_STRATEGY_VERSION
 from inv_trend.core.strategy.daily.signals import normalize_completed_daily_bars
+from inv_trend.core.时间 import utc_datetime as _aware_utc
 
 from ..daily_models import (
     DataUpdateResult,
@@ -34,6 +36,7 @@ from .ports import DailyWorkflowRuntimePort
 from .run_contract import BEIJING, DEFAULT_BOOTSTRAP_DAYS, DailyMarketScanResult
 from .signal_commit import SignalCommitService
 from .stage_payloads import (
+    context_symbols as _context_symbols,
     commit_context_payload,
     data_update_result,
     json_safe as _json_safe,
@@ -1066,7 +1069,7 @@ def _validate_published_hash_ledgers(run_directory: Path, symbols: Iterable[str]
         for filename in filenames:
             artifact = symbol_root / "01_canonical" / filename
             actual = (
-                "sha256:" + hashlib.sha256(artifact.read_bytes()).hexdigest()
+                "sha256:" + sha256_file(artifact)
                 if artifact.is_file()
                 else ""
             )
@@ -1074,13 +1077,6 @@ def _validate_published_hash_ledgers(run_directory: Path, symbols: Iterable[str]
                 raise ValueError(
                     f"published daily canonical artifact hash mismatch: {artifact}"
                 )
-
-
-def _context_symbols(context: Mapping[str, Any]) -> list[str]:
-    values = context.get("symbols")
-    if not isinstance(values, list) or not values:
-        raise ValueError("staging context has no selected symbols")
-    return [str(value) for value in values]
 
 
 def _context_started_at(context: Mapping[str, Any]) -> datetime:
@@ -1126,10 +1122,6 @@ def _validate_run_options(bootstrap_days: int, strategy_version: str, chart_bars
 
 def _utc_now_text(runtime: DailyWorkflowRuntimePort) -> str:
     return _aware_utc(runtime.now()).isoformat()
-
-
-def _aware_utc(value: datetime) -> datetime:
-    return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value.astimezone(timezone.utc)
 
 
 __all__ = ["DailyWorkflow"]

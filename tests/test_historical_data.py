@@ -356,7 +356,9 @@ def test_research_data_requires_explicit_opt_in(tmp_path: Path):
             result.metadata = {"research_only": True}
             return result
 
-    service = HistoricalDataService(tmp_path, providers={"yahoo_chart": ResearchProvider(bars())})
+    # Equity research visibility uses real sessions, not the crypto fixture's
+    # New Year's Day record, which is correctly quarantined by the calendar.
+    service = HistoricalDataService(tmp_path, providers={"yahoo_chart": ResearchProvider(equity_bars('2024-01-02', 2))})
     service.ingest("QQQ", "D1", datetime(2024, 1, 1, tzinfo=UTC), datetime(2024, 1, 4, tzinfo=UTC))
     with pytest.raises(DataQualityError):
         service.load_bars("QQQ", "D1")

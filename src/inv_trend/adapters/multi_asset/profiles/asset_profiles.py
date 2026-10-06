@@ -27,11 +27,16 @@ def infer_asset_fields(symbol: str) -> dict[str, object]:
 def build_asset_specs(
     symbols: list[str],
     overrides: Mapping[str, Mapping[str, object]] | None = None,
+    *,
+    asset_classes: Mapping[str, str] | None = None,
 ) -> dict[str, AssetSpec]:
     overrides = overrides or {}
     specs: dict[str, AssetSpec] = {}
     for symbol in symbols:
-        inferred = infer_asset_fields(symbol)
+        registered_class = (asset_classes or {}).get(symbol)
+        inferred = infer_asset_fields(symbol + '.US' if registered_class == 'equity' else symbol)
+        if registered_class is not None:
+            inferred['asset_class'] = registered_class
         params = {
             "symbol": symbol,
             "asset_class": inferred["asset_class"],
@@ -44,6 +49,9 @@ def build_asset_specs(
             "slippage_bps": inferred["slippage_bps"],
         }
         params.update(dict(overrides.get(symbol, {})))
+        if params['asset_class'] == 'crypto' and 'qty_step' not in overrides.get(symbol, {}):
+            params['qty_step'] = 0.001
+            params.setdefault('min_qty', 0.001)
         specs[symbol] = AssetSpec(**params)
     return specs
 

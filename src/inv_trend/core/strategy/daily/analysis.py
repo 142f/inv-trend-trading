@@ -8,9 +8,10 @@ presentation dependency.
 
 from __future__ import annotations
 
+from inv_trend.core.math_utils import finite_float as _number
+
 from dataclasses import dataclass
 import hashlib
-import math
 from typing import Any, Mapping
 
 import pandas as pd
@@ -748,12 +749,6 @@ def _column_scalar(frame: pd.DataFrame, column: str) -> Any:
     return values[-1] if len(values) else None
 
 
-def _number(value: Any) -> float | None:
-    try:
-        number = float(value)
-    except (TypeError, ValueError):
-        return None
-    return number if math.isfinite(number) else None
 
 
 def _stop_position(frame: pd.DataFrame, position: int) -> int:

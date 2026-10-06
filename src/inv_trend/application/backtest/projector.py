@@ -2,16 +2,17 @@
 
 from __future__ import annotations
 
+from inv_trend.core.math_utils import finite_float as _number
+from inv_trend.core.时间 import utc_timestamp as _timestamp
+
 from dataclasses import fields, replace
 import hashlib
-import math
 from typing import Any, Mapping
 
 import pandas as pd
 
 from inv_trend.adapters.multi_asset.backtest.data_store import BacktestDataStore
 from inv_trend.adapters.multi_asset.models.domain import LONG, AssetSpec, TurtleRules
-from inv_trend.core.突破规则 import breakout_direction
 from inv_trend.adapters.multi_asset.profiles.asset_profiles import build_asset_specs
 from inv_trend.adapters.multi_asset.strategy.engine import MultiAssetTurtleStrategy
 from inv_trend.config import canonical_to_backtest_mapping
@@ -55,7 +56,7 @@ class StrategyReplayProjector:
 
     def __init__(self, source: BacktestSourceBundle) -> None:
         self.source = source
-        self._cache: dict[str, tuple[BacktestSignalBundle, BacktestDataStore]] = {}
+        self._cache: dict[tuple[str, str], tuple[BacktestSignalBundle, BacktestDataStore]] = {}
 
     @property
     def cache_size(self) -> int:
@@ -73,10 +74,14 @@ class StrategyReplayProjector:
         selected = signal_parameters(parameters)
         parameter_hash = canonical_hash(selected)
         rules = resolve_rules(self.source.strategy_config, parameters)
-        cached = self._cache.get(parameter_hash)
+        input_hash = canonical_hash({symbol: _frame_hash(frame) for symbol, frame in sorted(data.items())})
+        cache_key = (parameter_hash, input_hash)
+        cached = self._cache.get(cache_key)
         if cached is not None:
             return cached[0], cached[1], rules
         store = BacktestDataStore(data, rules)
+        signal_engine = MultiAssetTurtleStrategy({}, rules)
+        timeframes = {item.symbol: item.timeframe for item in self.source.instruments}
         events: list[Mapping[str, Any]] = []
         data_hashes: dict[str, str] = {}
         for symbol, prepared in store.by_symbol.items():
@@ -87,13 +92,12 @@ class StrategyReplayProjector:
                 if n is None or n <= 0:
                     continue
                 for system, period in (("fast", rules.fast_entry), ("slow", rules.slow_entry)):
-                    direction = breakout_direction(row, period, n, buffer_n=rules.breakout_buffer_n,
-                                                   trigger_mode=rules.trigger_mode)
+                    direction = signal_engine._breakout_signal(row, period, n)
                     if direction is None:
                         continue
                     events.append({
                         "symbol": symbol,
-                        "timeframe": "D1",
+                        "timeframe": timeframes[symbol].upper(),
                         "signal_time": timestamp.isoformat(),
                         "system": system,
                         "period": period,
@@ -101,7 +105,7 @@ class StrategyReplayProjector:
                         "side": direction,
                         "signal_type": "TURTLE_CLOSE_BREAKOUT" if rules.trigger_mode == "close" else "TURTLE_INTRADAY_BREAKOUT",
                         "trigger_price": float(row["close"]),
-                        "channel_value": float(row[f"high_{period}"] if direction == LONG else row[f"low_{period}"]),
+                        "channel_value": signal_engine._entry_level(row, period, direction),
                         "n": n,
                         "source_screening_hash": _screening_hash(self.source, symbol),
                         "source_decision_hash": _decision_hash(self.source, symbol),
@@ -115,7 +119,7 @@ class StrategyReplayProjector:
             prepared_data_hashes=data_hashes,
         )
         value = (bundle, store)
-        self._cache[parameter_hash] = value
+        self._cache[cache_key] = value
         return bundle, store, rules
 
     def strategy(
@@ -138,7 +142,8 @@ def resolve_rules(
     canonical_config: Mapping[str, Any],
     parameters: Mapping[str, Any],
 ) -> TurtleRules:
-    base = dict(canonical_to_backtest_mapping(canonical_config).get("rules", {}))
+    canonical_to_backtest_mapping(canonical_config)  # Reuse canonical validation.
+    base = dict(canonical_config['turtle']['rules'])
     for name, value in parameters.items():
         if name.startswith("rules."):
             base[name.removeprefix("rules.")] = value
@@ -161,12 +166,6 @@ def resolve_specs(
         raw = contracts.get(instrument.instrument_id, contracts.get(symbol, {}))
         overrides[symbol] = dict(raw) if isinstance(raw, Mapping) else {}
     specs = build_asset_specs(list(by_symbol), overrides)
-    for symbol, spec in list(specs.items()):
-        # The generic AssetSpec default is one whole contract.  Spot crypto
-        # data in the daily pipeline is fractional; using the generic step
-        # would silently suppress every BTC trade at the default capital.
-        if spec.asset_class == "crypto" and "qty_step" not in overrides[symbol]:
-            specs[symbol] = replace(spec, qty_step=0.001, min_qty=0.001)
     for name, value in parameters.items():
         parts = name.split(".")
         if len(parts) == 3 and parts[0] == "assets":
@@ -191,24 +190,12 @@ def _decision_hash(source: BacktestSourceBundle, symbol: str) -> str:
     return next(item.decision_result_hash for item in source.instruments if item.symbol == symbol)
 
 
-def _number(value: Any) -> float | None:
-    try:
-        number = float(value)
-    except (TypeError, ValueError):
-        return None
-    return number if math.isfinite(number) else None
-
-
-def _timestamp(value: Any) -> pd.Timestamp:
-    timestamp = pd.Timestamp(value)
-    if timestamp.tzinfo is None:
-        return timestamp.tz_localize("UTC")
-    return timestamp.tz_convert("UTC")
 
 
 def _frame_hash(frame: pd.DataFrame) -> str:
     values = pd.util.hash_pandas_object(frame, index=True).to_numpy().tobytes()
-    return hashlib.sha256(values).hexdigest()
+    schema = canonical_hash([(str(name), str(dtype)) for name, dtype in frame.dtypes.items()])
+    return hashlib.sha256(schema.encode() + values).hexdigest()
 
 
 __all__ = [

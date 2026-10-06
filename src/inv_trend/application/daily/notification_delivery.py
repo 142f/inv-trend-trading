@@ -12,6 +12,8 @@ from collections.abc import Callable
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
+from inv_trend.core.时间 import utc_datetime
+
 from .ports import DailyStateRepositoryPort, NotificationPort
 
 if TYPE_CHECKING:
@@ -72,10 +74,7 @@ class NotificationDeliveryService:
     run = deliver
 
     def _timestamp(self) -> str:
-        value = self._now()
-        if value.tzinfo is None:
-            value = value.replace(tzinfo=timezone.utc)
-        return value.astimezone(timezone.utc).isoformat()
+        return utc_datetime(self._now()).isoformat()
 
 
 def __getattr__(name: str):

@@ -7,8 +7,9 @@ state, execution, persistence, or report rendering.
 
 from __future__ import annotations
 
+from inv_trend.core.math_utils import finite_float as _finite_float
+
 from dataclasses import dataclass
-import math
 from typing import Any, Mapping, Protocol
 
 import numpy as np
@@ -18,6 +19,7 @@ from ...features import FeatureRequest, PreparedBars
 from ...math_utils import rolling_percentile
 from ...resampling import aggregate_completed_sessions
 from ...signals import crossed_above, crossed_below
+from ...时间 import utc_timestamp as _utc_timestamp
 
 
 class DailyChecksConfigLike(Protocol):
@@ -599,12 +601,6 @@ def _relative_direction(left: float, right: float) -> str:
     return "long" if left > right else ("short" if left < right else "none")
 
 
-def _finite_float(value: Any) -> float | None:
-    try:
-        number = float(value)
-    except (TypeError, ValueError):
-        return None
-    return number if math.isfinite(number) else None
 
 
 def _timeframe_label(sessions: int) -> str:
@@ -613,11 +609,6 @@ def _timeframe_label(sessions: int) -> str:
 
 def _sessions_from_timeframe(timeframe: str) -> int:
     return int(timeframe.removeprefix("D"))
-
-
-def _utc_timestamp(value: pd.Timestamp | str) -> pd.Timestamp:
-    timestamp = pd.Timestamp(value)
-    return timestamp.tz_localize("UTC") if timestamp.tzinfo is None else timestamp.tz_convert("UTC")
 
 
 def _stop_position(frame: pd.DataFrame, position: int) -> int:

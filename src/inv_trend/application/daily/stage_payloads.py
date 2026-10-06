@@ -12,6 +12,13 @@ from ..daily_models import DataUpdateResult, StrategyScreeningResult, TrendDecis
 from .workspace import canonical_payload_hash
 
 
+def context_symbols(context: Mapping[str, Any]) -> list[str]:
+    values = context.get("symbols")
+    if not isinstance(values, list) or not values:
+        raise ValueError("staging context has no selected symbols")
+    return [str(value) for value in values]
+
+
 def data_update_result(payload: Mapping[str, Any]) -> DataUpdateResult:
     return DataUpdateResult(
         symbol=str(payload["symbol"]),
@@ -286,6 +293,7 @@ def json_safe(value: Any) -> Any:
 
 
 __all__ = [
+    "context_symbols",
     "data_update_result",
     "commit_context_payload",
     "json_safe",

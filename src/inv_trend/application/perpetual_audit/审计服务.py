@@ -1,6 +1,8 @@
 """Audit orchestration, reproducibility manifests and honest evidence reports."""
 from __future__ import annotations
 
+from inv_trend.data.integrity import sha256_file
+
 import hashlib
 import html
 import json
@@ -61,7 +63,7 @@ def _spot_evidence(root):
     pnls = [float(t['pnl']) for t in trades]
     full = baseline['metrics']
     return dict(status='SAVED_SPOT_EVIDENCE_NOT_PERPETUAL', source=str(path),
-                source_sha256=hashlib.sha256(path.read_bytes()).hexdigest(), metrics=full,
+                source_sha256=sha256_file(path), metrics=full,
                 holdout=baseline.get('holdout_metrics', {}), trades=trades,
                 concentration=concentration(pnls, initial_equity=100000., ending_equity=full['ending_equity']))
 
@@ -83,7 +85,7 @@ def run_audit(root, *, data_root=None, output=None, download=False, max_pages=No
     except FileNotFoundError:
         git_head = None  # ZIP发布没有.git；源码内容哈希仍为权威身份。
     frozen = dict(schema_version='perpetual-audit-v1', git_head=git_head, code_sha256=code,
-                  plan_sha256=hashlib.sha256(plan_path.read_bytes()).hexdigest(), plan=plan,
+                  plan_sha256=sha256_file(plan_path), plan=plan,
                   candidates=candidates(), new_test_status=plan['sample_status'],
                   unseen_evidence=plan.get('unseen_evidence'), live_trading=False)
     freeze_path = output / f'实验锁定-{digest(frozen)[:16]}.json'

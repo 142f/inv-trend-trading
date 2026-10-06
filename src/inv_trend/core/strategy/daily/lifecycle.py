@@ -8,6 +8,8 @@ execution decisions, persistence, or notifications.
 
 from __future__ import annotations
 
+from inv_trend.core.math_utils import finite_float as _number
+
 from dataclasses import dataclass, field
 import hashlib
 import math
@@ -818,12 +820,6 @@ def _round_delta(value: float) -> float:
     return round(float(value), 4)
 
 
-def _number(value: Any) -> float | None:
-    try:
-        number = float(value)
-    except (TypeError, ValueError):
-        return None
-    return number if math.isfinite(number) else None
 
 
 def _stable_id(*parts: Any) -> str:

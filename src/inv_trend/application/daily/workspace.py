@@ -7,11 +7,12 @@ publication stage promotes a completed run through :class:`DailyRunArtifactWrite
 
 from __future__ import annotations
 
+from inv_trend.data.文件操作 import atomic_write
+
 from dataclasses import dataclass
 from datetime import date
 import hashlib
 import json
-import os
 from pathlib import Path
 import re
 from typing import Any, Mapping
@@ -190,14 +191,8 @@ def _read_json(path: Path) -> dict[str, Any]:
 
 
 def _atomic_write_json(path: Path, payload: Mapping[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(f".{path.name}.tmp")
-    with temporary.open("w", encoding="utf-8", newline="") as handle:
-        json.dump(payload, handle, ensure_ascii=False, indent=2, allow_nan=False, default=str)
-        handle.write("\n")
-        handle.flush()
-        os.fsync(handle.fileno())
-    os.replace(temporary, path)
+    content = json.dumps(payload, ensure_ascii=False, indent=2, allow_nan=False, default=str)
+    atomic_write(path, (content + "\n").encode("utf-8"))
 
 
 def canonical_payload_hash(payload: Mapping[str, Any]) -> str:

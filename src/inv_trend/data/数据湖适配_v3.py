@@ -1,22 +1,28 @@
 """DataLake v2 业务合同在统一数据库目录上的适配；不复制行情和 JSON 指针。"""
 from __future__ import annotations
 import io
-import json
-from pathlib import Path
 from uuid import uuid4
 
-from inv_trend.storage.结构化存储_v3 import UnifiedStore, CatalogPath, StoreError, utcnow
-from .storage import DataLake, require_parquet, _validated_version, _EXPECTED_VERSION_UNSET
+from inv_trend.storage.结构化存储_v3 import UnifiedStore, CatalogPath, utcnow
+from .storage import DataLake, require_parquet, validate_v3_authority, _validated_version, _EXPECTED_VERSION_UNSET
 from .integrity import json_bytes, sha256_file
 from .models import DataLineageError
 
 
 class DatabaseDataLake(DataLake):
-    def __init__(self, root='data'):
+    def __init__(self, root='data', *, startup_check=True):
+        validate_v3_authority(root)
         self.store=UnifiedStore(root)
         self.root=CatalogPath(self.store.root)
         self.catalog_path=self.store.path
         self._catalog_engine='sqlite'
+        if startup_check:
+            self.check_current_consistency(verify_lineage=False)
+
+    def _current_identities(self):
+        with self._connect() as db:
+            return {(row[0], row[1]) for row in db.execute(
+                "SELECT symbol,timeframe FROM current_versions UNION SELECT symbol,timeframe FROM dataset_heads WHERE channel='curated'")}
 
     def _connect(self):
         return self.store.connect()
@@ -95,7 +101,8 @@ class DatabaseDataLake(DataLake):
         return frame.sort_values('timestamp').drop_duplicates('timestamp',keep='last')
 
     def activate_curated(self,symbol,timeframe,version,run_id,path,*,channel='curated',
-                         dataset_manifest_path=None,expected_current_version=_EXPECTED_VERSION_UNSET,_rollback_context=None):
+                         dataset_manifest_path=None,expected_current_version=_EXPECTED_VERSION_UNSET,_rollback_context=None,
+                         _review_commit=None,_review_artifacts=None):
         symbol,timeframe=symbol.upper(),timeframe.upper()
         key=self.store.key(path)
         # All objects/documents must be durable before the single current-head transaction.
@@ -132,6 +139,8 @@ class DatabaseDataLake(DataLake):
             if manifest and r['manifest_path'] and r['manifest_path']!=manifest_key:
                 raise DataLineageError('同一不可变版本不能替换Manifest身份')
             if old and old['version']==version and old['run_id']==run_id and r['manifest_path']==manifest_key:
+                if _review_commit is not None:
+                    _review_commit(db)
                 return
             if expected_current_version is not _EXPECTED_VERSION_UNSET and actual!=expected_current_version:
                 raise DataLineageError(f'过期发布：预期 {expected_current_version}，实际 {actual}')
@@ -153,6 +162,8 @@ class DatabaseDataLake(DataLake):
                     (uuid4().hex,symbol,timeframe,actual,version,_rollback_context['actor'],_rollback_context['reason'],stamp))
             self.store.audit('ACTIVATE_VERSION',f'{symbol}/{timeframe}/{channel}',
                 {'previous':actual,'target':version,'revision':revision,'rollback':_rollback_context},db=db)
+            if _review_commit is not None:
+                _review_commit(db)
 
     def rollback(self,symbol,timeframe,version,reason,*,actor=None):
         if not reason.strip():raise ValueError('回滚必须记录原因')
@@ -171,6 +182,36 @@ class DatabaseDataLake(DataLake):
         if channel!='curated':
             raise DataLineageError('legacy通道不能修复为正式通道')
         pointer=self.current_version(symbol,timeframe)
-        if not pointer:raise DataLineageError('缺失数据库current；拒绝从散落文件猜测')
+        if not pointer:
+            with self.store.connect() as db:
+                db.execute('BEGIN IMMEDIATE')
+                old=db.execute('SELECT * FROM current_versions WHERE symbol=? AND timeframe=?',
+                               (symbol.upper(),timeframe.upper())).fetchone()
+                legacy=db.execute("SELECT * FROM dataset_heads WHERE symbol=? AND timeframe=? AND channel='legacy'",
+                                  (symbol.upper(),timeframe.upper())).fetchone()
+                if not old or not legacy or old['version']!=legacy['version'] or old['run_id']!=legacy['run_id']:
+                    raise DataLineageError('缺失数据库current；拒绝从散落文件猜测')
+                # Preserve the complete old compatibility row in the immutable
+                # audit chain. Legacy data/head remain untouched and cannot be
+                # promoted into the formal channel by repair.
+                self.store.audit('DEMOTE_LEGACY_CURRENT',f'{symbol}/{timeframe}',
+                                 {'previous_catalog_row':dict(old),'legacy_head':dict(legacy)},db=db)
+                db.execute('DELETE FROM current_versions WHERE symbol=? AND timeframe=?',
+                           (symbol.upper(),timeframe.upper()))
+                return {'action':'demoted_legacy','symbol':symbol,'timeframe':timeframe,'version':old['version']}
+        from .lineage import load_versioned_lineage
+        verified=load_versioned_lineage(self,symbol,timeframe,pointer['version'],
+                                       bars=self.read_bars_version(symbol,timeframe,pointer['version']))
+        if verified.dataset_manifest.get('publication_run_id')!=pointer['run_id']:
+            raise DataLineageError('current head 与发布记录不一致')
+        with self.store.connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            latest=db.execute("SELECT version,run_id FROM dataset_heads WHERE symbol=? AND timeframe=? AND channel='curated'",
+                              (symbol.upper(),timeframe.upper())).fetchone()
+            if not latest or tuple(latest)!=(pointer['version'],pointer['run_id']):
+                raise DataLineageError('repair期间current已变化；请重试')
+            db.execute('INSERT INTO current_versions VALUES(?,?,?,?,?) ON CONFLICT(symbol,timeframe) DO UPDATE SET version=excluded.version,run_id=excluded.run_id,updated_at=excluded.updated_at',
+                       (symbol.upper(),timeframe.upper(),pointer['version'],pointer['run_id'],utcnow()))
+            self.store.audit('REPAIR_CURRENT',f'{symbol}/{timeframe}',{'version':pointer['version']},db=db)
         self._assert_pointer_catalog_consistent(symbol.upper(),timeframe.upper(),pointer['version'],pointer['run_id'])
-        return {'action':'already_consistent','symbol':symbol,'timeframe':timeframe,'version':pointer['version']}
+        return {'action':'repaired','symbol':symbol,'timeframe':timeframe,'version':pointer['version']}

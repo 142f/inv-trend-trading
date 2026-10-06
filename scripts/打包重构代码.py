@@ -1,4 +1,4 @@
-"""Package tracked project files and this refactor's additions, with SHA-256 hashes."""
+"""Package tracked project files and untracked project additions, with SHA-256 hashes."""
 from __future__ import annotations
 
 import hashlib
@@ -24,10 +24,6 @@ def main():
     additions = subprocess.check_output(["git","ls-files","--others","--exclude-standard","-z"],cwd=root).decode("utf-8")
     paths.update(Path(name) for name in additions.split("\0") if name
                  and Path(name).parts[0] in {"src","tests","scripts","config","docs"})
-    paths.update(Path(name) for name in (
-        "src/inv_trend/core/行情校验.py", "tests/test_五轮重构.py",
-        "scripts/五轮重构基准.py", "scripts/重构证据审计.py", "scripts/打包重构代码.py",
-    ))
     paths.update(path.relative_to(root) for path in output.rglob("*")
                  if path.suffix in {".md", ".json", ".xml", ".html", ".png"}
                  and path.name != "交付文件校验.json")

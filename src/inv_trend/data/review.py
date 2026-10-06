@@ -29,7 +29,7 @@ from .models import (
     path_text,
     utc_now,
 )
-from .processing import RULE_VERSION
+from .processing import RULE_VERSION, FRAME_DELTAS, NormalizationResult, assess_quality
 from .storage import DataLake
 
 
@@ -132,6 +132,14 @@ class ReviewApprovalCoordinator:
                     actor=actor,
                     decision=decision,
                 )
+                receipt_path = self._receipt_path(run_id)
+                if receipt_path.exists():
+                    receipt = _read_json(receipt_path, 'publication receipt')
+                    version = str(prior.get('published_version') or '')
+                    if receipt.get('version') != version or receipt.get('run_id') != run_id:
+                        raise DataLineageError('publication receipt conflicts with review')
+                    self._verify_artifacts(self.lake.root / 'manifests' / f'approval-{version}.json')
+                    return version
 
             candidate = self._load_candidate(run_id, decision)
             plan = self._load_or_create_plan(
@@ -149,10 +157,64 @@ class ReviewApprovalCoordinator:
 
             artifacts = self._prepare_artifacts(candidate, plan)
             self._catalog(candidate, plan, artifacts)
-            self._write_review_record(plan)
-            self._verify_artifacts(artifacts.approval_manifest_path)
+            self._verify_artifacts(artifacts.approval_manifest_path, pending_review=plan)
             self._activate(candidate, plan, artifacts)
+            self._verify_artifacts(artifacts.approval_manifest_path)
             return plan.version
+
+    def _receipt_path(self, run_id: str) -> Path:
+        return self.lake.root / 'reviews' / f'candidate={run_id}' / 'publication_receipt.json'
+
+    def reopen(self, run_id: str, reason: str, *, actor: str = '') -> str:
+        """Create a linked PENDING attempt; preserve the rejected decision."""
+        if not reason.strip():
+            raise ValueError('reopening a review requires a reason')
+        actor = _review_actor(actor)
+        with self.lake.lock(f'review:{run_id}', timeout=60):
+            prior = self._read_existing_review(run_id)
+            if prior is None or prior.get('decision') != 'rejected':
+                raise DataLineageError('only a rejected review can be reopened')
+            candidate = self._load_candidate(run_id, 'approve_existing')
+            new_id = stable_hash({'reopened_from': run_id, 'reason': reason, 'actor': actor})[:24]
+            marker = candidate.candidate_dir / f'reopen-{new_id}.json'
+            if marker.exists():
+                return str(_read_json(marker, 'reopen receipt')['new_run_id'])
+            relative = Path('reviews') / f'candidate={new_id}'
+            hashes = {}
+            for name in ('bars.parquet', 'base.parquet', 'incoming.parquet', 'conflicts.json'):
+                source = candidate.candidate_dir / name
+                if not source.exists():
+                    continue
+                if name.endswith('.parquet'):
+                    target = self.lake.write_frame(pd.read_parquet(source), relative / name)
+                else:
+                    payload = _read_json(source, 'candidate conflicts') | {'run_id': new_id}
+                    target = self.lake.write_json(payload, relative / name, idempotent=True)
+                hashes[path_text(target, self.lake.root)] = sha256_file(target)
+            candidate_payload = _read_json(candidate.candidate_manifest_path, 'candidate manifest') | {
+                'run_id': new_id, 'file_hashes': hashes, 'reopened_from_run_id': run_id,
+                'reopen_reason': reason, 'reopen_actor': actor,
+            }
+            cm = self.lake.write_json(candidate_payload, relative / 'candidate_manifest.json', idempotent=True)
+            quality_payload = _read_json(candidate.quality_report_path, 'candidate quality report') | {'run_id': new_id}
+            quality = self.lake.write_json(quality_payload, Path('ingestion_reports') / f'{new_id}.json', idempotent=True)
+            old_hashes = candidate.manifest['file_hashes']
+            new_hashes = {key: value for key, value in old_hashes.items()
+                          if key not in {path_text(candidate.quality_report_path, self.lake.root),
+                                         path_text(candidate.candidate_manifest_path, self.lake.root)}}
+            new_hashes.update({path_text(cm, self.lake.root): sha256_file(cm),
+                               path_text(quality, self.lake.root): sha256_file(quality)})
+            payload = candidate.manifest | {'run_id': new_id, 'processing_run_id': new_id,
+                'request_id': new_id, 'reopened_from_run_id': run_id,
+                'file_paths': list(new_hashes), 'file_hashes': new_hashes}
+            manifest = self.lake.write_json(payload, Path('manifests') / f'{new_id}.json', idempotent=True)
+            self.lake.catalog(new_id, candidate.symbol, candidate.timeframe,
+                              str(payload.get('data_source') or 'review'), manifest,
+                              instrument_id=candidate.instrument.instrument_id, status='REVIEW_REQUIRED',
+                              version=payload['dataset_version'], checksum=sha256_file(manifest))
+            self.lake.write_json({'new_run_id': new_id, 'reopened_from_run_id': run_id,
+                                 'reason': reason, 'actor': actor}, marker.relative_to(self.lake.root), idempotent=True)
+            return new_id
 
     def _load_candidate(
         self, run_id: str, decision: str
@@ -180,6 +242,16 @@ class ReviewApprovalCoordinator:
         candidate_manifest = _read_json(
             candidate_manifest_path, "candidate manifest"
         )
+        declared = manifest.get('file_hashes')
+        candidate_hashes = candidate_manifest.get('file_hashes')
+        if not isinstance(declared, dict) or not isinstance(candidate_hashes, dict) or not candidate_hashes:
+            raise DataLineageError('candidate lacks original artifact checksums; reingest required')
+        for reference, expected in {**declared, **candidate_hashes}.items():
+            artifact = self.lake._resolve_root_relative(reference)
+            if not artifact.is_file() or sha256_file(artifact) != expected:
+                raise DataLineageError(f'candidate original hash mismatch: {reference}')
+        if candidate_hashes.get(path_text(candidate_path, self.lake.root)) != sha256_file(candidate_path):
+            raise DataLineageError('candidate bars hash is missing or inconsistent')
         if str(manifest.get("run_id")) != run_id:
             raise DataLineageError("ingestion manifest run_id mismatch")
         if str(candidate_manifest.get("run_id")) != run_id:
@@ -333,12 +405,16 @@ class ReviewApprovalCoordinator:
     ) -> ApprovalArtifacts:
         frame = candidate.approved_frame.copy()
         frame["quality_status"] = "CURATED"
-        if "quality_score" in frame:
-            frame["quality_score"] = pd.to_numeric(
-                frame["quality_score"], errors="coerce"
-            ).fillna(100.0)
-        else:
-            frame["quality_score"] = 100.0
+        timestamps = pd.to_datetime(frame['timestamp'], utc=True)
+        approved_quality = assess_quality(
+            NormalizationResult(frame, pd.DataFrame(), [], 0, 0, 0, 0), candidate.instrument,
+            candidate.timeframe, provider=str(candidate.manifest.get('data_source') or 'review'),
+            requested_start=timestamps.min().to_pydatetime(),
+            requested_end=(timestamps.max() + pd.Timedelta(FRAME_DELTAS[candidate.timeframe])).to_pydatetime(),
+        )
+        if approved_quality.quality_score < 50 or not approved_quality.backtest_suitable:
+            raise DataLineageError('approved frame does not meet the unchanged quality policy')
+        frame['quality_score'] = approved_quality.quality_score
         frame["dataset_version"] = plan.version
         frame["curated_version"] = plan.version
 
@@ -357,7 +433,7 @@ class ReviewApprovalCoordinator:
             candidate.quality_report_path, "candidate quality report"
         )
         timestamps = pd.to_datetime(frame["timestamp"], utc=True)
-        quality_payload = source_quality | {
+        quality_payload = source_quality | approved_quality.to_dict() | {
             "run_id": plan.publication_run_id,
             "publication_run_id": plan.publication_run_id,
             "dataset_version": plan.version,
@@ -413,6 +489,10 @@ class ReviewApprovalCoordinator:
         review_record_path = self.lake.root / "reviews" / f"{plan.run_id}.json"
         review_payload = _review_payload(plan)
         review_hash = sha256_bytes(json_bytes(review_payload))
+        intent_path = self.lake.write_json(
+            review_payload, candidate.candidate_dir.relative_to(self.lake.root) / 'review_intent.json',
+            idempotent=True,
+        )
 
         file_hashes = dict(candidate.input_hashes)
         for artifact in (curated_path, quality_path, dataset_manifest_path):
@@ -421,6 +501,10 @@ class ReviewApprovalCoordinator:
             plan.plan_path
         )
         file_hashes[path_text(review_record_path, self.lake.root)] = review_hash
+        file_hashes[path_text(intent_path, self.lake.root)] = sha256_file(intent_path)
+        receipt_path = self._receipt_path(plan.run_id)
+        receipt_hash = sha256_bytes(json_bytes(_receipt_payload(plan)))
+        file_hashes[path_text(receipt_path, self.lake.root)] = receipt_hash
 
         approval_payload = candidate.manifest | {
             "manifest_type": "approval",
@@ -468,6 +552,10 @@ class ReviewApprovalCoordinator:
             "ingestion_manifest_sha256": sha256_file(candidate.manifest_path),
             "review_record_path": path_text(review_record_path, self.lake.root),
             "review_record_sha256": review_hash,
+            "review_intent_path": path_text(intent_path, self.lake.root),
+            "review_intent_sha256": sha256_file(intent_path),
+            "publication_receipt_path": path_text(receipt_path, self.lake.root),
+            "publication_receipt_sha256": receipt_hash,
             "approval_plan_path": path_text(plan.plan_path, self.lake.root),
             "approval_plan_sha256": sha256_file(plan.plan_path),
             "file_paths": list(file_hashes),
@@ -513,7 +601,13 @@ class ReviewApprovalCoordinator:
             raw_source=path_text(candidate.candidate_path, self.lake.root),
         )
 
-    def _write_review_record(self, plan: ApprovalPlan) -> Path:
+    def _write_review_record(self, plan: ApprovalPlan, db=None) -> Path:
+        if db is not None:
+            # v3 commits the final decision, receipt and current head in the
+            # same SQLite transaction. Immutable preparation remains separate.
+            return self.lake.store.put_document(
+                Path('reviews') / f'{plan.run_id}.json', json_bytes(_review_payload(plan)), db=db,
+            )
         path = self.lake.review(
             plan.run_id,
             "approved",
@@ -522,6 +616,7 @@ class ReviewApprovalCoordinator:
             published_version=plan.version,
             approval_decision=plan.decision,
             reviewed_at=plan.approved_at,
+            _locked=True,
         )
         expected = sha256_bytes(json_bytes(_review_payload(plan)))
         actual = sha256_file(path)
@@ -531,25 +626,14 @@ class ReviewApprovalCoordinator:
             )
         return path
 
-    def _verify_artifacts(self, approval_manifest_path: Path) -> None:
-        approval = _read_json(approval_manifest_path, "approval manifest")
-        paths = list(approval.get("file_paths") or [])
-        hashes = dict(approval.get("file_hashes") or {})
-        if set(paths) != set(hashes):
-            raise DataLineageError(
-                "approval manifest file_paths and file_hashes are inconsistent"
-            )
-        for raw_path, expected in hashes.items():
-            artifact = self.lake._resolve_root_relative(str(raw_path))
-            if not artifact.exists():
-                raise DataLineageError(
-                    f"approval manifest artifact is missing: {artifact}"
-                )
-            actual = sha256_file(artifact)
-            if actual != str(expected):
-                raise DataLineageError(
-                    f"approval manifest hash mismatch for {artifact}"
-                )
+    def _verify_artifacts(self, approval_manifest_path: Path, *, pending_review: ApprovalPlan | None = None) -> None:
+        pending = None
+        if pending_review is not None:
+            pending = {
+                f'reviews/{pending_review.run_id}.json': json_bytes(_review_payload(pending_review)),
+                path_text(self._receipt_path(pending_review.run_id), self.lake.root): json_bytes(_receipt_payload(pending_review)),
+            }
+        verify_approval_manifest(self.lake, approval_manifest_path, _pending=pending)
 
     def _activate(
         self,
@@ -569,6 +653,19 @@ class ReviewApprovalCoordinator:
             if current_version == plan.version
             else plan.parent_dataset_version
         )
+        receipt = _receipt_payload(plan)
+        review_artifacts = {
+            f'reviews/{plan.run_id}.json': json_bytes(_review_payload(plan)),
+            path_text(self._receipt_path(plan.run_id), self.lake.root): json_bytes(receipt),
+        }
+
+        def commit_review(db):
+            self._write_review_record(plan, db=db)
+            if db is not None:
+                self.lake.store.put_document(self._receipt_path(plan.run_id), json_bytes(receipt), db=db)
+            else:
+                self.lake.write_json(receipt, self._receipt_path(plan.run_id).relative_to(self.lake.root), idempotent=True)
+
         self.lake.activate_curated(
             candidate.symbol,
             candidate.timeframe,
@@ -577,6 +674,8 @@ class ReviewApprovalCoordinator:
             artifacts.curated_path,
             dataset_manifest_path=artifacts.dataset_manifest_path,
             expected_current_version=expected,
+            _review_commit=commit_review,
+            _review_artifacts=review_artifacts,
         )
 
     def _read_existing_review(self, run_id: str) -> dict[str, Any] | None:
@@ -614,6 +713,51 @@ class ReviewApprovalCoordinator:
                 raise DataLineageError(
                     f"review is already approved with a different {key}"
                 )
+
+
+def verify_approval_manifest(lake: DataLake, path: Path, *, _pending: dict[str, bytes] | None = None) -> dict[str, Any]:
+    """Verify required artifact roles and every checksum, including final commit."""
+    from inv_trend.storage.结构化存储_v3 import StoreError
+    approval = _read_json(path, 'approval manifest')
+    if approval.get('manifest_type') != 'approval' or approval.get('approval_status') != 'APPROVED':
+        raise DataLineageError('invalid approval manifest type or status')
+    paths, hashes = approval.get('file_paths'), approval.get('file_hashes')
+    if (not isinstance(paths, list) or not isinstance(hashes, dict) or not hashes
+            or len(paths) != len(set(paths)) or set(paths) != set(hashes)):
+        raise DataLineageError('approval manifest file_paths and file_hashes are inconsistent')
+    for role in ('approved_curated', 'approved_quality_report', 'candidate_data', 'candidate_manifest',
+                 'review_record', 'ingestion_manifest', 'dataset_manifest', 'approval_plan',
+                 'review_intent', 'publication_receipt'):
+        reference, expected = approval.get(role + '_path'), approval.get(role + '_sha256')
+        if not reference or not expected or hashes.get(reference) != expected:
+            raise DataLineageError(f'approval manifest lacks complete {role} binding')
+    for raw_path, expected in hashes.items():
+        artifact = lake._resolve_root_relative(str(raw_path))
+        if not artifact.exists() and _pending is not None and raw_path in _pending:
+            actual = sha256_bytes(_pending[raw_path])
+        elif not artifact.is_file():
+            raise DataLineageError(f'approval manifest artifact is missing: {artifact}')
+        else:
+            try:
+                actual = sha256_file(artifact)
+            except (OSError, StoreError) as exc:
+                raise DataLineageError(f'approval artifact cannot be verified: {artifact}') from exc
+        if actual != str(expected):
+            raise DataLineageError(f'approval manifest hash mismatch for {artifact}')
+    if _pending is None:
+        review = _read_json(lake._resolve_root_relative(approval['review_record_path']), 'review record')
+        receipt = _read_json(lake._resolve_root_relative(approval['publication_receipt_path']), 'publication receipt')
+        if (review.get('published_version') != approval.get('dataset_version')
+                or review.get('run_id') != approval.get('approved_from_run_id')
+                or receipt.get('version') != approval.get('dataset_version')
+                or receipt.get('run_id') != review.get('run_id')):
+            raise DataLineageError('approval review/receipt identity mismatch')
+    return approval
+
+
+def _receipt_payload(plan: ApprovalPlan) -> dict[str, Any]:
+    return {'schema_version': 1, 'run_id': plan.run_id, 'version': plan.version,
+            'publication_run_id': plan.publication_run_id, 'committed_at': plan.approved_at}
 
 
 def _prepare_approved_frame(frame: pd.DataFrame) -> pd.DataFrame:

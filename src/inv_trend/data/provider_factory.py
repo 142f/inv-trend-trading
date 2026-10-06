@@ -20,6 +20,7 @@ def create_default_providers(
     *,
     timeout: int | None = None,
     retries: int | None = None,
+    credential_providers: bool = True,
 ) -> dict[str, BarsProvider]:
     """Create the standard market-data provider registry.
 
@@ -31,14 +32,17 @@ def create_default_providers(
         raise ValueError("provider timeout must be positive")
     if retries is not None and retries < 1:
         raise ValueError("provider retries must be positive")
+    if type(credential_providers) is not bool:
+        raise ValueError("credential providers must be explicitly enabled or disabled")
     network = {} if timeout is None else {"timeout": timeout}
     retrying = {} if retries is None else {"retries": retries}
     providers: dict[str, BarsProvider] = {
         "binance": BinanceKlineProvider(**network, **retrying),
-        "dukascopy": DukascopyBarsProvider(**network, **retrying),
+        "dukascopy": DukascopyBarsProvider(**network, **retrying,
+                                         use_environment_credentials=credential_providers),
         "yahoo_chart": YahooChartProvider(**network, **retrying),
     }
-    if os.getenv("ALPHAVANTAGE_API_KEY"):
+    if credential_providers and os.getenv("ALPHAVANTAGE_API_KEY"):
         providers["alpha_vantage"] = AlphaVantageProvider(**network, **retrying)
     if csv:
         providers["licensed_csv"] = CsvBarsProvider(csv)

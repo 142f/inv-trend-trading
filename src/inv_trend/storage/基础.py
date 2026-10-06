@@ -15,17 +15,27 @@ import threading
 import time
 from uuid import uuid4
 
+from inv_trend.data.integrity import sha256_file as file_hash
+from inv_trend.data.文件操作 import atomic_write, sync_directory
 from inv_trend.data.models import parse_utc_datetime, to_rfc3339_utc
+
+__all__ = [
+    "Lease", "atomic_write", "beneath", "closing_connection", "connect", "digest",
+    "encoded", "file_hash", "lease_active", "now", "process_identity", "redact",
+    "segment", "sync_directory", "transaction",
+]
 
 
 def now():
     return to_rfc3339_utc(datetime.now(timezone.utc))
 
 
+_SECRET = re.compile(r"(?:password|passwd|secret|api[_-]?key|access[_-]?token|authorization|private[_-]?key)", re.I)
+
+
 def redact(value):
-    secret = re.compile(r"(?:password|passwd|secret|api[_-]?key|access[_-]?token|authorization|private[_-]?key)", re.I)
     if isinstance(value, dict):
-        return {str(k): "[REDACTED]" if secret.search(str(k)) else redact(v) for k, v in value.items()}
+        return {str(k): "[REDACTED]" if _SECRET.search(str(k)) else redact(v) for k, v in value.items()}
     if isinstance(value, (list, tuple)):
         return [redact(v) for v in value]
     if isinstance(value, str):
@@ -42,12 +52,6 @@ def digest(value):
     return hashlib.sha256(encoded(value)).hexdigest()
 
 
-def file_hash(path):
-    h = hashlib.sha256()
-    with Path(path).open("rb") as stream:
-        for block in iter(lambda: stream.read(1024 * 1024), b""):
-            h.update(block)
-    return h.hexdigest()
 
 
 def beneath(root, path):
@@ -64,30 +68,8 @@ def segment(value):
     return value
 
 
-def sync_directory(path):
-    # Windows does not expose portable directory fsync through Python. File
-    # flush + same-volume rename is tested separately from power-loss durability.
-    if os.name != "nt":
-        fd = os.open(path, os.O_RDONLY)
-        try:
-            os.fsync(fd)
-        finally:
-            os.close(fd)
 
 
-def atomic_write(path, content):
-    path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(f".{path.name}.{uuid4().hex}.tmp")
-    try:
-        with tmp.open("xb") as stream:
-            stream.write(content)
-            stream.flush()
-            os.fsync(stream.fileno())
-        os.replace(tmp, path)
-        sync_directory(path.parent)
-    finally:
-        tmp.unlink(missing_ok=True)
 
 
 def connect(path):

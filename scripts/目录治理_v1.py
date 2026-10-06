@@ -5,6 +5,18 @@ import hashlib
 import json
 from pathlib import Path
 import sys
+import stat
+
+
+def is_link(path):
+    if path.is_symlink():
+        return True
+    # Windows junctions/reparse points can also redirect into protected data.
+    try:
+        return bool(getattr(path.lstat(), 'st_file_attributes', 0)
+                    & getattr(stat, 'FILE_ATTRIBUTE_REPARSE_POINT', 0x400))
+    except FileNotFoundError:
+        return False
 
 
 def reason(relative: Path):
@@ -32,7 +44,7 @@ def inventory(root):
     files = []
     for path in sorted(root.rglob('*')):
         relative = path.relative_to(root)
-        if path.is_symlink() or not path.is_file() or reason(relative) is None:
+        if is_link(path) or any(is_link(p) for p in path.parents if p != root and root in p.parents) or not path.is_file() or reason(relative) is None:
             continue
         files.append({'path': relative.as_posix(), 'sha256': sha(path),
                       'bytes': path.stat().st_size, 'reason': reason(relative)})
@@ -48,24 +60,24 @@ def apply(root, plan):
         target = root / relative
         if relative.is_absolute() or '..' in relative.parts or reason(relative) is None:
             raise ValueError('清单包含非授权路径: ' + str(relative))
-        if not target.resolve().is_relative_to(root) or target.is_symlink() or any(
-                p.is_symlink() for p in target.parents if p != root and root in p.parents):
+        if not target.resolve().is_relative_to(root) or is_link(target) or any(
+                is_link(p) for p in target.parents if p != root and root in p.parents):
             raise ValueError('清单路径越界或是符号链接')
         if not target.exists():
             missing.append(str(relative)); continue
         if not target.is_file() or sha(target) != item['sha256']:
             raise ValueError('文件已变动，整批停止；请重新生成并审阅清单: ' + str(relative))
-        approved.append(target)
+        approved.append((target, item['sha256'], item['bytes']))
     # Preflight every hash before deleting any file. Run only when no tests/builds are writing caches.
-    for path in approved:
-        if sha(path) != next(i['sha256'] for i in plan['files'] if i['path'] == path.relative_to(root).as_posix()):
+    for path, expected_hash, _ in approved:
+        if sha(path) != expected_hash:
             raise ValueError('执行期间文件变化，已停止')
         path.unlink()
     for p in sorted(root.rglob('*'), key=lambda p: len(p.parts), reverse=True):
-        if p.is_dir() and not p.is_symlink() and reason(p.relative_to(root)) and not any(p.iterdir()):
+        if p.is_dir() and not is_link(p) and reason(p.relative_to(root)) and not any(p.iterdir()):
             p.rmdir()
     return {'deleted': len(approved), 'already_absent': len(missing),
-            'deleted_bytes': sum(i['bytes'] for i in plan['files'] if (root/i['path']) in approved),
+            'deleted_bytes': sum(size for _, _, size in approved),
             'source_data_deleted': False}
 
 

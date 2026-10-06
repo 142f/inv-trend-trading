@@ -1,0 +1,33 @@
+# Paths are relative to this YAML. Start with read-only `scan` before enabling updates.
+data_root: ../data
+runtime_dir: ../outputs/趋势监控
+strategy_config: ../src/inv_trend/config/strategy.yaml
+# Empty symbols resolves every ACTIVE Repository instrument, including ETF snapshots.
+symbols: []
+timeframes: [1D, 4H]
+refresh: true
+interval_seconds: 300
+poll_seconds: 5
+scan_timeout_seconds: 120
+heartbeat_timeout_seconds: 180
+lock_timeout_seconds: 0
+workers: 2
+consecutive_failure_threshold: 3
+provider_timeout_seconds: 10
+provider_retries: 1
+# Account remains unknown unless an explicit simulated or observed reference is supplied.
+paper_equity: null
+supervision:
+  startup_timeout_seconds: 120
+  hard_scan_timeout_seconds: 180
+  graceful_stop_seconds: 5
+  restart_delay_seconds: 5
+  max_restarts: 5
+  restart_window_seconds: 300
+notifications:
+  setup: false
+  candidate: true
+  confirmed_entry: true
+  exit: true
+  idle: false
+  position: true

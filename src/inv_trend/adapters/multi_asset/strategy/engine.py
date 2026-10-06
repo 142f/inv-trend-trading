@@ -206,8 +206,8 @@ class MultiAssetTurtleStrategy:
             short_signal_price = close
 
         if self.rules.fast_system_enabled and fast == LONG:
-            if spec.can_long and self._trend_filter_allows(row, LONG, signal_price):
-                level = float(row[f"high_{self.rules.fast_entry}"])
+            if spec.can_long and self._entry_filters_allow(row, LONG, signal_price):
+                level = self._entry_level(row, self.rules.fast_entry, LONG)
                 if self._skip_fast(symbol, state):
                     self._track_skipped_fast_trade(
                         symbol,
@@ -231,9 +231,9 @@ class MultiAssetTurtleStrategy:
             if (
                 self.rules.allow_short
                 and spec.can_short
-                and self._trend_filter_allows(row, SHORT, short_signal_price)
+                and self._entry_filters_allow(row, SHORT, short_signal_price)
             ):
-                level = float(row[f"low_{self.rules.fast_entry}"])
+                level = self._entry_level(row, self.rules.fast_entry, SHORT)
                 if self._skip_fast(symbol, state):
                     self._track_skipped_fast_trade(
                         symbol,
@@ -255,8 +255,8 @@ class MultiAssetTurtleStrategy:
                     )
 
         if self.rules.slow_system_enabled and slow == LONG and spec.can_long:
-            level = float(row[f"high_{self.rules.slow_entry}"])
-            if not self._trend_filter_allows(row, LONG, signal_price):
+            level = self._entry_level(row, self.rules.slow_entry, LONG)
+            if not self._entry_filters_allow(row, LONG, signal_price):
                 return None
             return EntrySignal(
                 symbol=symbol,
@@ -274,8 +274,8 @@ class MultiAssetTurtleStrategy:
             and self.rules.allow_short
             and spec.can_short
         ):
-            level = float(row[f"low_{self.rules.slow_entry}"])
-            if not self._trend_filter_allows(row, SHORT, short_signal_price):
+            level = self._entry_level(row, self.rules.slow_entry, SHORT)
+            if not self._entry_filters_allow(row, SHORT, short_signal_price):
                 return None
             return EntrySignal(
                 symbol=symbol,
@@ -296,9 +296,15 @@ class MultiAssetTurtleStrategy:
         equity: float,
         action: str,
     ) -> Order | None:
+        risk_scale = 1.0
+        if self.rules.risk_atr_fraction_target > 0.0:
+            if (signal.close <= 0.0 or not np.isfinite(signal.close)
+                    or signal.n <= 0.0 or not np.isfinite(signal.n)):
+                return None
+            risk_scale = min(1.0, self.rules.risk_atr_fraction_target / (signal.n / signal.close))
         qty = _risk_sized_qty(
             equity=equity,
-            unit_1n_risk_pct=spec.unit_1n_risk_pct,
+            unit_1n_risk_pct=spec.unit_1n_risk_pct * risk_scale,
             n=signal.n,
             point_value=spec.point_value,
             qty_step=spec.qty_step,
@@ -332,7 +338,8 @@ class MultiAssetTurtleStrategy:
             stop_price=stop_price,
             score=score,
             risk_1n_pct=risk_pct,
-            metadata={"breakout_level": signal.breakout_level},
+            metadata={"breakout_level": signal.breakout_level,
+                      **({"risk_scale": risk_scale} if self.rules.risk_atr_fraction_target > 0.0 else {})},
         )
 
     def _add_order(
@@ -539,8 +546,41 @@ class MultiAssetTurtleStrategy:
         return resolved
 
     def _breakout_signal(self, row: Mapping[str, Any], period: int, n: float) -> int | None:
+        if self.rules.entry_confirmation_bars > 1:
+            long = row.get(f"entry_confirm_long_{period}")
+            short = row.get(f"entry_confirm_short_{period}")
+            long = isinstance(long, (bool, np.bool_)) and bool(long)
+            short = isinstance(short, (bool, np.bool_)) and bool(short)
+            if long == short:
+                return None
+            side = LONG if long else SHORT
+            name = "high" if side == LONG else "low"
+            level = _finite_float(row.get(f"entry_anchor_{name}_{period}"))
+            return side if level is not None else None
         return breakout_direction(row, period, n, buffer_n=self.rules.breakout_buffer_n,
                                   trigger_mode=self.rules.trigger_mode)
+
+    def _entry_level(self, row: Mapping[str, Any], period: int, side: int) -> float:
+        name = "high" if side == LONG else "low"
+        prefix = "entry_anchor_" if self.rules.entry_confirmation_bars > 1 else ""
+        return float(row[f"{prefix}{name}_{period}"])
+
+    def _entry_filters_allow(self, row: Mapping[str, Any], side: int, signal_price: float) -> bool:
+        return all(self.entry_filter_conditions(row, side, signal_price).values())
+
+    def entry_filter_conditions(self, row: Mapping[str, Any], side: int, signal_price: float) -> dict[str, bool]:
+        """Expose the same gates used by order generation for auditable callers."""
+        adx = _finite_float(row.get("adx"))
+        percentile = _finite_float(row.get("entry_atr_percentile"))
+        return {
+            'trend_gate': bool(self._trend_filter_allows(row, side, signal_price)),
+            'adx_gate': self.rules.entry_adx_min <= 0 or (
+                adx is not None and self.rules.entry_adx_min <= adx <= 100.0
+            ),
+            'atr_percentile_gate': self.rules.entry_atr_percentile_max >= 1.0 or (
+                percentile is not None and 0.0 <= percentile <= self.rules.entry_atr_percentile_max
+            ),
+        }
 
     def _trend_filter_allows(self, row: Mapping[str, Any], side: int, signal_price: float) -> bool:
         period = self.rules.entry_ma_period

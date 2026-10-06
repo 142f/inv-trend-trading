@@ -9,7 +9,7 @@ import pytest
 from inv_trend.core.执行约束 import ExecutionPolicy
 from inv_trend.core.滚动协议 import make_windows,immutable_json,choose_from_training
 from inv_trend.adapters.multi_asset.backtest.runner import TurtleBacktester
-from inv_trend.adapters.multi_asset.models.domain import AssetSpec,Order,TurtleRules,PortfolioState
+from inv_trend.adapters.multi_asset.models.domain import AssetSpec,Order,PortfolioState
 from inv_trend.application.滚动验证 import prefix
 from inv_trend.application.滚动评估 import summarize
 
@@ -74,7 +74,7 @@ def test_train_prefix_uses_completion_not_session_label():
 
 
 def test_walk_forward_has_gap_and_nonoverlapping_outer_windows():
-    cfg=json.loads((Path(__file__).parents[1]/'config/滚动验证协议_v2.json').read_text())
+    cfg=json.loads((Path(__file__).parents[1]/'config/滚动验证协议_v2.json').read_text(encoding='utf-8'))
     windows=make_windows(cfg['windows']);assert len(windows)==13
     for prev,nxt in zip(windows[:-1],windows[1:]):
         assert prev.test_end_exclusive==nxt.test_start
@@ -84,7 +84,7 @@ def test_walk_forward_has_gap_and_nonoverlapping_outer_windows():
 def test_immutable_lock_cannot_be_replaced(tmp_path):
     path=tmp_path/'锁定.json';immutable_json(path,{'candidate':'A'})
     with pytest.raises(FileExistsError):immutable_json(path,{'candidate':'B'})
-    assert json.loads(path.read_text())['candidate']=='A'
+    assert json.loads(path.read_text(encoding='utf-8'))['candidate']=='A'
 
 
 def test_selection_refuses_outer_metrics():
@@ -228,7 +228,7 @@ def test_corrected_bootstrap_is_deterministic_and_identical_candidates_cannot_up
 
 def test_inspected_history_cannot_pass_promotion_even_with_good_returns():
     from inv_trend.application.滚动统计 import promotion_decision
-    cfg=json.loads((Path(__file__).parents[1]/'config/滚动验证协议_v2.json').read_text())
+    cfg=json.loads((Path(__file__).parents[1]/'config/滚动验证协议_v2.json').read_text(encoding='utf-8'))
     metric=dict(total_return=1.,max_drawdown=.1,sharpe_ratio=2.,calmar_ratio=2.,positive_fold_ratio=1.)
     decision=promotion_decision(cfg,{'metrics':metric},{'metrics':metric},
         {'adjusted_p_vs_baseline':.001},[{'metrics':metric}])
@@ -321,7 +321,7 @@ def test_repeated_scheduled_execution_preserves_continuous_cash_and_orders():
 def test_future_mutation_cannot_change_training_scores_or_selected_parameters(tmp_path):
     from inv_trend.application.滚动验证 import train_candidates
     from inv_trend.core.滚动协议 import WalkForwardWindow, digest
-    cfg=json.loads((Path(__file__).parents[1]/'config/滚动验证协议_v2.json').read_text())
+    cfg=json.loads((Path(__file__).parents[1]/'config/滚动验证协议_v2.json').read_text(encoding='utf-8'))
     cfg['specs']={'A':dict(cfg['specs']['XAUUSD_DUKAS'])}
     data={'A':bars(1450)}
     window=WalkForwardWindow('窗口测试','2020-01-01T00:00:00Z','2023-01-01T00:00:00Z',

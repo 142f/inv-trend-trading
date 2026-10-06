@@ -1,16 +1,11 @@
 """Causal breakout direction shared by live order generation and replay evidence."""
 from __future__ import annotations
 
-import math
+from inv_trend.core.math_utils import finite_float as _number
+
 from typing import Any, Mapping
 
 
-def _number(value: Any) -> float | None:
-    try:
-        number = float(value)
-    except (TypeError, ValueError):
-        return None
-    return number if math.isfinite(number) else None
 
 
 def breakout_direction(

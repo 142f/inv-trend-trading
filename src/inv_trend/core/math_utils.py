@@ -2,8 +2,20 @@
 
 from __future__ import annotations
 
+import math
+from typing import Any
+
 import numpy as np
 import pandas as pd
+
+
+def finite_float(value: Any) -> float | None:
+    """Return a finite numeric scalar, or None for missing/invalid report values."""
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return number if math.isfinite(number) else None
 
 
 def _numeric_series(value: pd.Series, name: str) -> None:

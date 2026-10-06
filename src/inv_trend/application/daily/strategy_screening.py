@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+from inv_trend.core.math_utils import finite_float as _finite
+
 from dataclasses import asdict, dataclass
 import hashlib
 import json
-import math
 from typing import Any, Iterable, Mapping
 
 import pandas as pd
@@ -452,12 +453,6 @@ def _mapping(value: Any) -> Mapping[str, Any]:
     return value if isinstance(value, Mapping) else {}
 
 
-def _finite(value: Any) -> float | None:
-    try:
-        number = float(value)
-    except (TypeError, ValueError):
-        return None
-    return number if math.isfinite(number) else None
 
 
 def _hash_payload(payload: Mapping[str, Any]) -> str:

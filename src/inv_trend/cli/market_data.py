@@ -53,6 +53,7 @@ def main() -> None:
         _symbol_timeframe_command(sub, name)
     verify = sub.add_parser("verify")
     verify.add_argument("--kind", choices=["catalog", "universe"], default="catalog")
+    sub.add_parser('doctor', help='Inspect current/catalog consistency and complete lineage')
     audit = sub.add_parser("audit")
     audit.add_argument("--symbols", nargs="+", required=True)
     audit.add_argument("--timeframe", choices=["D1", "H4", "H1"], default="D1")
@@ -69,7 +70,7 @@ def main() -> None:
     repair.add_argument("--symbol", required=True)
     repair.add_argument("--timeframe", required=True)
     review = sub.add_parser("review")
-    review.add_argument("action", choices=["list", "approve", "reject"])
+    review.add_argument("action", choices=["list", "approve", "reject", "reopen"])
     review.add_argument("--run-id")
     review.add_argument("--reason", default="")
     review.add_argument("--actor", default="")
@@ -101,8 +102,13 @@ def main() -> None:
         print(json.dumps(migrate_legacy_csv(args.input, args.root), ensure_ascii=False, indent=2))
         return
     service = HistoricalDataService(
-        args.root, providers=create_default_providers(getattr(args, "csv", None))
+        args.root, providers=create_default_providers(getattr(args, "csv", None)),
+        startup_check=args.command not in {'repair-current', 'doctor', 'verify'},
     )
+    if args.command == 'doctor':
+        result = service.lake.check_current_consistency(raise_on_error=False)
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        raise SystemExit(0 if result['ok'] else 1)
     if args.command == "download":
         start = datetime.fromisoformat(args.start.replace("Z", "+00:00"))
         end = datetime.fromisoformat(args.end.replace("Z", "+00:00")) if args.end else datetime.now(timezone.utc)
@@ -164,15 +170,22 @@ def main() -> None:
         print("rolled back")
         return
     if args.command == "repair-current":
-        service.lake.repair_current(args.symbol, args.timeframe)
-        print(json.dumps(service.repair_current_lineage(args.symbol, args.timeframe), ensure_ascii=False, indent=2))
+        repair = service.lake.repair_current(args.symbol, args.timeframe)
+        result = (
+            repair if repair.get("action") == "demoted_legacy"
+            else service.repair_current_lineage(args.symbol, args.timeframe)
+        )
+        print(json.dumps(result, ensure_ascii=False, indent=2))
         return
     if args.command == "review":
         if args.action == "list":
             print(json.dumps(service.lake.list_reviews(), ensure_ascii=False, indent=2))
             return
         if not args.run_id:
-            parser.error("review approve/reject requires --run-id")
+            parser.error("review approve/reject/reopen requires --run-id")
+        if args.action == 'reopen':
+            print(service.reopen_review(args.run_id, args.reason, actor=args.actor))
+            return
         decision = "approved" if args.action == "approve" else "rejected"
         if decision == "approved":
             print(
@@ -185,8 +198,8 @@ def main() -> None:
             )
         else:
             print(
-                service.lake.review(
-                    args.run_id, decision, args.reason, actor=args.actor
+                service.reject_review(
+                    args.run_id, args.reason, actor=args.actor
                 )
             )
         return

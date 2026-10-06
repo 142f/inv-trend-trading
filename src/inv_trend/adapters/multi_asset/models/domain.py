@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 import math
+from numbers import Integral, Real
 from types import MappingProxyType
 from typing import Any, Mapping
 
@@ -102,6 +103,12 @@ class TurtleRules:
     default_cluster_leverage: float = 1.0
     cluster_leverage: Mapping[str, float] = field(default_factory=dict)
     slow_entry_score_bonus: float = 0.25
+    entry_adx_min: float = 0.0
+    entry_adx_period: int = 14
+    entry_confirmation_bars: int = 1
+    entry_atr_percentile_max: float = 1.0
+    entry_atr_percentile_lookback: int = 120
+    risk_atr_fraction_target: float = 0.0
 
     def __post_init__(self) -> None:
         if self.trigger_mode not in {"close", "intraday"}:
@@ -121,6 +128,19 @@ class TurtleRules:
             raise ValueError("breakout_buffer_n must be >= 0")
         if self.entry_ma_period not in {0, 1} and self.entry_ma_period < 2:
             raise ValueError("entry_ma_period must be 0 or >= 2")
+        for name, minimum in (("entry_adx_period", 2), ("entry_confirmation_bars", 1),
+                              ("entry_atr_percentile_lookback", 2)):
+            value = getattr(self, name)
+            if isinstance(value, bool) or not isinstance(value, Integral) or value < minimum:
+                raise ValueError(f"{name} must be an integer >= {minimum}")
+        for name, maximum in (("entry_adx_min", 100.0), ("entry_atr_percentile_max", 1.0),
+                              ("risk_atr_fraction_target", 1.0)):
+            value = getattr(self, name)
+            if (isinstance(value, bool) or not isinstance(value, Real)
+                    or not math.isfinite(value) or not 0.0 <= value <= maximum):
+                raise ValueError(f"{name} must be finite and within [0, {maximum}]")
+        if self.entry_confirmation_bars > 1 and self.trigger_mode != "close":
+            raise ValueError("multi-bar entry confirmation requires trigger_mode='close'")
         if self.slow_entry_score_bonus < 0:
             raise ValueError("slow_entry_score_bonus must be >= 0")
         for name in (

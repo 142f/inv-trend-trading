@@ -1,13 +1,11 @@
 from __future__ import annotations
-from dataclasses import asdict
-import json
 import sqlite3
 import pytest
 
 from inv_trend.storage.阶段运行_v1 import StageRepository
 from inv_trend.data.时点行情_v1 import PointInTimeRepository
 from inv_trend.core.在线策略_v1 import candidate_grid
-from inv_trend.core.阶段协议_v1 import canonical, utc_now, digest
+from inv_trend.core.阶段协议_v1 import utc_now, digest
 
 
 @pytest.fixture

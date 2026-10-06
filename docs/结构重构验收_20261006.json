@@ -1,0 +1,497 @@
+{
+  "date": "2026-10-06",
+  "scope": "基于开始时已有的未提交修改进行结构重构；保留现有业务接口及交易规则",
+  "baseline": {
+    "passed": 1388,
+    "warnings": 7,
+    "elapsed_seconds": 511.07
+  },
+  "final_regression": {
+    "status": "passed",
+    "junit_receipt": ".tmp/最终推送回归.xml",
+    "command": ".venv/Scripts/python.exe -m pytest -q --basetemp .tmp/最终推送回归_20261006 --junitxml=.tmp/最终推送回归.xml",
+    "passed": 1416,
+    "added_cases": 28,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "warnings": 7,
+    "elapsed_seconds": 517.4,
+    "exit_code": 0,
+    "junit_sha256": "1f007cb5d55dc7ccc55bfce9c584dfe875601624a05ea7daf5accb628cfe22bf"
+  },
+  "structure": {
+    "daily_pipeline_lines": {
+      "before": 654,
+      "after": 162
+    },
+    "historical_service_lines": {
+      "before": 1389,
+      "after": 1171
+    },
+    "removed_obsolete_scripts": 6,
+    "added_formal_test_cases": 28,
+    "finite_scalar_implementations": {
+      "before": 10,
+      "after": 1
+    },
+    "public_class_method_signatures_preserved": true,
+    "maintained_python_lines": {
+      "before": 53795,
+      "after": 52885,
+      "scope": "src、scripts、research 的受维护 Python 源码；正式测试单独保留"
+    },
+    "generated_directories_removed": [
+      "build",
+      "inv_trend_trading.egg-info",
+      "__pycache__"
+    ],
+    "cleanup_manifest_lookup": "缓存清理保留逐个 SHA256 核验，直接携带已核验清单项，消除每个文件重新遍历清单的 O(n²) 查找"
+  },
+  "changes": [
+    {
+      "path": "src/inv_trend/adapters/multi_asset/backtest/runner.py",
+      "before_sha256": "af8f9e89185229d9071dbbdda9881758e019c2c1279ef12eb514e75682e361a2",
+      "after_sha256": "9cf328829ca65d6d8900f52268b8a1f3c28b58bbdab976233f873c99a485d2a9"
+    },
+    {
+      "path": "src/inv_trend/adapters/multi_asset/data/pipeline.py",
+      "before_sha256": "a2c4a1f5d99621a2a8324a2468c1eb3e91b95897b2942d9a35bce95cb16fc099",
+      "after_sha256": "eb5191aa0f8b4f4911b46cae186f42c4c0e1bab1b62c5503b153f809deafcc44"
+    },
+    {
+      "path": "src/inv_trend/application/backtest/artifacts.py",
+      "before_sha256": "a7719295fbf12cd68e2c6107055687d2729075cf0561b497f4f2603575bf2b53",
+      "after_sha256": "05b4f9f77fe860719beda29969c53f5c7d0f51029ccc8b291efc5df082bc3823"
+    },
+    {
+      "path": "src/inv_trend/application/backtest/projector.py",
+      "before_sha256": "9c6ec5155f166487cec584b0a6b7c8017bde7fd216ec5c026883167de2222547",
+      "after_sha256": "bfa0be47a54405ffa9db9cab869ed6bef91b628cadec2f8d43b62305f68bd663"
+    },
+    {
+      "path": "src/inv_trend/application/backtest/reporting.py",
+      "before_sha256": "5f9dd8d08573ae40a603dbe96d078fb672f7bc43fa0d3a77a30181a15b529c44",
+      "after_sha256": "88665ef1f38e99896fb9e80058ec4f1685e273a6318048dfeee3df0a0db03d47"
+    },
+    {
+      "path": "src/inv_trend/application/backtest/service.py",
+      "before_sha256": "963fcd84d162c571d09c4b0faf494d11801ab51d502828b80b66db7946e7d201",
+      "after_sha256": "f17903de6ab8f50c1c1a06c766a7650c09a4f46d7ecccbeb68dd2ac9361788d3"
+    },
+    {
+      "path": "src/inv_trend/application/daily/_stage_protocol.py",
+      "before_sha256": "c7ec14ee5abbfb06a9d9466f2486a9cadde8abd0d93189116d01080b93223cdc",
+      "after_sha256": "058e43086edbb20da1c2c4dd335669f59e97cd49a1c9f486c76b605be186b9c9"
+    },
+    {
+      "path": "src/inv_trend/application/daily/notification_delivery.py",
+      "before_sha256": "32076429a3f869018c6ca750fbacbce4bb6c3a5f215465e911bdcc2a915b5932",
+      "after_sha256": "42f8e768bd1c8b6a3c69d1befcdbba5dfb9b3fdcf78cb872cc14dd8e4fa092d1"
+    },
+    {
+      "path": "src/inv_trend/application/daily/signal_commit.py",
+      "before_sha256": "04d016b3862f3fba3469708eb37a4e05730f675f229ccd4ebf64ac5c8ea3972c",
+      "after_sha256": "17ada7c4c26a2af947d7a7c990947a5c5a3259a821b8ea4020614ca7453a74ad"
+    },
+    {
+      "path": "src/inv_trend/application/daily/stage_payloads.py",
+      "before_sha256": "169386393a62178b017b5c0e784cfe796130e71a06b03b3f408b1a10593a178f",
+      "after_sha256": "b9571e43a1eb016b247d128458e641d2a758599c435b095d2e0e0c40964d1e27"
+    },
+    {
+      "path": "src/inv_trend/application/daily/strategy_screening.py",
+      "before_sha256": "5835e38808f7b1667f6504f5418c7a5c3c168fd39f7e48e87737e25ae16b025d",
+      "after_sha256": "b2d22fc019f4c9f8c6c04ba5a48f5515cf43a443198f909159c73f99e948847a"
+    },
+    {
+      "path": "src/inv_trend/application/daily/workflow.py",
+      "before_sha256": "b66e66f3daf342c1252776561af7f471fbaeae44529c2ab6f07e3ba3c5155f44",
+      "after_sha256": "4cc7ea006369b2026fc15ed7dad678cb0095a1ea3bcc1f578e0edcdc511c7ed8"
+    },
+    {
+      "path": "src/inv_trend/application/daily/workspace.py",
+      "before_sha256": "5ea0245c575d7b9214beceb98b0e911b420dcbd8b225fba01afa1e92961c0415",
+      "after_sha256": "40131229a7ef7bc0223527fabfdf93d2d71f93c0f95b1215227cbe7e61a80331"
+    },
+    {
+      "path": "src/inv_trend/application/daily_analysis.py",
+      "before_sha256": "7cc8c99ea49c45378b7e1ba567f6d76f97a36a9ec57a559581bca56d8af25237",
+      "after_sha256": "93edbfef63200cab3375b31e51b00814475598b08ce7b951cade31ce78292bfe"
+    },
+    {
+      "path": "src/inv_trend/application/daily_pipeline.py",
+      "before_sha256": "bbb2c7f1f154653bfd212a54695b12adc1ea20080829c7ea7b87b906a9f7b1f1",
+      "after_sha256": "6bfa437ff19e77569c9bcc39a097521f46df14a39c17b0922d3ed7053ddd5f9c"
+    },
+    {
+      "path": "src/inv_trend/application/perpetual_audit/审计服务.py",
+      "before_sha256": "fe14169544644a2cd01d6b71b693724378e14d5bc82f65dafca3a57ab727d345",
+      "after_sha256": "89d7e1e2952d4db723c309ae676ece79d36e2ec06a81d7861b24be7f1af4803e"
+    },
+    {
+      "path": "src/inv_trend/application/perpetual_audit/研究协议.py",
+      "before_sha256": "533ab77dddd57ed1dc2b6bc01bc4d4e22bb40f661473697262e743564aefa25e",
+      "after_sha256": "dac6271fad1a1a8b9a9fde5b5e5490d15925e4aef54e5f9df12cc59a6caecbef"
+    },
+    {
+      "path": "src/inv_trend/application/perpetual_audit/认证数据.py",
+      "before_sha256": "5b735bf1d5155e57e2ed60def80599c367a89f46d0f5c67245271941514b94e6",
+      "after_sha256": "ee941848606d7c786e776726bb0d4be6f13f6c0b7657719339d124935fedac22"
+    },
+    {
+      "path": "src/inv_trend/application/多方法研究_v1.py",
+      "before_sha256": "c5c2aeeca5732a9571b4d4c06022917f62a40c0541b6ccf02fee9e56d5a8ff23",
+      "after_sha256": "e1e74b9a29baea3b06be15dc1ebf8dbe12d5e5184a4feffe12105607dd734f56"
+    },
+    {
+      "path": "src/inv_trend/application/数据认证.py",
+      "before_sha256": "c56e2e8603cf1350235c896a5799186e7b8800909b9957ffc7283a88382c6572",
+      "after_sha256": "a0e3e0806ff4cf203388d845a8b39459cba91e6a9d286fdf4cc45ccef0e1e49a"
+    },
+    {
+      "path": "src/inv_trend/application/滚动验证.py",
+      "before_sha256": "f7a74a588be1405e34e2e41e71c6fb7c916136a0f68c1177d5e7c387c25a1301",
+      "after_sha256": "145445c0d0b8ee216b3c2e22f881c42e63c694dc97ba0e7096687b4ca0bec569"
+    },
+    {
+      "path": "src/inv_trend/application/研究评分_v1.py",
+      "before_sha256": "8197fd79d5ad75676a9bdfda1534a931c70cbbfa35a232aa39a33a3f7f541bc1",
+      "after_sha256": "12f6a4a7c4768f1e917290ca9688922cffae0095fc8892490d6024680bf7609b"
+    },
+    {
+      "path": "src/inv_trend/cli/分阶段研究_v1.py",
+      "before_sha256": "dd8527bef0d47452153a066cffe9331f089f8449b2e0a8247a5f703345164916",
+      "after_sha256": "2b0e80873391f4f5712ff93d7c134ca10a848a561d7d79520a4b0e9f91e70a46"
+    },
+    {
+      "path": "src/inv_trend/core/math_utils.py",
+      "before_sha256": "868faf848e969a4522a01dc95a4f1fac20ef522f34e21f65d70a244ccb1bd70d",
+      "after_sha256": "01de50732dc7163c1986b14f3e8c6381cb790603da325a81a527da8e715b9d82"
+    },
+    {
+      "path": "src/inv_trend/core/strategy/daily/analysis.py",
+      "before_sha256": "6785d8013be4ed0dc0920bb8ffc0c0d8d218c4acd6d2020efea2317f3c682278",
+      "after_sha256": "322189c5aea13125e06de64e8f03ed5cb41fd46dc87ddc00ae751e16c0f6adab"
+    },
+    {
+      "path": "src/inv_trend/core/strategy/daily/lifecycle.py",
+      "before_sha256": "ac6c686d9aac1c074d6d62496d21152e56233c8b7682f3f6668e36c65d2a7514",
+      "after_sha256": "f6b34b44188c444f6bf5b25830edba88a81adaf9c029ed737f04cecfae01a9c4"
+    },
+    {
+      "path": "src/inv_trend/core/strategy/daily/signals.py",
+      "before_sha256": "ac20de2010cca702d4b4a7016cc6adfaf9d950928574bc4d9e7125a65a078912",
+      "after_sha256": "6c3af5bac101ee78a17de5dbe4c9ce39f1dbdd077ef28aeb349c6c9973399721"
+    },
+    {
+      "path": "src/inv_trend/core/strategy/daily/strategy_checks.py",
+      "before_sha256": "37631bf8143551ab77528241a4e8033a2308e00bfb8c329637aa6b9d68f43d0b",
+      "after_sha256": "cedbe5ee0874b84a364d29f9216eee7576a152144af0c39be62be44672cce2f4"
+    },
+    {
+      "path": "src/inv_trend/core/突破规则.py",
+      "before_sha256": "933dd7c907e37c306c72a200add744972c2c75846c8610196e133e658ec7ffbf",
+      "after_sha256": "e6475b987f32dd21aacf41344754c12ea24496f775f2f0ca79e9d52ba03741d2"
+    },
+    {
+      "path": "src/inv_trend/data/api.py",
+      "before_sha256": "90ffc9661668ba904fcc3059728e394c0a59a91197e626891f52ea453908747d",
+      "after_sha256": "efca73e5d4f9b20ab3f414ce922af23e898e8d07b42b31b8d6dae0f0df932698"
+    },
+    {
+      "path": "src/inv_trend/data/integrity.py",
+      "before_sha256": "e28f170380e7cb05204246be911abcf652855e93967a04155c8ff069f1f886f6",
+      "after_sha256": "7b34d7f990c8c9a6421e30124f52ed1d3a2613a4524905a665c2bd72378ae17a"
+    },
+    {
+      "path": "src/inv_trend/data/legacy.py",
+      "before_sha256": "f19a6bd472d24dd931caeec4e53b9b4948e42c8c245b0872deeafb49cd2eb889",
+      "after_sha256": "c1263c03b56c0e1312d296c5e5bf90a0fa31786f561c685b15a4f4f512704c09"
+    },
+    {
+      "path": "src/inv_trend/data/storage.py",
+      "before_sha256": "1f9325e5dfef5ec795005696254a368f389760ecc5277d396dd14f1ba81ae014",
+      "after_sha256": "b4e1e10e14eb6a6bbb5bb21e291b6f188e85a9b88bd28f88402896bea73294a6"
+    },
+    {
+      "path": "src/inv_trend/data/四资产行情_v1.py",
+      "before_sha256": "507f6694da544e334a96fccdc3d8ff7aa6825b4854816148d2b1a58082b735a0",
+      "after_sha256": "e0b5cff91989fb955bb724af8492602f6e634792f587b5e9e46171e5f7f70afd"
+    },
+    {
+      "path": "src/inv_trend/data/永续历史.py",
+      "before_sha256": "7697ab194214e828d074163ebe7dfc734c07574b9d9ca424c2e04627545f21e4",
+      "after_sha256": "5f0e273aef92a4f458377aa3fd6ecf2e6d7fa798305487f79a470d4ef55eeb26"
+    },
+    {
+      "path": "src/inv_trend/monitoring/扫描器.py",
+      "before_sha256": "bd7362b0f831f75d377942274b9d8827890bc4379ec1fae3fe24451729a01ffc",
+      "after_sha256": "09ea6cb0e11c1d1a15dfec4981e3180274293566ac16e94fb1176ae9daf5414c"
+    },
+    {
+      "path": "src/inv_trend/storage/仓库.py",
+      "before_sha256": "b753df245bc20de4ccd1f7c53b26d3232266f6a37d6520e70083eb67f49d5b0a",
+      "after_sha256": "52ffec652803815ae7eb263b448fc078ce297c90d3ed849972acff46996fbe3b"
+    },
+    {
+      "path": "src/inv_trend/storage/制品.py",
+      "before_sha256": "0f81092bf6bdec1110aaff4639fba88ba97fde118f98595d31bfc7153080a6c0",
+      "after_sha256": "ccf3fd8b04e7d6cb41785028792531d0d01b9471492eff0c2e136797fae4fe34"
+    },
+    {
+      "path": "src/inv_trend/storage/基础.py",
+      "before_sha256": "50403b7e4a8b5e93e66f0987a571783b67022cf1fd1e3a570a412ab532e0c9ee",
+      "after_sha256": "a5836f70c120340314b76ea939f9fc0999673bb9ab0d7ab21984b82483e44966"
+    },
+    {
+      "path": "src/inv_trend/storage/数据生命周期_v3.py",
+      "before_sha256": "baf7f2353f9742a471de17612c02210ac38543f0343019a80c2d35bfb8e36618",
+      "after_sha256": "1f3b62d2f127878cca7df5f6effc3adda7838b7b80fdf8c049bc69869425c733"
+    },
+    {
+      "path": "src/inv_trend/storage/滚动核验.py",
+      "before_sha256": "e4a0555c440eb32c1efb798ff2bda625d11959ff589b54bedb9f752671d101ad",
+      "after_sha256": "c338e0f45adf48918125cf1afc37dd7473cc16cf0d49aba4755748392562c8cd"
+    },
+    {
+      "path": "src/inv_trend/storage/策略版本登记.py",
+      "before_sha256": "4b148d0c46cbf6f7e049995230b44e01de5cb24977a8136bd6ef36a9e673ab10",
+      "after_sha256": "c26999e75dba2f6a714cb8d523c9ad8df9f044e7c2fe6489dbc5a7940a496a3e"
+    },
+    {
+      "path": "src/inv_trend/storage/结构化存储_v3.py",
+      "before_sha256": "31aa0d40c846253489267b569fd37e22fa68bca496defa94c56175c7b048ae12",
+      "after_sha256": "d0379bfc92554caf3a9c1ced0b0f453e5c8372e53e36d5804cfc51c07c2fb04e"
+    },
+    {
+      "path": "src/inv_trend/storage/统一仓库适配_v3.py",
+      "before_sha256": "07c2647b683670bb08c2ccc2017535b0fc9006f962b1b4251bd9f7cc0aabcc4b",
+      "after_sha256": "7f93b8e367fc4d7a296f813271304c03003b410fa96523e8f09d1f891f8a5f05"
+    },
+    {
+      "path": "src/inv_trend/storage/阶段运行_v1.py",
+      "before_sha256": "aa091b5353db38c6b721b1fbd97360f2b88aed3435c806051a6dd17e7c2a27a2",
+      "after_sha256": "177ebc04bd302f217ffd8320c6a4055effd5006bfb70a35588de3753e72aa98a"
+    },
+    {
+      "path": "src/inv_trend/storage/附加资料迁移_v3.py",
+      "before_sha256": "2d7b2d71a5deb4223c830e4b30220ce8814601cbfd5b900d7d722f2afce09c16",
+      "after_sha256": "d3a5dbc3dff17b0fa7b879717133777eaea51d44231ed28c5e50534015fc58fc"
+    },
+    {
+      "path": "scripts/打包重构代码.py",
+      "before_sha256": "bbc31a8c6a932db702f490a35106cd8c0cd1a6f48f868a5dfa95f3f11263fe87",
+      "after_sha256": "e5ee0f22157d2fb1cd72ea8c46c9bab02ace167e899c52554b9133758a7d432a"
+    },
+    {
+      "path": "scripts/目录治理_v1.py",
+      "before_sha256": "b9673d664276307a8964fc3b1d560b0114966080ae21904d139a5f7d5d335f93",
+      "after_sha256": "2fbdc613f49b55a8a89de884814d8dac2be4f582af3fd49ba99711c01876262b"
+    },
+    {
+      "path": "tests/test_EMA仓位优化.py",
+      "before_sha256": "9f2bb61b441d6c2a2fdf594c5076e19b0e108a7973eed5f5b6e43c89f16a222d",
+      "after_sha256": "9a7b092240cfb35fc8389e4a5f92ef71053f235d70c47b2b59e437820b02c89f"
+    },
+    {
+      "path": "tests/test_时点存储_v1.py",
+      "before_sha256": "083cce255c9d7875b38086d89d46efec4500561eb45adcbf76c472c630f1c1a8",
+      "after_sha256": "bf87b09b94400a1ed568e850542e7377315b0ff57c178560c258354c541ece69"
+    },
+    {
+      "path": "tests/test_标准阶段_v1.py",
+      "before_sha256": "ac977d7caf876afd12e06672163cd715abf9bf9fff37db346dea1e14f761829c",
+      "after_sha256": "caf3b4c0ee631220a5c42eb2103cca301e5c3409cc1c227c7f56f4ed84c44b13"
+    },
+    {
+      "path": "README.md",
+      "before_sha256": "2178ec7007083426c485ff4fcebbcdfc1483a7bebf84bfcc8e7f2169729caefe",
+      "after_sha256": "abcfd9273130e475208de9e719dffce93b6b717172b283250b61f024ef50ad71"
+    },
+    {
+      "path": ".gitignore",
+      "before_sha256": "d45d232ad9e7687170d7db94114a197949c2020a95a2064d85fcead8c557ca9f",
+      "after_sha256": "fcd63be54d577f65a4bad23dca5793c8f5190b63931f40a82e8ca8772dd48ef4"
+    }
+  ],
+  "added": [
+    {
+      "path": "src/inv_trend/core/时间.py",
+      "after_sha256": "759e05c0036fa2f464f7c350eb460c92a3bd938376daf49bb50fae89ade3543a"
+    },
+    {
+      "path": "src/inv_trend/data/成分股快照.py",
+      "after_sha256": "3400d202e3650f3f128630e46842396018f72d5035bc8f5c3480698838d045ae"
+    },
+    {
+      "path": "src/inv_trend/data/文件操作.py",
+      "after_sha256": "2309fccaa1404047fefde0023c977c2d8298ff5dc6fe58a0d480fb491e0a64ad"
+    },
+    {
+      "path": "src/inv_trend/data/目录核验.py",
+      "after_sha256": "e4c338483721cc15dea91f6859faf82cfeb9854bf36721ee50130cf62d38051f"
+    },
+    {
+      "path": "tests/unit/test_公共能力合同.py",
+      "after_sha256": "3a0cc31f210c308af59d2bb61d18f7aa27d7216f787053eff396d83aaa67f8c8"
+    },
+    {
+      "path": "tests/unit/test_特征计算复用.py",
+      "after_sha256": "6e77cefd8173b5d6493f2ca28de8eb26e4638b50e5b5d0f4231d855024ca8b02"
+    },
+    {
+      "path": "tests/unit/test_研究核验后端合同.py",
+      "after_sha256": "7fd8d5442938b498a76dc530196f6d8f7f218243d1ed6fb45266476a40e27f03"
+    }
+  ],
+  "deleted": [
+    {
+      "path": "scripts/五轮重构基准.py",
+      "before_sha256": "6df11f8010393cf8b34d02f59e5295e7d379101720931e691c5e02fe163402c4"
+    },
+    {
+      "path": "scripts/优化结果对比.py",
+      "before_sha256": "5c296aaa4bb57e57431d61caba4b1ab350a77b62fd6daf476b5fe32e502cc8f2"
+    },
+    {
+      "path": "scripts/旧实验清理_v2.py",
+      "before_sha256": "84f29a6c2bd70afb0ed32157ff04438530dbf05fc9b00b67abaaf6917beb0e6f"
+    },
+    {
+      "path": "scripts/生成优化说明.py",
+      "before_sha256": "e684537d0679d8c81c93c74f4386f6515390278e896d170bac54dbbb806766fc"
+    },
+    {
+      "path": "scripts/认证执行审计基线.py",
+      "before_sha256": "aa9eafc0d3ffe9251d397bd9722385b50531036fd9761b290901e11bfea96ff1"
+    },
+    {
+      "path": "scripts/重构证据审计.py",
+      "before_sha256": "327b28b6fe938c827a47c2b93f8b8aae6ceffdcce0824425c9187cc4dec9376a"
+    }
+  ],
+  "performance": {
+    "chart_payload": {
+      "rows": 5000,
+      "runs": 7,
+      "equivalent": true,
+      "before_seconds": 0.7138281000079587,
+      "after_seconds": 0.06648570000834297,
+      "speedup": 10.73656590693012
+    },
+    "file_hash": {
+      "bytes": 16777233,
+      "equivalent": true,
+      "before_peak_bytes": 16785899,
+      "after_peak_bytes": 2106462
+    },
+    "coverage_parquet_reads": {
+      "before": 2,
+      "after": 1,
+      "contract_test": "test_coverage_uses_the_same_bar_snapshot_for_status_and_lineage"
+    }
+  },
+  "package": {
+    "wheel": "inv_trend_trading-0.4.0rc1-py3-none-any.whl",
+    "sha256": "e44f6a70e66a8ca8a8218e6a128d886e952d852443004cf7300901743e65d7d1",
+    "python_modules": 267,
+    "source_bytes_match": true,
+    "resources_present": true,
+    "console_entry_points": 9,
+    "isolated_installed_package_imports": "passed"
+  },
+  "environment": {
+    "python": "3.12.6",
+    "platform": "Windows-11-10.0.26300-SP0"
+  },
+  "review": {
+    "passes": 3,
+    "missing_local_imports": 0,
+    "unreferenced_private_functions": 0,
+    "ruff_F_checks": "passed",
+    "retained_boundaries": [
+      "兼容构造入口和历史 YAML 路径保留，正式流程只有一条",
+      "协议方法和不同阶段的端口属性保留，不用继承合并空壳",
+      "JSON 格式和脱敏策略存在语义差异，保留原编码策略及哈希身份",
+      "研究、运维、长期验收和可重复基准脚本继续保留"
+    ],
+    "additional_fix": "研究核验此前导入不存在的滚动核验_v3模块；现复用 v3 权威文档和结果仓库，补上篡改检测及历史摘要拒绝回归",
+    "golden_fixtures_preserved": true,
+    "additional_cleanup": [
+      "UTC 日期及纳秒时间戳归 core/时间.py，原调用路径保留",
+      "阶段上下文 symbols 解析归 stage_payloads.py",
+      "报告投影复用核心分析的位置校验和稳定身份计算",
+      "数据 pipeline 的 CSV 导出复用 exporter",
+      "核心计算回归测试按职责移入 tests/unit/，不删除有效用例"
+    ],
+    "remaining_identical_bodies": [
+      "两个不同 DTO 的短小序列化方法",
+      "两个独立阶段适配器的仓库端口属性",
+      "两个历史领域入口的短小 ISO 时间文本投影；保留以避免低收益抽象"
+    ],
+    "public_signatures_rechecked_against_initial_snapshot": true,
+    "staged_runtime_or_private_files": 0
+  },
+  "data_protection": "未修改项目原行情、研究数据、私有配置或 Git 历史；运行测试及性能核验使用 .tmp 目录",
+  "verification_stages": [
+    {
+      "stage": "重构前全量基线",
+      "passed": 1388
+    },
+    {
+      "stage": "首轮专项回归",
+      "passed": 161
+    },
+    {
+      "stage": "复审覆盖与图表/滚动回归",
+      "passed": 48
+    },
+    {
+      "stage": "数据库研究核验",
+      "passed": 2
+    },
+    {
+      "stage": "首轮重构最终全量回归",
+      "passed": 1408
+    },
+    {
+      "stage": "推送前第一次完整复核",
+      "passed": 1408,
+      "warnings": 7,
+      "elapsed_seconds": 520.34
+    },
+    {
+      "stage": "公共能力复审专项回归",
+      "passed": 136
+    },
+    {
+      "stage": "复审后最终推送全量回归",
+      "passed": 1416,
+      "warnings": 7,
+      "elapsed_seconds": 517.4
+    }
+  ],
+  "renamed": [
+    {
+      "from": "tests/test_五轮重构.py",
+      "to": "tests/unit/test_核心计算回归.py",
+      "before_sha256": "64bade932f6d0bb6e37ee8cfdecc628a4ea1fda1b1c03c002a3c4248dea42063",
+      "after_sha256": "b387b887ca340fc2132f9ccf05edcc0d6dafa11f66a82b179763e4d1f37c6dc4"
+    }
+  ],
+  "first_refactor_regression": {
+    "status": "passed",
+    "passed": 1408,
+    "added_cases": 20,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "warnings": 7,
+    "elapsed_seconds": 587.25,
+    "junit_receipt": ".tmp/重构最终回归.xml",
+    "junit_sha256": "9d24783496316d3ac932bc2069d2cc8d9c8a7264e12debeb5f21ab2101caaf9c",
+    "command": "python -m pytest -q --basetemp .tmp/refactor-final-20261006 --junitxml=.tmp/重构最终回归.xml"
+  },
+  "push_scope": "包含开始时已有的监控、通知及数据链路改动；重构前基线按初始源码快照核对，整体变更一并推送 origin/main"
+}

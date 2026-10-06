@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import timezone
 from typing import Any, Mapping
 
 from inv_trend.core.signals import CORRECTED_STRATEGY_VERSION, SignalEvent
+from inv_trend.core.时间 import utc_datetime
 
 from .ports import DailyWorkflowRuntimePort
 from .projections import (
@@ -14,6 +14,7 @@ from .projections import (
     data_gate_status,
 )
 from .stage_payloads import (
+    context_symbols as _context_symbols,
     data_update_result,
     json_safe,
     mapping,
@@ -465,18 +466,8 @@ def _projection_events(
     return events
 
 
-def _context_symbols(context: Mapping[str, Any]) -> list[str]:
-    values = context.get("symbols")
-    if not isinstance(values, list) or not values:
-        raise ValueError("staging context has no selected symbols")
-    return [str(value) for value in values]
-
-
 def _now_text(runtime: DailyWorkflowRuntimePort) -> str:
-    value = runtime.now()
-    if value.tzinfo is None:
-        value = value.replace(tzinfo=timezone.utc)
-    return value.astimezone(timezone.utc).isoformat()
+    return utc_datetime(runtime.now()).isoformat()
 
 
 __all__ = ["SignalCommitOutcome", "SignalCommitService"]

@@ -6,6 +6,8 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Callable, Generic, Protocol, TypeVar, runtime_checkable
 
+from inv_trend.core.时间 import utc_datetime
+
 
 T = TypeVar("T")
 STAGE_ORDER = (
@@ -98,10 +100,7 @@ class StageExecutionTracker:
         return result
 
     def _timestamp(self) -> str:
-        value = self._now()
-        if value.tzinfo is None:
-            value = value.replace(tzinfo=timezone.utc)
-        return value.astimezone(timezone.utc).isoformat()
+        return utc_datetime(self._now()).isoformat()
 
 
 __all__ = [

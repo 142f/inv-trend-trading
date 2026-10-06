@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from inv_trend.core.math_utils import finite_float as _number
+
 from dataclasses import replace
 from datetime import datetime, timezone
 import math
@@ -504,12 +506,6 @@ def _failed_combination(
     )
 
 
-def _number(value: Any) -> float | None:
-    try:
-        number = float(value)
-    except (TypeError, ValueError):
-        return None
-    return number if math.isfinite(number) else None
 
 
 def _sort_number(value: Any) -> float:
