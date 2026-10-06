@@ -1,7 +1,6 @@
 """Additive stage/experiment schema on the EXISTING v3 SQLite authority, not a new DB."""
 from __future__ import annotations
 
-from dataclasses import asdict
 import json
 import zlib
 

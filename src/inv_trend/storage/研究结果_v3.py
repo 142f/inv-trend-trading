@@ -41,7 +41,7 @@ class ResultRepository:
             for ci,(column,dtype) in enumerate(base.dtypes.items()):
                 if str(dtype)!='object':continue
                 for ri,item in enumerate(base[column]):
-                    typ='NA' if item is pd.NA else 'NaT' if item is pd.NaT else 'NaN' if isinstance(item,float) and math.isnan(item) else None
+                    typ='None' if item is None else 'NA' if item is pd.NA else 'NaT' if item is pd.NaT else 'NaN' if isinstance(item,float) and math.isnan(item) else None
                     if typ:nulls.append([ri,ci,typ])
             value['object_nulls']=nulls
             b=canonical(value);hashes[name]=digest(b);encoded[name]=value
@@ -117,7 +117,7 @@ class ResultRepository:
         if content.get('row_range') is not None:
             frame.index=pd.RangeIndex(*content['row_range'],name=content.get('index_name'))
         for ri,ci,typ in content.get('object_nulls',[]):
-            frame.iat[ri,ci]={'NA':pd.NA,'NaT':pd.NaT,'NaN':float('nan')}[typ]
+            frame.iat[ri,ci]={'None':None,'NA':pd.NA,'NaT':pd.NaT,'NaN':float('nan')}[typ]
         if content.get('was_series'):
             result=frame.iloc[:,0]
             if 'series_name' in content:result.name=content['series_name']

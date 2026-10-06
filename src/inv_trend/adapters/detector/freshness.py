@@ -4,12 +4,11 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 from datetime import date, datetime, timedelta, timezone
-from datetime import time
 from zoneinfo import ZoneInfo
 
 import pandas as pd
 
-from inv_trend.data.calendar import is_nyse_trading_day
+from inv_trend.data.calendar import is_nyse_trading_day, us_session_bounds
 from inv_trend.data.models import InstrumentConfig
 
 
@@ -59,7 +58,8 @@ class FreshnessPolicy:
             # provider-publication grace period without treating it as stale.
             local = now.astimezone(ZoneInfo("America/New_York"))
             candidate = local.date()
-            if local.timetz().replace(tzinfo=None) < time(16, 15):
+            bounds = us_session_bounds(candidate, market=instrument.market)
+            if bounds is None or pd.Timestamp(now) < bounds[1] + pd.Timedelta(minutes=15):
                 candidate -= timedelta(days=1)
             while not is_nyse_trading_day(candidate):
                 candidate -= timedelta(days=1)

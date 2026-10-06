@@ -18,11 +18,12 @@
 均是边界视图，权威 instrument identity 始终来自 `InstrumentConfig`。
 
 ```text
-historical_data.cli
+inv_trend.cli.market_data
         ↓
 HistoricalDataService                    # 用例编排
         ├── Provider Adapter             # 网络/CSV 来源
         ├── processing / calendar        # 标准化与质量规则
+        ├── 成分股快照 / 目录核验          # 独立快照与只读审计
         ├── ReviewApprovalCoordinator    # 审核发布事务
         └── DataLake                     # 文件、Catalog、Pointer 基础设施
                 ├── integrity            # 统一哈希
@@ -38,7 +39,10 @@ HistoricalDataService                    # 用例编排
 | `review.py` | 审批上下文、审批计划、不可变审批产物、幂等与最终激活 |
 | `lineage.py` | Pointer、Dataset Manifest、Curated、Quality Report、Catalog 的一致性校验 |
 | `storage.py` | Parquet/JSON I/O、Catalog、Pointer、激活日志、回滚和恢复 |
-| `integrity.py` | JSON、文件和 DataFrame 的确定性哈希 |
+| `integrity.py` | JSON、文件和 DataFrame 的确定性哈希；文件采用分块读取 |
+| `文件操作.py` | 临时文件、flush/fsync、替换与失败清理；调用者决定序列化及覆盖策略 |
+| `成分股快照.py` | ETF 成分股历史快照读写、时点选择及注册模型映射 |
+| `目录核验.py` | Catalog、声明制品和 current 数据链的只读审计 |
 | `locking.py` | 无第三方依赖的跨进程文件锁及所有权保护 |
 | `providers.py` | Binance、Dukascopy、CSV、持仓等 Adapter |
 | `processing.py` | Schema、去重冲突、质量评估和隔离规则 |

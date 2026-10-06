@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 from pathlib import Path
 from types import MappingProxyType
 from typing import Any, Mapping
@@ -12,6 +12,7 @@ from inv_trend.config import (
     is_canonical_strategy_mapping,
     load_strategy_mapping,
 )
+from inv_trend.adapters.multi_asset.models.domain import TurtleRules
 
 
 @dataclass(frozen=True)
@@ -50,8 +51,12 @@ def load_config(path: str | Path | None = None) -> BacktestConfig:
     """Load canonical strategy YAML or an explicitly supplied legacy file."""
 
     explicit_path = path is not None
+    defaults = TurtleRules()
+    rule_defaults = {item.name: getattr(defaults, item.name) for item in fields(defaults)}
     if path is None:
-        return BacktestConfig(**canonical_to_backtest_mapping(load_strategy_mapping()))
+        return BacktestConfig(**canonical_to_backtest_mapping(
+            load_strategy_mapping(), rule_defaults=rule_defaults
+        ))
     path = Path(path)
     if not path.exists():
         if explicit_path:
@@ -69,7 +74,7 @@ def load_config(path: str | Path | None = None) -> BacktestConfig:
     if not isinstance(raw, dict):
         raise ValueError(f"config file must contain a mapping: {path}")
     if is_canonical_strategy_mapping(raw):
-        raw = canonical_to_backtest_mapping(raw)
+        raw = canonical_to_backtest_mapping(raw, rule_defaults=rule_defaults)
     allowed = set(BacktestConfig.__dataclass_fields__)
     unknown = set(raw) - allowed
     if unknown:

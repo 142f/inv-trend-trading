@@ -7,7 +7,8 @@ dependency, so one prepared frame can be reused by scans, reports, and tests.
 
 from __future__ import annotations
 
-import math
+from inv_trend.core.math_utils import finite_float as _json_float
+
 from typing import Any, Mapping
 
 import numpy as np
@@ -615,12 +616,6 @@ def _cross_event(
     return None
 
 
-def _json_float(value: Any) -> float | None:
-    try:
-        number = float(value)
-    except (TypeError, ValueError):
-        return None
-    return number if math.isfinite(number) else None
 
 
 def _timestamp_text(value: Any) -> str:

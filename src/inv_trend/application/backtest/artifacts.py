@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-import hashlib
+from inv_trend.data.integrity import sha256_file
+
 import json
 import os
 from pathlib import Path
@@ -257,7 +258,7 @@ def _artifact_hashes(root: Path, exclude: set[str]) -> dict[str, str]:
     for path in sorted(
         item for item in root.rglob("*") if item.is_file() and item.name not in exclude
     ):
-        values[_relative(path, root)] = hashlib.sha256(path.read_bytes()).hexdigest()
+        values[_relative(path, root)] = sha256_file(path)
     return values
 
 

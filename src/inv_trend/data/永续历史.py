@@ -1,6 +1,8 @@
 """Public OKX history acquisition with raw-page lineage and explicit coverage gaps."""
 from __future__ import annotations
 
+from inv_trend.data.integrity import sha256_file
+
 import hashlib
 import json
 from pathlib import Path
@@ -142,7 +144,7 @@ def load_stream(root, instrument, stream):
     if not path.is_relative_to(directory.resolve()):
         raise ValueError('manifest path escapes data directory')
     frame = pd.read_parquet(path)
-    return frame, dict(manifest, data_sha256=hashlib.sha256(path.read_bytes()).hexdigest())
+    return frame, dict(manifest, data_sha256=sha256_file(path))
 
 
 def coverage_audit(root, instruments):

@@ -22,6 +22,8 @@ _SIGNAL_RULE_FIELDS = {
     "n_period", "fast_entry", "slow_entry", "fast_exit", "slow_exit",
     "breakout_buffer_n", "trigger_mode", "entry_ma_period",
     "fast_system_enabled", "slow_system_enabled", "skip_fast_after_win", "allow_short",
+    "entry_adx_min", "entry_adx_period", "entry_confirmation_bars",
+    "entry_atr_percentile_max", "entry_atr_percentile_lookback",
 }
 
 

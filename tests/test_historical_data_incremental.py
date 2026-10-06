@@ -266,7 +266,7 @@ def test_catalog_records_full_lineage_fields(tmp_path: Path):
     assert asset_class == "crypto"
     assert start_time and end_time
     assert row_count == 5
-    assert schema_version == "1.1.2"
+    assert schema_version == "1.1.5"
     assert checksum
     assert raw_source.endswith(".parquet")
 
