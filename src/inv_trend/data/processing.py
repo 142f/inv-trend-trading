@@ -6,10 +6,10 @@ from datetime import datetime, timezone
 import numpy as np
 import pandas as pd
 
-from .calendar import classify_missing
+from .calendar import canonical_bar_ends, classify_missing, expected_bar_starts, latest_completed_us_bar
 from .models import CANONICAL_COLUMNS, InstrumentConfig, QualityReport
 
-RULE_VERSION = "1.1.2"
+RULE_VERSION = "1.1.5"
 FRAME_DELTAS = {"D1": "1D", "1d": "1D", "H4": "4h", "4h": "4h", "H1": "1h", "1h": "1h"}
 
 
@@ -58,6 +58,9 @@ def normalize_bars(
 
     reasons = pd.Series("", index=frame.index, dtype="object")
     reasons[frame["timestamp"].isna()] += "invalid_timestamp;"
+    frame['bar_end'] = canonical_bar_ends(frame['timestamp'], market=instrument.market,
+                                          session=instrument.session, freq=FRAME_DELTAS[timeframe])
+    reasons[frame['timestamp'].notna() & frame['bar_end'].isna()] += 'invalid_session_bar;'
     numeric_invalid = frame[list(required - {"timestamp"})].isna().any(axis=1)
     reasons[numeric_invalid] += "non_numeric_price;"
     ohlc_invalid = (
@@ -94,11 +97,14 @@ def normalize_bars(
     quarantine["quarantine_reason"] = reasons[invalid]
     clean = frame.loc[~invalid].copy().sort_values("timestamp")
     now = now or datetime.now(timezone.utc)
+    elapsed = clean['bar_end'] <= pd.Timestamp(now)
     if "is_complete" not in clean:
-        delta = pd.Timedelta(FRAME_DELTAS[timeframe])
-        clean["is_complete"] = clean["timestamp"] + delta <= pd.Timestamp(now)
+        clean["is_complete"] = elapsed
     else:
-        clean["is_complete"] = clean["is_complete"].fillna(False).astype(bool)
+        # A provider assertion cannot close a still-open bar. Never use Python
+        # truthiness here: the nonempty string "False" and arbitrary numbers
+        # are truthy. Unknown markers remain incomplete and cannot be published.
+        clean["is_complete"] = clean["is_complete"].map(_explicit_complete).astype(bool) & elapsed
 
     jump = clean["close"].pct_change().abs() >= 0.30
     clean["quality_flags"] = np.where(jump, "extreme_jump_review", "")
@@ -117,8 +123,6 @@ def normalize_bars(
     }
     for key, value in common.items():
         clean[key] = value
-    delta = pd.Timedelta(FRAME_DELTAS[timeframe])
-    clean["bar_end"] = clean["timestamp"] + delta
     clean = clean.drop(columns=["_row"], errors="ignore")
     quarantine = quarantine.drop(columns=["_row"], errors="ignore")
     ordered = list(CANONICAL_COLUMNS) + [c for c in clean if c not in CANONICAL_COLUMNS]
@@ -132,6 +136,16 @@ def normalize_bars(
         int(ohlc_invalid.sum()), int(jump.sum()),
         int(reasons.str.contains("conflicting_duplicate").sum()),
     )
+
+
+def _explicit_complete(value: object) -> bool:
+    if isinstance(value, (bool, np.bool_)):
+        return bool(value)
+    if isinstance(value, (int, float, np.integer, np.floating)):
+        return bool(np.isfinite(value) and value == 1)
+    if isinstance(value, str):
+        return value.strip().lower() in {'true', '1'}
+    return False
 
 
 def assess_quality(
@@ -197,7 +211,9 @@ def assess_quality(
             if listing_start is not None and listing_start > requested_start:
                 expected_start = listing_start
         if requested_end is not None:
-            settled = pd.Timestamp(requested_end) - delta
+            settled = (latest_completed_us_bar(requested_end, market=instrument.market, freq=FRAME_DELTAS[timeframe])
+                       if instrument.session == 'regular' and instrument.market in {'xnas', 'xnys'}
+                       else pd.Timestamp(requested_end) - delta)
             if settled > end:
                 span_end = settled
             else:
@@ -210,7 +226,8 @@ def assess_quality(
             market=instrument.market, session=instrument.session,
             start=span_start, end=span_end, freq=FRAME_DELTAS[timeframe],
         )
-        theoretical = len(pd.date_range(span_start, span_end, freq=FRAME_DELTAS[timeframe]))
+        theoretical = len(expected_bar_starts(market=instrument.market, session=instrument.session,
+                                              start=span_start, end=span_end, freq=FRAME_DELTAS[timeframe]))
         if instrument.session in {"24x5", "regular"}:
             theoretical -= breakdown["weekend"]
         if instrument.session == "regular" and instrument.market in {"xnas", "xnys"}:
@@ -230,7 +247,7 @@ def assess_quality(
         notes.append("adjustment uses provider adjusted-close factor; not a verified institutional corporate-action series")
     unexplained_missing = breakdown["provider_gap"] + breakdown["unknown"]
     allow_missing = ratio <= 0.05
-    if timeframe == "D1" and instrument.asset_class == "equity":
+    if instrument.asset_class == "equity":
         # Once the calendar has removed weekends, holidays and pre-listing
         # dates, every remaining absent D1 session is unexplained.  Formal
         # equity datasets fail closed even when the percentage is tiny.

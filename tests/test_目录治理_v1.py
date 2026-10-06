@@ -1,6 +1,5 @@
 from pathlib import Path
 import importlib.util
-import json
 import pytest
 
 path=Path(__file__).resolve().parents[1]/'scripts/目录治理_v1.py'
@@ -41,7 +40,15 @@ def test_cleanup_rejects_protected_paths_even_with_correct_hash(tmp_path):
 
 def test_cleanup_rejects_symlink_ancestor_to_protected_data(tmp_path):
     root=tree(tmp_path)
-    (root/'build/链接').symlink_to(root/'data/raw',target_is_directory=True)
+    import os
+    import subprocess
+    if os.name == 'nt':
+        # Real NTFS junctions need no developer/admin symlink privilege and
+        # expose the same protected-data redirection risk on Windows.
+        subprocess.run(['cmd', '/c', 'mklink', '/J', str(root/'build/链接'), str(root/'data/raw')],
+                       check=True, capture_output=True)
+    else:
+        (root/'build/链接').symlink_to(root/'data/raw',target_is_directory=True)
     p=root/'data/raw/行情.csv'
     plan={'files':[{'path':'build/链接/行情.csv','sha256':module.sha(p),'bytes':p.stat().st_size}]}
     with pytest.raises(ValueError,match='符号链接'):module.apply(root,plan)

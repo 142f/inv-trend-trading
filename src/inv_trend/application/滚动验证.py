@@ -3,7 +3,8 @@
 一个执行器、一个资金账户。窗口换参时先在下一真实开盘平仓，不能拼接重置本金的曲线。
 """
 from __future__ import annotations
-from dataclasses import asdict, replace
+
+from inv_trend.data.integrity import sha256_file
 from datetime import datetime, timezone
 import hashlib
 import json
@@ -30,7 +31,7 @@ def load_data(root, config):
         raw = load_market_frame(UnifiedStore(data_root), config['dataset_sha256'])
     else:
         path = Path(root) / config['dataset']
-        actual = hashlib.sha256(path.read_bytes()).hexdigest()
+        actual = sha256_file(path)
         if actual != config['dataset_sha256']:
             raise ValueError('行情文件SHA256与协议不一致，必须新建数据版本而不是复用实验')
         raw = pd.read_csv(path, float_precision='round_trip')
@@ -124,7 +125,7 @@ def write_run(folder, result, metadata):
     for name, frame in frames.items():
         path = folder/(name+'.csv.gz')
         frame.to_csv(path, index=isinstance(frame,pd.Series),compression={'method':'gzip','mtime':0})
-        files[path.name] = hashlib.sha256(path.read_bytes()).hexdigest()
+        files[path.name] = sha256_file(path)
     metadata = {**metadata,'files_sha256':files,'created_at':datetime.now(timezone.utc).isoformat()}
     immutable_json(folder/'运行记录.json',metadata)
     return metadata

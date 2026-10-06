@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import math
-from statistics import mean, median, pstdev, stdev
+from statistics import mean, median, pstdev
 import numpy as np
 
 from inv_trend.core.阶段协议_v1 import AccountSnapshot

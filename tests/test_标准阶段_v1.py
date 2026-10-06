@@ -9,12 +9,12 @@ import sqlite3
 import pytest
 
 from inv_trend.core.阶段协议_v1 import (
-    Bar, RawBar, FeatureFrame, Signal, RunContext, Quality, emit, digest,
+    Bar, RawBar, FeatureFrame, Signal, RunContext, emit, digest,
     encode_envelope, decode_envelope,
 )
 from inv_trend.core.在线策略_v1 import Candidate, OnlineFeatures, OnlineStrategy, candidate_grid
 from inv_trend.core.事件账户_v1 import CashBroker, ExecutionConfig
-from inv_trend.application.标准阶段_v1 import stages, ProcessingStage, IndicatorStage, EvaluationStage
+from inv_trend.application.标准阶段_v1 import stages, IndicatorStage, EvaluationStage
 from inv_trend.application.研究评分_v1 import training_score, equity_metrics
 from inv_trend.application.多方法研究_v1 import train_grid
 from inv_trend.storage.阶段运行_v1 import StageRepository

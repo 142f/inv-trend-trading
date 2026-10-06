@@ -1,9 +1,10 @@
 """统一研究入口：study / stage / report；阶段交换只使用数据库中的结构化对象。"""
 from __future__ import annotations
 
+from inv_trend.data.integrity import sha256_file
+
 import argparse
 from dataclasses import asdict
-import hashlib
 import json
 from pathlib import Path
 import sqlite3
@@ -12,7 +13,7 @@ import sys
 import tempfile
 import xml.etree.ElementTree as ET
 
-from inv_trend.core.阶段协议_v1 import RawBar, RunContext, digest, encode_envelope
+from inv_trend.core.阶段协议_v1 import RawBar, RunContext, digest
 from inv_trend.core.在线策略_v1 import Candidate, candidate_grid
 from inv_trend.core.事件账户_v1 import ExecutionConfig
 from inv_trend.application.标准阶段_v1 import stages, run_checked
@@ -36,7 +37,7 @@ def preflight(root: Path) -> dict:
         receipt = {"passed": p.returncode == 0 and counts["tests"] > 0,
                    "code_checks": p.returncode == 0, "returncode": p.returncode, **counts,
                    "stdout": p.stdout, "stderr": p.stderr,
-                   "receipt_sha256": hashlib.sha256(junit.read_bytes()).hexdigest() if junit.exists() else None,
+                   "receipt_sha256": sha256_file(junit) if junit.exists() else None,
                    "scope": "new causal Stage path + existing architecture boundaries; NOT full legacy suite"}
     if not receipt["passed"]:
         raise RuntimeError("定向门禁失败，禁止进入实验：\n" + json.dumps(receipt, ensure_ascii=False))

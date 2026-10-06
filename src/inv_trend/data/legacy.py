@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from inv_trend.data.integrity import sha256_file
+
 import hashlib
 from pathlib import Path
 
@@ -44,7 +46,7 @@ def migrate_legacy_csv(source_dir: str | Path, root: str | Path = "data") -> dic
         clean["quality_status"] = "LEGACY_ONLY"
         clean["quality_score"] = 10.0
         clean["quality_flags"] = "RAW_SOURCE_UNAVAILABLE;PROCESSING_HISTORY_UNCLEAR;NO_PROVIDER_VERIFICATION"
-        clean["raw_file_hash"] = hashlib.sha256(path.read_bytes()).hexdigest()
+        clean["raw_file_hash"] = sha256_file(path)
         clean["request_id"] = run_id
         clean["raw_snapshot_id"] = clean["raw_file_hash"]
         clean["source_run_id"] = run_id

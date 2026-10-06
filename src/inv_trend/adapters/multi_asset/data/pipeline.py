@@ -9,6 +9,7 @@ from typing import Iterable
 import pandas as pd
 
 from .cleaner import clean_ohlcv_frame
+from .exporter import export_csv
 from .loader import load_local_csv
 from .normalizer import MULTI_ASSET_BAR_COLUMNS, normalize_ohlcv_frame
 from .validator import validate_alignment, validate_ohlcv_frame
@@ -154,10 +155,7 @@ def validate_data(df: pd.DataFrame, *, symbol: str, timeframe: str) -> DataQuali
 
 
 def export_backtest_ready(df: pd.DataFrame, path: str | Path) -> Path:
-    out_path = Path(path)
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    df.to_csv(out_path, index=False)
-    return out_path
+    return export_csv(df, path)
 
 
 def quality_report_row(report: DataQualityReport) -> dict[str, object]:

@@ -1,6 +1,8 @@
 """Hash-checked research input packages; certification never inferred from prices."""
 from __future__ import annotations
 
+from inv_trend.data.integrity import sha256_file
+
 from dataclasses import dataclass
 import hashlib
 import json
@@ -34,7 +36,7 @@ def load_certified(root):
     manifest = json.loads(path.read_text(encoding='utf-8'))
     if manifest.get('schema_version') != 'perpetual-input-v1':
         raise ValueError('unsupported input schema')
-    hashes = [hashlib.sha256(path.read_bytes()).hexdigest()]
+    hashes = [sha256_file(path)]
 
     def read(ref, kind):
         if not ref.get('source'):
@@ -42,7 +44,7 @@ def load_certified(root):
         file = (root / ref['file']).resolve()
         if not file.is_relative_to(root):
             raise ValueError('input path escapes package')
-        sha = hashlib.sha256(file.read_bytes()).hexdigest()
+        sha = sha256_file(file)
         if sha != ref['sha256']:
             raise ValueError(f'input hash mismatch: {file.name}')
         hashes.append(sha)

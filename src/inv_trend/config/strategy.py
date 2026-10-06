@@ -65,6 +65,12 @@ _TURTLE_RULE_KEYS = {
     *_BACKTEST_TURTLE_RULE_KEYS,
     "trigger_mode",
     "entry_ma_period",
+    "entry_adx_min",
+    "entry_adx_period",
+    "entry_confirmation_bars",
+    "entry_atr_percentile_max",
+    "entry_atr_percentile_lookback",
+    "risk_atr_fraction_target",
     "fast_system_enabled",
     "slow_system_enabled",
     "skip_fast_after_win",
@@ -211,7 +217,9 @@ def canonical_to_detector_mapping(raw: Mapping[str, Any]) -> dict[str, Any]:
     return _copy_mapping(turtle["detector"], "turtle.detector")
 
 
-def canonical_to_backtest_mapping(raw: Mapping[str, Any]) -> dict[str, Any]:
+def canonical_to_backtest_mapping(
+    raw: Mapping[str, Any], *, rule_defaults: Mapping[str, Any] | None = None
+) -> dict[str, Any]:
     """Map canonical strategy YAML to the legacy backtest configuration shape."""
 
     canonical = _validated_canonical(raw)
@@ -234,6 +242,14 @@ def canonical_to_backtest_mapping(raw: Mapping[str, Any]) -> dict[str, Any]:
         for key in _BACKTEST_TURTLE_RULE_KEYS
         if key in turtle_rules
     }
+    # The executable boundary supplies its actual model defaults. Preserve
+    # legacy default fingerprints while retaining every explicit deviation.
+    if rule_defaults is not None:
+        result["rules"].update({
+            key: deepcopy(value)
+            for key, value in turtle_rules.items()
+            if key not in rule_defaults or value != rule_defaults[key]
+        })
     result.update(deepcopy(runtime))
     return result
 
