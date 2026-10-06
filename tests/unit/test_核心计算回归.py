@@ -1,3 +1,5 @@
+"""Core indicator, resampling, cache and performance compatibility regressions."""
+
 from __future__ import annotations
 
 import numpy as np

@@ -1,18 +1,14 @@
 """导入此前冻结的精确行情与B6摘要；绝不把旧摘要冒充新执行或完整账本。"""
 from __future__ import annotations
-import hashlib,json,zipfile
+import json,zipfile
 from pathlib import Path
-from .结构化存储_v3 import UnifiedStore,digest,utcnow,StoreError
+from inv_trend.data.integrity import sha256_file as file_hash
+from .结构化存储_v3 import UnifiedStore,utcnow,StoreError
 from .研究结果_v3 import import_market_csv,ResultRepository
 
 FIXED_CSV='processed_data/backtest_ready/metal_tech_core/metal_tech_core_d1_backtest_ready.csv'
 FIXED_HASH='7f232ee80f02e0df8d86699cbf7e26a0c71a6e7ebaf43f22547d7cf49b90f962'
 
-def file_hash(path):
-    h=hashlib.sha256()
-    with Path(path).open('rb') as f:
-        for chunk in iter(lambda:f.read(1024*1024),b''):h.update(chunk)
-    return h.hexdigest()
 
 def import_supplements(store,*,research_data=None,evidence=None):
     store=store if isinstance(store,UnifiedStore) else UnifiedStore(store)

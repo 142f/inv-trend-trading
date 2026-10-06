@@ -208,7 +208,8 @@ class Storage:
         try:
             self._verify_manifest(manifest)
         except StorageIntegrityError as exc:
-            self.tx(lambda db: db.execute("UPDATE runs SET integrity_error=?,status='INTEGRITY_FAILED' WHERE run_id=?", (str(exc), run_id)))
+            error = str(exc)
+            self.tx(lambda db: db.execute("UPDATE runs SET integrity_error=?,status='INTEGRITY_FAILED' WHERE run_id=?", (error, run_id)))
             raise
         state = self.rows("SELECT * FROM runs WHERE run_id=?", (run_id,))[0]
         if state["retired_at"]:

@@ -95,7 +95,7 @@ def read_backtest(path):
 
 
 def daily_publish(writer, snapshot, render_html):
-    from inv_trend.adapters.daily.artifact_publisher import _complete_result, _stage, _publication
+    from inv_trend.adapters.daily.artifact_publisher import _complete_result, _publication
     storage = open_storage(project_root(writer.artifact_root))
     files, complete = {}, {}
     for row in snapshot.get("symbols", []):

@@ -10,7 +10,7 @@ from typing import Any
 import pandas as pd
 
 from .integrity import sha256_file
-from .models import DataLineageError
+from .models import DataCertificationError, DataLineageError
 from .storage import DataLake
 
 
@@ -103,6 +103,8 @@ def load_versioned_lineage(
     _require_equal(
         str(report.get("timeframe", "")).upper(), timeframe, "quality report timeframe"
     )
+    _validate_report_contract(manifest, report)
+    _validate_approval(lake, manifest)
 
     if bars is not None:
         _validate_bars(
@@ -134,6 +136,33 @@ def load_current_lineage(
     bars: pd.DataFrame | None = None,
 ) -> CurrentLineage:
     """Resolve current artifacts and fail closed on any lineage inconsistency."""
+    return _load_current_lineage(lake, symbol, timeframe, bars=bars, require_certified=True)
+
+
+def _load_update_lineage(
+    lake: DataLake,
+    symbol: str,
+    timeframe: str,
+    *,
+    bars: pd.DataFrame,
+) -> CurrentLineage:
+    """Verify an update base, including a known failed quality assessment.
+
+    This is an internal ingestion boundary, never a strategy read. All hashes,
+    identity, coverage fields and approval contracts remain mandatory. The
+    merged dataset must undergo a new quality assessment before publication.
+    """
+    return _load_current_lineage(lake, symbol, timeframe, bars=bars, require_certified=False)
+
+
+def _load_current_lineage(
+    lake: DataLake,
+    symbol: str,
+    timeframe: str,
+    *,
+    bars: pd.DataFrame | None,
+    require_certified: bool,
+) -> CurrentLineage:
     symbol, timeframe = symbol.upper(), timeframe.upper()
     pointer = lake.current_version(symbol, timeframe)
     if pointer is None:
@@ -194,6 +223,8 @@ def load_current_lineage(
         timeframe,
         "quality report timeframe",
     )
+    _validate_report_contract(manifest, report, require_certified=require_certified)
+    _validate_approval(lake, manifest)
 
     if bars is not None:
         _validate_bars(
@@ -263,14 +294,42 @@ def _validate_bars(
 
     expected_instrument = str(manifest.get("instrument_id") or "")
     report_instrument = str(report.get("instrument_id") or "")
-    if report_instrument and expected_instrument:
-        _require_equal(report_instrument, expected_instrument, "quality report instrument")
+    _require_equal(report_instrument, expected_instrument, "quality report instrument")
     if "instrument_id" in bars and expected_instrument:
         instruments = set(bars["instrument_id"].astype(str))
         if instruments != {expected_instrument}:
             raise DataLineageError(
                 "current bars instrument_id is inconsistent with dataset manifest"
             )
+
+
+def _validate_report_contract(
+    manifest: dict[str, Any], report: dict[str, Any], *, require_certified: bool = True,
+) -> None:
+    """A missing coverage or identity assertion is unknown, never clean."""
+    instrument = manifest.get('instrument_id')
+    if not isinstance(instrument, str) or not instrument:
+        raise DataLineageError('dataset manifest instrument_id is missing')
+    _require_equal(report.get('instrument_id'), instrument, 'quality report instrument')
+    intervals = report.get('missing_intervals')
+    if not isinstance(intervals, list) or any(not isinstance(item, dict) for item in intervals):
+        raise DataLineageError('quality report missing_intervals is missing or invalid')
+    rows = manifest.get('row_count')
+    if not isinstance(rows, int) or isinstance(rows, bool) or rows < 1:
+        raise DataLineageError('dataset manifest row_count is invalid')
+    _require_int_equal(report.get('actual_bars'), rows, 'quality report actual_bars')
+    if type(report.get('backtest_suitable')) is not bool or report.get('quality_status') not in {'CURATED', 'RESEARCH_ONLY'}:
+        raise DataLineageError('quality report assessment is missing or invalid')
+    if require_certified and report['backtest_suitable'] is not True:
+        raise DataCertificationError('quality report does not certify strategy-visible data')
+
+
+def _validate_approval(lake: DataLake, manifest: dict[str, Any]) -> None:
+    run_id = str(manifest.get('publication_run_id') or '')
+    if run_id.startswith('approval-'):
+        from .review import verify_approval_manifest
+        approval = verify_approval_manifest(lake, lake.root / 'manifests' / f'{run_id}.json')
+        _require_equal(approval.get('dataset_version'), manifest.get('dataset_version'), 'approval dataset version')
 
 
 def _read_json(path: Path, label: str) -> dict[str, Any]:
@@ -313,6 +372,8 @@ def _require_equal(actual: object, expected: object, label: str) -> None:
 
 
 def _require_int_equal(actual: object, expected: int, label: str) -> None:
+    if not isinstance(actual, int) or isinstance(actual, bool):
+        raise DataLineageError(f'{label} must be an integer: {actual!r}')
     try:
         parsed = int(actual)
     except (TypeError, ValueError) as exc:

@@ -12,6 +12,7 @@ import pandas as pd
 
 from .data_store import BacktestDataStore
 from inv_trend.core.执行约束 import ExecutionPolicy
+from inv_trend.core.时间 import utc_timestamp as _as_utc_timestamp
 from inv_trend.domain.walk_forward import BarEvent, order_bar_events
 from ..models.domain import (
     LONG,
@@ -1221,13 +1222,6 @@ def _stable_intent_id(date: pd.Timestamp, order: Order) -> str:
 def _trade_cost(qty: float, price: float, spec: AssetSpec) -> float:
     notional = abs(qty * price * spec.point_value)
     return notional * (spec.cost_bps + spec.slippage_bps) / 10000.0
-
-
-def _as_utc_timestamp(value: str | pd.Timestamp) -> pd.Timestamp:
-    timestamp = pd.Timestamp(value)
-    if timestamp.tzinfo is None:
-        return timestamp.tz_localize("UTC")
-    return timestamp.tz_convert("UTC")
 
 
 def _exit_type(reason: str) -> str:

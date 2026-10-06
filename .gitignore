@@ -52,6 +52,7 @@ logs/
 # Temporary delivery and local test directories
 .tmp/
 test-temp/
+/.test-temp-*/
 deliverables/
 outputs/
 # docs/

@@ -1,5 +1,7 @@
 """原 Storage/StageStore/Registry 接口的单库实现。新数据根不再生成 outputs/系统 的第二权威。"""
 from __future__ import annotations
+
+from inv_trend.data.integrity import sha256_file
 import json
 from pathlib import Path
 from .仓库 import Storage, StorageIntegrityError
@@ -94,7 +96,7 @@ class DatabaseStorage(Storage):
     def _verify_manifest(self,manifest):
         for item in manifest['files']:
             p=self._path(item['path'])
-            if not p.exists() or bytes_digest(p.read_bytes())!=item['hash']:
+            if not p.exists() or sha256_file(p)!=item['hash']:
                 raise StorageIntegrityError(f"制品损坏: {item['logical_name']}")
 
     def _recover_one(self,manifest,fault=None):

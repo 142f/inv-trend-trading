@@ -9,8 +9,8 @@ from typing import Any, Mapping
 import pandas as pd
 
 from inv_trend.config import load_strategy_mapping
+from inv_trend.data.api import HistoricalDataService
 from inv_trend.data.lineage import load_versioned_lineage
-from inv_trend.data.storage import open_data_lake
 
 from .models import BacktestPlan, BacktestSourceBundle, SourceInstrument
 
@@ -85,14 +85,20 @@ def load_versioned_data(
     source: BacktestSourceBundle,
     data_root: str | Path,
 ) -> tuple[dict[str, pd.DataFrame], dict[str, Mapping[str, Any]]]:
-    lake = open_data_lake(data_root)
+    repository = HistoricalDataService(data_root)
+    lake = repository.lake
     data: dict[str, pd.DataFrame] = {}
     lineage: dict[str, Mapping[str, Any]] = {}
     for instrument in source.instruments:
         verified = load_versioned_lineage(
             lake, instrument.symbol, instrument.timeframe, instrument.dataset_version
         )
-        frame = pd.read_parquet(verified.curated_path)
+        frame = repository.load_bars_version(
+            instrument.symbol, instrument.timeframe, instrument.dataset_version,
+            adjusted=False,
+        )
+        if frame.attrs.get('instrument_id') != instrument.instrument_id:
+            raise ValueError(f'source instrument differs from repository for {instrument.symbol}')
         timestamp_column = next(
             (name for name in ("timestamp", "time", "date", "datetime") if name in frame),
             None,
@@ -106,15 +112,6 @@ def load_versioned_data(
             frame.index = frame.index.tz_localize("UTC")
         else:
             frame.index = frame.index.tz_convert("UTC")
-        if "is_complete" in frame:
-            complete = frame["is_complete"]
-            if pd.api.types.is_bool_dtype(complete) or pd.api.types.is_numeric_dtype(complete):
-                mask = complete.fillna(False).astype(bool)
-            else:
-                mask = complete.astype("string").str.strip().str.lower().isin(
-                    {"1", "true", "yes", "y"}
-                )
-            frame = frame.loc[mask].copy()
         frame.attrs["dataset_version"] = instrument.dataset_version
         data[instrument.symbol] = frame.sort_index()
         lineage[instrument.symbol] = {

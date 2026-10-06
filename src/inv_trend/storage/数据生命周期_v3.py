@@ -1,10 +1,11 @@
 """默认只读清理计划。任何来源、父版本、运行/审计引用都保护正式数据。"""
 from __future__ import annotations
+
+from inv_trend.data.integrity import sha256_file
 from datetime import datetime,timezone,timedelta
 from pathlib import Path
-import os
 import sqlite3
-from .结构化存储_v3 import UnifiedStore,StoreError,utcnow,digest
+from .结构化存储_v3 import UnifiedStore,StoreError
 from inv_trend.data.locking import FileLock
 
 
@@ -28,7 +29,7 @@ def cleanup(store,*,apply=False,min_age_days=7):
                     # Published report files not registered yet are not disposable by name alone.
                     if not p.name.startswith(('暂存_','.tmp-','数据_')) or age>cutoff:continue
                     # Hash identity protects a canonical object if an import was interrupted.
-                    h=digest(p.read_bytes())
+                    h=sha256_file(p)
                     if db.execute('SELECT 1 FROM data_objects WHERE stored_sha256=?',(h,)).fetchone():continue
                     item={'path':key,'sha256':h,'bytes':p.stat().st_size,'action':'DELETE_UNREFERENCED_TEMP','applied':apply}
                     result.append(item)

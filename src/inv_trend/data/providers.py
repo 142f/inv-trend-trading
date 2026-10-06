@@ -287,6 +287,12 @@ class DukascopyBarsProvider(AdapterDefaults):
     api_key: str | None = None
     retries: int = 3
 
+    use_environment_credentials: bool = True
+
+    def __post_init__(self):
+        if type(self.use_environment_credentials) is not bool:
+            raise ValueError('environment credential policy must be an explicit boolean')
+
     def normalize_symbol(self, source_symbol: str) -> str:
         return source_symbol.strip().upper().replace("_DUKAS", "")
 
@@ -345,7 +351,7 @@ class DukascopyBarsProvider(AdapterDefaults):
         raise RuntimeError(f"Dukascopy instrument id not found for {source_symbol}")
 
     def _api_key(self) -> str | None:
-        return self.api_key or os.getenv("DUKASCOPY_API_KEY")
+        return self.api_key or (os.getenv("DUKASCOPY_API_KEY") if self.use_environment_credentials else None)
 
     def _load_json_with_body(self, url: str) -> tuple[object, bytes]:
         raw = get_bytes_with_retry(url, timeout=self.timeout, retries=self.retries)

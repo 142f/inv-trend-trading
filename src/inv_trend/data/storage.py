@@ -1,23 +1,37 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from contextlib import contextmanager
 import hashlib
 import json
 import os
 from pathlib import Path
 import sqlite3
-from typing import Any
+from typing import Any, Callable
 import warnings
 from uuid import uuid4
 
 import pandas as pd
 
+from .文件操作 import atomic_write
 from .integrity import frame_hash, json_bytes
 from .locking import FileLock
-from .models import DataConflictError, DataLineageError, path_text
+from .目录故障 import catalog_access
+from .models import CatalogBackendConflictError, DataConflictError, DataLineageError, path_text
 
 
 _EXPECTED_VERSION_UNSET = object()
+
+
+def validate_v3_authority(root: str | Path) -> None:
+    """Reject ambiguous mixed layouts before opening or migrating a database."""
+    root = Path(root)
+    conflicts = [root / name for name in ('catalog.sqlite3', 'catalog.duckdb', 'catalog_backend.json')
+                 if (root / name).exists()]
+    if conflicts:
+        raise CatalogBackendConflictError(
+            f'v3 authority conflicts with legacy catalog artifacts: {conflicts}'
+        )
 
 
 def require_parquet() -> None:
@@ -29,7 +43,7 @@ def require_parquet() -> None:
         ) from exc
 
 
-def open_data_lake(root: str | Path = "data", *, backend: str = "auto") -> "DataLake":
+def open_data_lake(root: str | Path = "data", *, backend: str = "auto", startup_check: bool = True) -> "DataLake":
     """Open one explicit data authority without silently falling back.
 
     ``auto`` recognizes a verified v3 database by its fixed authority path;
@@ -47,19 +61,20 @@ def open_data_lake(root: str | Path = "data", *, backend: str = "auto") -> "Data
     if selected == "v3":
         if not has_v3:
             raise DataLineageError(f"v3 authority is missing: {root_path / DB_RELATIVE}")
+        validate_v3_authority(root_path)
         from .数据湖适配_v3 import DatabaseDataLake
-        return DatabaseDataLake(root_path)
+        return DatabaseDataLake(root_path, startup_check=startup_check)
     if has_v3:
         raise DataLineageError("legacy backend cannot be opened over a v3 authority")
     instance = object.__new__(DataLake)
-    DataLake.__init__(instance, root_path)
+    DataLake.__init__(instance, root_path, startup_check=startup_check)
     return instance
 
 
 class DataLake:
     """Append-only local data lake with recoverable current-version activation."""
 
-    def __new__(cls, root: str | Path = "data"):
+    def __new__(cls, root: str | Path = "data", *, startup_check: bool = True):
         # v3 data roots have one explicit database authority; legacy roots remain readable.
         if cls is DataLake:
             from inv_trend.storage.结构化存储_v3 import DB_RELATIVE
@@ -73,7 +88,7 @@ class DataLake:
                 return object.__new__(DatabaseDataLake)
         return object.__new__(cls)
 
-    def __init__(self, root: str | Path = "data") -> None:
+    def __init__(self, root: str | Path = "data", *, startup_check: bool = True) -> None:
         self.root = Path(root)
         for folder in (
             "raw",
@@ -94,6 +109,41 @@ class DataLake:
         self.catalog_path, self._catalog_engine = self._select_catalog_backend()
         self._init_catalog()
         self._recover_activation_journals()
+        if startup_check:
+            self.check_current_consistency(verify_lineage=False)
+
+    def _current_identities(self) -> set[tuple[str, str]]:
+        with self._connect() as db:
+            identities = {(str(row[0]), str(row[1])) for row in db.execute(
+                'SELECT symbol,timeframe FROM current_versions').fetchall()}
+        for pointer in (self.root / 'curated').glob('symbol=*/timeframe=*/current.json'):
+            identities.add((pointer.parent.parent.name.split('=', 1)[1], pointer.parent.name.split('=', 1)[1]))
+        return identities
+
+    def check_current_consistency(self, *, verify_lineage: bool = True,
+                                  raise_on_error: bool = True) -> dict[str, Any]:
+        """Inspect both sides, including orphan catalog rows, without guessing."""
+        from .lineage import load_current_lineage
+        from inv_trend.storage.结构化存储_v3 import StoreError
+        issues = []
+        identities = self._current_identities()
+        for symbol, timeframe in sorted(identities):
+            try:
+                pointer = self.current_version(symbol, timeframe)
+                catalog = self._current_catalog_row(symbol, timeframe)
+                if not pointer or not catalog:
+                    raise DataLineageError('current pointer or catalog row is missing')
+                self._assert_pointer_catalog_consistent(symbol, timeframe, pointer['version'], pointer['run_id'])
+                if verify_lineage:
+                    load_current_lineage(self, symbol, timeframe, bars=self.read_bars(symbol, timeframe))
+            except (DataLineageError, StoreError, OSError, KeyError, ValueError) as exc:
+                issues.append({'symbol': symbol, 'timeframe': timeframe,
+                               'error_type': type(exc).__name__, 'message': str(exc)})
+        result = {'ok': not issues, 'checked': len(identities), 'issues': issues,
+                  'backend': self._catalog_engine, 'catalog_path': str(self.catalog_path)}
+        if issues and raise_on_error:
+            raise DataLineageError(f'startup current consistency check failed: {issues}')
+        return result
 
     def _select_catalog_backend(self) -> tuple[Path, str]:
         """Select one catalog deterministically and persist an explicit marker."""
@@ -108,6 +158,15 @@ class DataLake:
                 raise DataLineageError(
                     f"invalid catalog backend marker: {marker_path}"
                 ) from exc
+            if not isinstance(marker, dict):
+                raise DataLineageError("catalog backend marker must be a JSON object")
+            if "schema_version" in marker and (
+                type(marker["schema_version"]) is not int or marker["schema_version"] != 1
+            ):
+                raise DataLineageError("unsupported catalog backend marker schema_version")
+            for primary, alias in (("backend", "engine"), ("catalog_path", "path")):
+                if primary in marker and alias in marker and marker[primary] != marker[alias]:
+                    raise CatalogBackendConflictError(f"conflicting catalog marker {primary}/{alias}")
 
         if marker is not None:
             engine = str(marker.get("backend") or marker.get("engine") or "")
@@ -120,7 +179,7 @@ class DataLake:
             selected = self.root / filename
             existing = [path for path in (duckdb_path, sqlite_path) if path.exists()]
             if any(path != selected for path in existing):
-                raise DataLineageError(
+                raise CatalogBackendConflictError(
                     "catalog backend marker conflicts with an additional catalog file"
                 )
             if existing and not selected.exists():
@@ -139,7 +198,7 @@ class DataLake:
 
         existing = [path for path in (duckdb_path, sqlite_path) if path.exists()]
         if len(existing) > 1:
-            raise DataLineageError(
+            raise CatalogBackendConflictError(
                 "catalog.duckdb and catalog.sqlite3 both exist without an explicit "
                 "catalog_backend.json marker"
             )
@@ -171,12 +230,25 @@ class DataLake:
                 "catalog backend is DuckDB but the duckdb dependency is unavailable"
             ) from exc
 
+    @contextmanager
     def _connect(self):
         if self._catalog_engine == "duckdb":
             import duckdb
-
-            return duckdb.connect(str(self.catalog_path))
-        return sqlite3.connect(self.catalog_path)
+            errors, constraints = (duckdb.Error,), (duckdb.ConstraintException,)
+        else:
+            errors, constraints = (sqlite3.DatabaseError,), (sqlite3.IntegrityError,)
+        with catalog_access(errors, constraints):
+            db = (duckdb.connect(str(self.catalog_path), config={'threads': 1})
+                  if self._catalog_engine == 'duckdb' else sqlite3.connect(self.catalog_path))
+            try:
+                db.execute('BEGIN TRANSACTION')
+                yield db
+                db.commit()
+            except BaseException:
+                db.rollback()
+                raise
+            finally:
+                db.close()
 
     def _init_catalog(self) -> None:
         with self._connect() as db:
@@ -399,6 +471,8 @@ class DataLake:
         channel: str = "curated",
         dataset_manifest_path: Path | None = None,
         expected_current_version: str | None | object = _EXPECTED_VERSION_UNSET,
+        _review_commit: Callable | None = None,
+        _review_artifacts: dict[str, bytes] | None = None,
     ) -> None:
         """Advance current through a lock, journal, verification and rollback."""
         symbol, timeframe = symbol.upper(), timeframe.upper()
@@ -434,8 +508,10 @@ class DataLake:
             )
             if previous_pointer == payload:
                 if channel != "curated":
+                    if _review_commit is not None:
+                        _review_commit(None)
                     return
-                if previous_catalog and (
+                if previous_catalog and _review_commit is None and (
                     previous_catalog["version"] == version
                     and previous_catalog["run_id"] == run_id
                 ):
@@ -468,6 +544,11 @@ class DataLake:
                 "previous_catalog": previous_catalog,
                 "target_pointer": payload,
                 "created_at": datetime.now(timezone.utc).isoformat(),
+                "review_artifacts": [
+                    {"path": key, "sha256": hashlib.sha256(content).hexdigest(),
+                     "existed": self._resolve_root_relative(key).exists()}
+                    for key, content in (_review_artifacts or {}).items()
+                ],
             }
             self._write_mutable_json_atomic(journal_path, journal)
             try:
@@ -477,6 +558,8 @@ class DataLake:
                     self._assert_pointer_catalog_consistent(
                         symbol, timeframe, version, run_id
                     )
+                if _review_commit is not None:
+                    _review_commit(None)
             except Exception as exc:
                 try:
                     self._restore_activation_state(
@@ -487,6 +570,7 @@ class DataLake:
                         previous_pointer,
                         previous_catalog,
                     )
+                    self._restore_review_artifacts(journal)
                 except Exception as rollback_exc:
                     raise DataLineageError(
                         "activation failed and rollback could not restore "
@@ -570,6 +654,10 @@ class DataLake:
                         and current_catalog["run_id"] == str(target["run_id"])
                     )
                 )
+                committed = committed and all(
+                    self._review_artifact_matches(item)
+                    for item in journal.get('review_artifacts', [])
+                )
                 if not committed:
                     self._restore_activation_state(
                         pointer,
@@ -579,7 +667,23 @@ class DataLake:
                         journal.get("previous_pointer"),
                         journal.get("previous_catalog"),
                     )
+                    self._restore_review_artifacts(journal)
                 self._unlink_and_sync(journal_path)
+
+    def _review_artifact_matches(self, item: dict[str, Any]) -> bool:
+        from .integrity import sha256_file
+        path = self._resolve_root_relative(item['path'])
+        return path.is_file() and sha256_file(path) == item['sha256']
+
+    def _restore_review_artifacts(self, journal: dict[str, Any]) -> None:
+        # Only artifacts created by this operation may be removed. The signed
+        # preparation/intent remains immutable for diagnosis and retry.
+        for item in journal.get('review_artifacts', []):
+            path = self._resolve_root_relative(item['path'])
+            if not item['existed'] and path.exists():
+                if not self._review_artifact_matches(item):
+                    raise DataLineageError('review rollback blocked by changed artifact')
+                self._unlink_and_sync(path)
 
     def _restore_activation_state(
         self,
@@ -625,17 +729,34 @@ class DataLake:
 
     def repair_current(self, symbol: str, timeframe: str) -> dict[str, Any]:
         """Resync the catalog current row from the filesystem pointer."""
+        from .lineage import load_versioned_lineage
         symbol, timeframe = symbol.upper(), timeframe.upper()
         pointer = self._pointer_path(symbol, timeframe)
         with self.lock(f"current:curated:{symbol}:{timeframe}"):
             payload = self._read_pointer(pointer)
             if payload is None:
-                self._delete_current_catalog(symbol, timeframe)
+                catalog = self._current_catalog_row(symbol, timeframe)
+                if catalog is None:
+                    raise DataLineageError('no verifiable current exists; refusing to guess')
+                lineage = load_versioned_lineage(self, symbol, timeframe, catalog['version'],
+                                                 bars=self.read_bars_version(symbol, timeframe, catalog['version']))
+                if lineage.dataset_manifest.get('publication_run_id') != catalog['run_id']:
+                    raise DataLineageError('catalog publication run does not match verified manifest')
+                payload = {'version': catalog['version'], 'run_id': catalog['run_id'], 'channel': 'curated',
+                           'path': path_text(lineage.curated_path, self.root),
+                           'dataset_manifest_path': path_text(lineage.dataset_manifest_path, self.root)}
+                self._set_pointer(pointer, payload)
                 return {
                     "symbol": symbol,
                     "timeframe": timeframe,
-                    "action": "cleared",
+                    "action": "restored_pointer",
+                    "version": payload['version'],
                 }
+            verified = load_versioned_lineage(self, symbol, timeframe, payload['version'],
+                                              bars=self.read_bars_version(symbol, timeframe, payload['version']))
+            if (payload.get('run_id') != verified.dataset_manifest.get('publication_run_id')
+                    or self._resolve_root_relative(payload.get('path', '')).resolve() != verified.curated_path.resolve()):
+                raise DataLineageError('current pointer does not match verified publication')
             self._set_current_catalog(
                 symbol,
                 timeframe,
@@ -830,11 +951,16 @@ class DataLake:
         dataset_manifest_path = (
             self.root / "dataset_manifests" / f"{version}.json"
         )
+        if not dataset_manifest_path.exists():
+            raise DataLineageError('cannot rollback without a verified dataset manifest')
+        from .lineage import load_versioned_lineage
+        verified = load_versioned_lineage(self, symbol, timeframe, version,
+                                          bars=self.read_bars_version(symbol, timeframe, version))
         self.activate_curated(
             symbol,
             timeframe,
             version,
-            "rollback",
+            str(verified.dataset_manifest['publication_run_id']),
             matching[0],
             dataset_manifest_path=(
                 dataset_manifest_path if dataset_manifest_path.exists() else None
@@ -908,13 +1034,20 @@ class DataLake:
 
     def _resolve_root_relative(self, raw: str) -> Path:
         """Resolve a stored path against the data root; accepts legacy forms."""
+        if not raw:
+            raise DataLineageError('artifact reference is empty')
         candidate = Path(raw)
+        root = self.root.resolve()
         if candidate.is_absolute():
+            if not candidate.resolve().is_relative_to(root):
+                raise DataLineageError('artifact reference escapes the data root')
             return candidate
         root_relative = self.root / candidate
+        if not root_relative.resolve().is_relative_to(root):
+            raise DataLineageError('artifact reference escapes the data root')
         if root_relative.exists():
             return root_relative
-        if candidate.exists():
+        if candidate.exists() and candidate.resolve().is_relative_to(root):
             return candidate
         return root_relative
 
@@ -994,24 +1127,7 @@ class DataLake:
     def _write_bytes_atomic(
         self, path: Path, payload: bytes, *, replace: bool = False
     ) -> None:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        if path.exists() and not replace:
-            raise FileExistsError(path)
-        temporary = path.with_name(
-            f".{path.name}.{os.getpid()}.{uuid4().hex}.tmp"
-        )
-        try:
-            with temporary.open("xb") as handle:
-                handle.write(payload)
-                handle.flush()
-                os.fsync(handle.fileno())
-            if path.exists() and not replace:
-                raise FileExistsError(path)
-            os.replace(temporary, path)
-            self._fsync_directory(path.parent)
-        finally:
-            if temporary.exists():
-                temporary.unlink()
+        atomic_write(path, payload, replace=replace, directory_sync=self._fsync_directory)
 
     def _unlink_and_sync(self, path: Path) -> None:
         try:
@@ -1043,9 +1159,18 @@ class DataLake:
         published_version: str = "",
         approval_decision: str = "",
         reviewed_at: str | None = None,
+        _locked: bool = False,
     ) -> Path:
+        if not _locked:
+            with self.lock(f'review:{run_id}', timeout=60.0):
+                return self.review(run_id, decision, reason, actor=actor,
+                                   published_version=published_version,
+                                   approval_decision=approval_decision, reviewed_at=reviewed_at,
+                                   _locked=True)
         if decision not in {"approved", "rejected"}:
             raise ValueError("review decision must be approved or rejected")
+        if decision == 'rejected' and (self.root / 'reviews' / f'candidate={run_id}' / 'approval_plan.json').exists():
+            raise DataLineageError('approval has been prepared; cannot replace it with rejection')
         payload = {
             "run_id": run_id,
             "decision": decision,
