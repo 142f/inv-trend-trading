@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-import math
 from typing import Any, Mapping
+
+from inv_trend.core.math_utils import finite_float as _finite
 
 from ..models.domain import LONG
 from ..models.order_intent import PendingOrderIntent
@@ -46,9 +47,3 @@ class ExpiryPolicy:
         return ExpiryResult("pending")
 
 
-def _finite(value: Any) -> float | None:
-    try:
-        value = float(value)
-    except (TypeError, ValueError):
-        return None
-    return value if math.isfinite(value) else None

@@ -9,7 +9,7 @@ from pathlib import Path
 import sqlite3
 from typing import Any, Collection, Iterator, Mapping
 
-from inv_trend.core.signals import SignalEvent
+from inv_trend.core.signals import SignalEvent, is_execution_notification_event as _is_execution_notification_event
 
 
 class SQLiteDailySignalRepository:
@@ -679,13 +679,6 @@ def _validate_execution_notification_events(
             "notification selectors may select only confirmed execution decision events: "
             f"{invalid}"
         )
-
-
-def _is_execution_notification_event(event: SignalEvent) -> bool:
-    return (
-        event.indicator_name == "execution_decision"
-        and event.signal_type in {"ENTRY_DECISION_LONG", "ENTRY_DECISION_SHORT"}
-    )
 
 
 def _daily_run_summary(rows: list[Mapping[str, Any]], signals_new: int) -> dict[str, int]:

@@ -9,6 +9,12 @@ from uuid import uuid4
 from typing import Any, Mapping
 
 
+def stable_id(*parts: Any) -> str:
+    """Return the 24-character identity shared by reports, episodes, and candidates."""
+
+    return hashlib.sha256("|".join(map(str, parts)).encode("utf-8")).hexdigest()[:24]
+
+
 def _fingerprint(payload: Mapping[str, Any]) -> str:
     encoded = json.dumps(payload, sort_keys=True, default=str, separators=(",", ":")).encode()
     return hashlib.sha256(encoded).hexdigest()

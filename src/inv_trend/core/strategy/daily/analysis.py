@@ -11,8 +11,9 @@ from __future__ import annotations
 from inv_trend.core.math_utils import finite_float as _number
 
 from dataclasses import dataclass
-import hashlib
 from typing import Any, Mapping
+
+from ...identity import stable_id as _stable_id
 
 import pandas as pd
 
@@ -756,10 +757,6 @@ def _stop_position(frame: pd.DataFrame, position: int) -> int:
     if stop < 1 or stop > len(frame):
         raise IndexError("daily analysis position is outside the prepared frame")
     return stop
-
-
-def _stable_id(*parts: Any) -> str:
-    return hashlib.sha256("|".join(map(str, parts)).encode("utf-8")).hexdigest()[:24]
 
 
 __all__ = [
