@@ -26,6 +26,7 @@ from inv_trend.adapters.daily.stage_runtime_adapters import (
     DeliveryStageRuntimeAdapter,
     PublishStageRuntimeAdapter,
 )
+from inv_trend.core.serializers import as_mapping as _mapping
 from inv_trend.core.signals import CORRECTED_STRATEGY_VERSION
 
 
@@ -437,10 +438,6 @@ def _stage_gate_failures(
         # contract remains authoritative in that compatibility case.
         return []
     return failures
-
-
-def _mapping(value: Any) -> Mapping[str, Any]:
-    return value if isinstance(value, Mapping) else {}
 
 
 def _as_nonnegative_int(value: Any) -> int:

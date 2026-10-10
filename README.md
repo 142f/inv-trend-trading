@@ -23,12 +23,15 @@
 编排；成分股的历史快照读写归属 `data/成分股快照.py`，只读目录审计归属
 `data/目录核验.py`。文件哈希统一使用 `data/integrity.py`，持久化原子写入使用
 `data/文件操作.py`；数值转换复用 `core/math_utils.py` 的 `finite_float`，UTC 时间转换复用
-`core/时间.py`。执行上下文解析统一放在 `application/daily/stage_payloads.py`，CSV 导出复用
-`adapters/multi_asset/data/exporter.py`。
+`core/时间.py`。映射与行筛选复用 `core/serializers.py` 的 `as_mapping` / `mapping_rows`，
+稳定短标识复用 `core/identity.py` 的 `stable_id`，执行通知事件判定复用
+`core/signals.py` 的 `is_execution_notification_event`。执行上下文解析统一放在
+`application/daily/stage_payloads.py`，CSV 导出复用 `adapters/multi_asset/data/exporter.py`。
 
 正式测试位于 `tests/` 和 `tests/unit/`。保留可复用的研究、运维、数据核验和基准工具；
-固定历史提交的重构证据脚本、一次性基线认证脚本及缺失清单的旧清理脚本已移除，
-其中仍有效的特征复用和突破边界检查已纳入正式测试；原“5 轮重构”测试按职责整理为
+固定历史提交的重构证据脚本、一次性基线认证脚本、缺失清单的旧清理脚本、
+历史补丁覆盖前核验、一次性交付打包和浏览器自检脚本已移除。其中仍有效的特征复用、
+突破边界和报告结构检查已纳入正式测试；原“5 轮重构”测试按职责整理为
 `tests/unit/test_核心计算回归.py`。已有配置文件和兼容入口继续保留。
 
 Windows 验证入口为 `scripts/run_tests.ps1 -q`；静态未使用代码检查使用

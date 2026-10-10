@@ -30,7 +30,9 @@ def render_and_write_report(result: AlertScanResult, log_dir: str | Path, *, no_
     display.print(table)
     display.print(summary)
     buffer = StringIO()
-    file_console = Console(file=buffer, no_color=True, width=180)
+    # Rich on Windows keeps a color system when no_color is set, so bold and
+    # italic still become ANSI.  A log file must stay plain text.
+    file_console = Console(file=buffer, no_color=True, color_system=None, width=180)
     file_console.print(table)
     file_console.print(summary)
     _ensure_utf8_bom(text_path)

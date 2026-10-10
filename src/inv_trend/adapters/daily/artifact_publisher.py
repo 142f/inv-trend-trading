@@ -12,6 +12,10 @@ import shutil
 from typing import TYPE_CHECKING, Any, Mapping
 from uuid import uuid4
 
+from inv_trend.core.serializers import as_mapping as _mapping
+from inv_trend.core.serializers import mapping_rows as _rows
+from inv_trend.data.integrity import sha256_file, stable_hash
+
 if TYPE_CHECKING:
     from inv_trend.application.daily.artifact_publication import DailyArtifactPublication
     from inv_trend.application.daily.ports import DailyReportRendererPort
@@ -1158,28 +1162,11 @@ def _csv_value(value: Any) -> Any:
 
 
 def _sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return f"sha256:{digest.hexdigest()}"
+    return f"sha256:{sha256_file(path)}"
 
 
 def _payload_hash(payload: Mapping[str, Any]) -> str:
-    serialized = json.dumps(
-        payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str
-    ).encode("utf-8")
-    return hashlib.sha256(serialized).hexdigest()
-
-
-def _mapping(value: Any) -> Mapping[str, Any]:
-    return value if isinstance(value, Mapping) else {}
-
-
-def _rows(value: Any) -> list[Mapping[str, Any]]:
-    if not isinstance(value, (tuple, list)):
-        return []
-    return [item for item in value if isinstance(item, Mapping)]
+    return stable_hash(payload)
 
 
 # Preferred adapter-facing name; the writer name remains the public legacy API.

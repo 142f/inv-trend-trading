@@ -106,20 +106,26 @@ def audit_dataset(root: str | Path, symbol: str, timeframe: str = "D1") -> dict[
             else:
                 conflicting_duplicates += 1
 
-    invalid_ohlc = 0
+    def _as_float(column: str) -> pd.Series:
+        # float() preserves the previous TypeError/ValueError for non-numeric cells.
+        return pd.Series(
+            (float(value) for value in frame[column].to_numpy()),
+            index=frame.index,
+            dtype=float,
+        )
+
+    opened, high, low, closed = (_as_float(name) for name in ("open", "high", "low", "close"))
+    invalid_ohlc = int((~(
+        (high >= opened) & (high >= closed) & (low <= opened) & (low <= closed)
+        & (high >= low) & (opened > 0) & (high > 0) & (low > 0) & (closed > 0)
+    )).sum())
     negative_volume = 0
-    nan_rows = 0
-    for _, row in frame.iterrows():
-        o = float(row["open"])
-        h = float(row["high"])
-        lo = float(row["low"])
-        c = float(row["close"])
-        if not (h >= o and h >= c and lo <= o and lo <= c and h >= lo and o > 0 and h > 0 and lo > 0 and c > 0):
-            invalid_ohlc += 1
-        if pd.notna(row["volume"]) and float(row["volume"]) < 0:
+    for value in frame["volume"].to_numpy():
+        if pd.notna(value) and float(value) < 0:
             negative_volume += 1
-        if any(pd.isna(row[col]) for col in ("open", "high", "low", "close")):
-            nan_rows += 1
+    nan_rows = int(
+        frame.loc[:, ["open", "high", "low", "close"]].isna().any(axis=1).sum()
+    )
 
     version = current["version"]
     lineage = {"manifest_exists": manifest is not None, "quality_report_exists": report is not None,

@@ -8,8 +8,10 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from inv_trend.core.identity import stable_id
 from inv_trend.core.math_utils import finite_float
-from inv_trend.data.integrity import sha256_file
+from inv_trend.core.signals import SignalEvent, is_execution_notification_event
+from inv_trend.data.integrity import sha256_file, stable_hash
 from inv_trend.data.文件操作 import atomic_write
 from inv_trend.core.时间 import utc_datetime, utc_timestamp
 
@@ -64,6 +66,41 @@ def test_staging_symbols_preserves_order_duplicates_and_scalar_conversion():
 )
 def test_finite_float_preserves_report_and_strategy_scalar_contract(value, expected):
     assert finite_float(value) == expected
+
+
+def test_stable_id_and_payload_hash_stay_order_sensitive_and_canonical() -> None:
+    assert stable_id("turtle", "20", "2024-01-01") != stable_id("turtle", "55", "2024-01-01")
+    assert stable_id("a", 1) == stable_id("a", "1")
+    assert len(stable_id("a", "b")) == 24
+    payload = {"b": 1, "a": ["x", 2]}
+    assert stable_hash(payload) == stable_hash({"a": ["x", 2], "b": 1})
+    assert stable_hash(payload) == hashlib.sha256(
+        b'{"a":["x",2],"b":1}'
+    ).hexdigest()
+
+
+def test_execution_notification_predicate_accepts_only_confirmed_entries() -> None:
+    def event(signal_type: str, indicator: str = "execution_decision") -> SignalEvent:
+        return SignalEvent(
+            signal_id="1",
+            signal_key="k",
+            instrument_id="i",
+            symbol="BTC",
+            timeframe="D1",
+            signal_type=signal_type,
+            direction="long",
+            signal_time="t",
+            detected_at="t",
+            trigger_price=1.0,
+            reference_value=None,
+            dataset_version="v",
+            indicator_name=indicator,
+        )
+
+    assert is_execution_notification_event(event("ENTRY_DECISION_LONG"))
+    assert is_execution_notification_event(event("ENTRY_DECISION_SHORT"))
+    assert not is_execution_notification_event(event("EXIT_DECISION_LONG"))
+    assert not is_execution_notification_event(event("ENTRY_DECISION_LONG", "turtle_20"))
 
 
 def test_failed_atomic_replace_preserves_previous_artifact_and_cleans_stage(tmp_path, monkeypatch):

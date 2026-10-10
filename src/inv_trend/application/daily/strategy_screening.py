@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from inv_trend.core.identity import stable_id as _stable_hash
 from inv_trend.core.math_utils import finite_float as _finite
 
 from dataclasses import asdict, dataclass
@@ -26,7 +27,7 @@ from ..daily_models import DataUpdateResult, StrategyScreeningResult
 from ..strategy_config import DailyChecksConfig, TrendDecisionConfig
 from .data_update import DataUpdateStage
 from .ports import EligibilityPort
-from .stage_payloads import json_safe
+from .stage_payloads import json_safe, mapping as _mapping
 
 
 @dataclass(frozen=True)
@@ -449,12 +450,6 @@ def _as_of(analysis: Mapping[str, Any]) -> str | None:
     return str(latest.get("timestamp") or "") or None
 
 
-def _mapping(value: Any) -> Mapping[str, Any]:
-    return value if isinstance(value, Mapping) else {}
-
-
-
-
 def _hash_payload(payload: Mapping[str, Any]) -> str:
     encoded = json.dumps(
         payload,
@@ -465,10 +460,6 @@ def _hash_payload(payload: Mapping[str, Any]) -> str:
         default=str,
     )
     return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
-
-
-def _stable_hash(*parts: Any) -> str:
-    return hashlib.sha256("|".join(map(str, parts)).encode("utf-8")).hexdigest()[:24]
 
 
 __all__ = [

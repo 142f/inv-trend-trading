@@ -9,6 +9,7 @@ import numpy as np
 import pandas as pd
 
 from inv_trend.core.features import FeatureCache, FeatureRequest
+from inv_trend.core.math_utils import finite_float as _finite_or_none
 from inv_trend.core.math_utils import rolling_percentile
 
 from ..alerts.notifier import Notifier
@@ -637,14 +638,6 @@ def direction_sign(direction: Direction) -> int:
     if direction is Direction.SHORT:
         return -1
     return 0
-
-
-def _finite_or_none(value: object) -> float | None:
-    try:
-        number = float(value)
-    except (TypeError, ValueError):
-        return None
-    return number if np.isfinite(number) else None
 
 
 def _alignment_description(

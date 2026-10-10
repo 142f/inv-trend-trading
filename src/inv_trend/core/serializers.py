@@ -79,6 +79,20 @@ def thaw_json(value: Any) -> Any:
     return value
 
 
+def as_mapping(value: Any) -> Mapping[str, Any]:
+    """Return a mapping unchanged, or an empty mapping for every other value."""
+
+    return value if isinstance(value, Mapping) else {}
+
+
+def mapping_rows(value: Any) -> list[Mapping[str, Any]]:
+    """Keep only mapping items from a list or tuple."""
+
+    if not isinstance(value, (list, tuple)):
+        return []
+    return [item for item in value if isinstance(item, Mapping)]
+
+
 def canonical_json_bytes(payload: Mapping[str, Any]) -> bytes:
     """Serialize a mapping to stable UTF-8 bytes suitable for hashing."""
 
@@ -92,4 +106,11 @@ def canonical_json_bytes(payload: Mapping[str, Any]) -> bytes:
     ).encode("utf-8")
 
 
-__all__ = ["canonical_json_bytes", "freeze_json", "serialize_event", "thaw_json"]
+__all__ = [
+    "as_mapping",
+    "canonical_json_bytes",
+    "freeze_json",
+    "mapping_rows",
+    "serialize_event",
+    "thaw_json",
+]

@@ -5,10 +5,10 @@ from __future__ import annotations
 from dataclasses import replace
 import hashlib
 import json
-import math
 from typing import Any, Iterable, Mapping
 
 from inv_trend.core.decision_events import ExecutionDecisionEvent
+from inv_trend.core.math_utils import finite_float
 from inv_trend.core.explanations import DecisionEvidenceItem
 from inv_trend.core.signals import SignalEvent
 from inv_trend.core.趋势准入 import confirmed_eligibility
@@ -22,7 +22,7 @@ from ..daily_models import (
 )
 from ..strategy_config import TrendDecisionConfig
 from .projections import decision_backed_assessment, market_assessment_from_decision
-from .stage_payloads import json_safe, rows
+from .stage_payloads import json_safe, mapping as _mapping, optional_text as _optional_text, rows
 
 
 class TrendDecisionService:
@@ -489,11 +489,8 @@ def _structured_evidence_chain(
 
 
 def _finite_float(value: Any, fallback: float) -> float:
-    try:
-        number = float(value)
-    except (TypeError, ValueError):
-        return fallback
-    return number if math.isfinite(number) else fallback
+    number = finite_float(value)
+    return fallback if number is None else number
 
 
 def _eligibility_blocks(eligibility: Mapping[str, Any], direction: str) -> tuple[str, ...]:
@@ -707,10 +704,10 @@ def _breakout_assessment(payload: Mapping[str, Any]) -> BreakoutAssessment:
         signal_id=_optional_text(payload.get("signal_id")),
         timestamp=str(payload["timestamp"]),
         timeframe=str(payload.get("timeframe", "D1")),
-        current_price=_float_or_none(payload.get("current_price")),
+        current_price=finite_float(payload.get("current_price")),
         breakout_type=str(payload.get("breakout_type", "")),
         breakout_object=str(payload.get("breakout_object", "")),
-        breakout_level=_float_or_none(payload.get("breakout_level")),
+        breakout_level=finite_float(payload.get("breakout_level")),
         previous_state=str(payload.get("previous_state", "")),
         post_state=str(payload.get("post_state", "")),
         trend=str(payload.get("trend", "")),
@@ -731,22 +728,6 @@ def _assessment_signal_key(assessment: BreakoutAssessment) -> tuple[str, str, st
     text = assessment.breakout_type.lower()
     direction = "long" if "up" in text or "\u5411\u4e0a" in assessment.breakout_type else "short"
     return indicator, assessment.timestamp, direction
-
-
-def _optional_text(value: Any) -> str | None:
-    return None if value is None else str(value)
-
-
-def _float_or_none(value: Any) -> float | None:
-    try:
-        result = float(value)
-    except (TypeError, ValueError):
-        return None
-    return result if math.isfinite(result) else None
-
-
-def _mapping(value: Any) -> Mapping[str, Any]:
-    return value if isinstance(value, Mapping) else {}
 
 
 __all__ = [

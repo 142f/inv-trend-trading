@@ -5,7 +5,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Mapping
 
-from inv_trend.core.signals import CORRECTED_STRATEGY_VERSION, SignalEvent
+from inv_trend.core.signals import (
+    CORRECTED_STRATEGY_VERSION,
+    SignalEvent,
+    is_execution_notification_event as _is_execution_notification_event,
+)
 from inv_trend.core.时间 import utc_datetime
 
 from .ports import DailyWorkflowRuntimePort
@@ -411,13 +415,6 @@ def _resolve_projection_notification_ids(
     # recovery, but fail closed by suppressing those technical notification IDs.
     suppressed = tuple(sorted(requested - confirmed))
     return confirmed, suppressed
-
-
-def _is_execution_notification_event(event: SignalEvent) -> bool:
-    return (
-        event.indicator_name == "execution_decision"
-        and event.signal_type in {"ENTRY_DECISION_LONG", "ENTRY_DECISION_SHORT"}
-    )
 
 
 def _projection_events(

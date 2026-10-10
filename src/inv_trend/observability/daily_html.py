@@ -4,9 +4,10 @@ from __future__ import annotations
 
 from html import escape
 import json
-import math
 from pathlib import Path
 from typing import Any, Iterable, Mapping
+
+from inv_trend.core.math_utils import finite_float
 
 from .report_renderer import write_daily_dashboard
 
@@ -157,10 +158,7 @@ def _line_svg(rows: list[Mapping[str, Any]], series: tuple[tuple[str, str], ...]
 
 
 def _finite(value: Any) -> bool:
-    try:
-        return math.isfinite(float(value))
-    except (TypeError, ValueError):
-        return False
+    return finite_float(value) is not None
 
 
 def _text(value: Any) -> str:

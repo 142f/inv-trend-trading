@@ -7,10 +7,7 @@ not for stable package APIs.
 
 ```text
 research/
-├── d1_suite/            D1 multi-asset backtest and pruning experiments.
-├── metal_tech_core/     Metal + technology core universe analysis.
-├── strategy_variants/   Strategy comparison scripts.
-└── xau_short_policy/    XAU short-policy experiments.
+└── d1_suite/            D1 multi-asset backtest and pruning experiments.
 ```
 
 ## Usage

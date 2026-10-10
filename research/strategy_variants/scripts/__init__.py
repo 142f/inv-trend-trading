@@ -1,1 +1,0 @@
-"""Strategy variant scripts package."""
