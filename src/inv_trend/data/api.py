@@ -370,21 +370,12 @@ class HistoricalDataService:
         cutoff = existing["timestamp"].max() - overlap * pd.Timedelta(FRAME_DELTAS[timeframe])
         comparable = [column for column in ("open", "high", "low", "close", "adjusted_close", "volume")
                       if column in existing and column in incoming]
-        old = existing.set_index("timestamp")
         revisions: list[dict[str, object]] = []
-        for _, row in incoming.loc[incoming["timestamp"] < cutoff].iterrows():
-            timestamp = row["timestamp"]
-            if timestamp not in old.index:
+        for timestamp, existing_position, incoming_position, changed in _completed_bar_changes(
+            existing, incoming, comparable, incoming["timestamp"] < cutoff
+        ):
+            if not _flag(incoming, "is_complete", incoming_position):
                 continue
-            previous = old.loc[timestamp]
-            if isinstance(previous, pd.DataFrame):
-                previous = previous.iloc[-1]
-            if not (bool(previous.get("is_complete", False)) and bool(row.get("is_complete", False))):
-                continue
-            changed = [
-                column for column in comparable
-                if not _same_bar_value(previous[column], row[column])
-            ]
             if changed:
                 revisions.append({"timestamp": timestamp.isoformat(), "changed_fields": changed})
         return revisions
@@ -488,7 +479,6 @@ class HistoricalDataService:
         conflicts: list[dict[str, object]] = []
         rejected: list[pd.Series] = []
         if not existing.empty and not incoming.empty:
-            prior = existing.set_index("timestamp")
             value_columns = [
                 column
                 for column in (
@@ -498,28 +488,21 @@ class HistoricalDataService:
                 if column in existing and column in incoming
             ]
             keep_incoming: list[bool] = []
-            for _, row in incoming.iterrows():
-                old = (
-                    prior.loc[row["timestamp"]]
-                    if row["timestamp"] in prior.index
-                    else None
-                )
-                if isinstance(old, pd.DataFrame):
-                    old = old.iloc[-1]
-                if old is None or not bool(old.get("is_complete", False)):
+            rejected_positions: list[int] = []
+            for timestamp, existing_position, incoming_position, changed in _completed_bar_changes(
+                existing, incoming, value_columns
+            ):
+                if existing_position is None or not _flag(existing, "is_complete", existing_position):
                     keep_incoming.append(True)
                     continue
-                changed = [
-                    column
-                    for column in value_columns
-                    if not _same_bar_value(old[column], row[column])
-                ]
                 if not changed:
                     keep_incoming.append(False)
                     continue
+                old = existing.iloc[existing_position]
+                row = incoming.iloc[incoming_position]
                 conflicts.append(
                     {
-                        "timestamp": row["timestamp"].isoformat(),
+                        "timestamp": timestamp.isoformat(),
                         "existing_value": {
                             column: None if pd.isna(old[column]) else old[column]
                             for column in value_columns
@@ -531,8 +514,10 @@ class HistoricalDataService:
                         "changed_fields": changed,
                     }
                 )
-                rejected.append(row)
+                rejected_positions.append(incoming_position)
                 keep_incoming.append(False)
+            if rejected_positions:
+                rejected.extend(incoming.iloc[position] for position in rejected_positions)
             incoming = incoming.loc[keep_incoming]
 
         non_empty = [frame for frame in (existing, incoming) if not frame.empty]
@@ -1070,6 +1055,68 @@ def _aware_utc(value: datetime) -> datetime:
     if value.tzinfo is None:
         raise ValueError("datetime boundaries must be timezone-aware")
     return value.astimezone(timezone.utc)
+
+
+def _timestamp_positions(frame: pd.DataFrame) -> tuple[dict[object, int], int | None]:
+    """Last row of each timestamp. NaT is not equal to itself, so it is stored apart."""
+
+    positions: dict[object, int] = {}
+    missing: int | None = None
+    for position, timestamp in enumerate(frame["timestamp"].tolist()):
+        if pd.isna(timestamp):
+            missing = position
+        else:
+            positions[timestamp] = position
+    return positions, missing
+
+
+def _locate_timestamp(
+    timestamp: object, positions: dict[object, int], missing: int | None
+) -> int | None:
+    if pd.isna(timestamp):
+        return missing
+    return positions.get(timestamp)
+
+
+def _flag(frame: pd.DataFrame, column: str, position: int) -> bool:
+    if column not in frame.columns:
+        return False
+    return bool(frame[column].iloc[position])
+
+
+def _completed_bar_changes(
+    existing: pd.DataFrame,
+    incoming: pd.DataFrame,
+    columns: list[str],
+    selected: pd.Series | None = None,
+):
+    """Pair incoming rows with the last existing row and list changed columns.
+
+    ``existing_position`` is None when the timestamp is absent. Incomplete
+    existing bars are still returned so the caller can keep the incoming row.
+    """
+
+    positions, missing = _timestamp_positions(existing)
+    existing_values = {column: existing[column].tolist() for column in columns}
+    incoming_values = {column: incoming[column].tolist() for column in columns}
+    timestamps = incoming["timestamp"].tolist()
+    chosen = selected.tolist() if selected is not None else None
+    for incoming_position, timestamp in enumerate(timestamps):
+        if chosen is not None and not chosen[incoming_position]:
+            continue
+        existing_position = _locate_timestamp(timestamp, positions, missing)
+        if existing_position is None or not _flag(existing, "is_complete", existing_position):
+            changed: list[str] = []
+        else:
+            changed = [
+                column
+                for column in columns
+                if not _same_bar_value(
+                    existing_values[column][existing_position],
+                    incoming_values[column][incoming_position],
+                )
+            ]
+        yield timestamp, existing_position, incoming_position, changed
 
 
 def _same_bar_value(left: object, right: object) -> bool:

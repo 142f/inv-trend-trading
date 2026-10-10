@@ -2,7 +2,13 @@ from __future__ import annotations
 
 import pytest
 
-from inv_trend.core.serializers import canonical_json_bytes, freeze_json, thaw_json
+from inv_trend.core.serializers import (
+    as_mapping,
+    canonical_json_bytes,
+    freeze_json,
+    mapping_rows,
+    thaw_json,
+)
 
 
 def test_freeze_detaches_nested_mutable_containers() -> None:
@@ -14,6 +20,16 @@ def test_freeze_detaches_nested_mutable_containers() -> None:
     assert thaw_json(frozen) == {"items": [{"value": 1}]}
     with pytest.raises(TypeError):
         frozen["new"] = "blocked"
+
+
+def test_shared_mapping_helpers_drop_non_mappings_without_copying_mappings() -> None:
+    payload = {"a": 1}
+    assert as_mapping(payload) is payload
+    assert as_mapping(None) == {}
+    assert as_mapping([payload]) == {}
+    assert mapping_rows([payload, "skip", {"b": 2}, None]) == [payload, {"b": 2}]
+    assert mapping_rows({"a": 1}) == []
+    assert mapping_rows(None) == []
 
 
 def test_canonical_json_is_order_independent_and_rejects_nan() -> None:

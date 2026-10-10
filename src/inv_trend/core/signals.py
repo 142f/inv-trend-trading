@@ -58,3 +58,15 @@ def crossed_above(previous_left: float, previous_right: float, left: float, righ
 
 def crossed_below(previous_left: float, previous_right: float, left: float, right: float) -> bool:
     return previous_left >= previous_right and left < right
+
+
+_EXECUTION_NOTIFICATION_TYPES = frozenset({"ENTRY_DECISION_LONG", "ENTRY_DECISION_SHORT"})
+
+
+def is_execution_notification_event(event: SignalEvent) -> bool:
+    """Return whether a signal may enter the formal execution-notification outbox."""
+
+    return (
+        event.indicator_name == "execution_decision"
+        and event.signal_type in _EXECUTION_NOTIFICATION_TYPES
+    )

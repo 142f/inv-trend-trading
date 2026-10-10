@@ -6,6 +6,7 @@ from typing import Any, Mapping
 
 import numpy as np
 import pandas as pd
+from inv_trend.core.math_utils import finite_float as _finite_float
 from inv_trend.core.趋势准入 import trend_filter
 
 from inv_trend.core.突破规则 import breakout_direction
@@ -620,11 +621,3 @@ class MultiAssetTurtleStrategy:
         return rows
 
 
-def _finite_float(value: Any) -> float | None:
-    try:
-        value = float(value)
-    except (TypeError, ValueError):
-        return None
-    if not np.isfinite(value):
-        return None
-    return value

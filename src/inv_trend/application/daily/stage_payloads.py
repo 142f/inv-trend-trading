@@ -8,6 +8,8 @@ from typing import Any, Mapping
 
 import pandas as pd
 
+from inv_trend.core.serializers import as_mapping, mapping_rows
+
 from ..daily_models import DataUpdateResult, StrategyScreeningResult, TrendDecisionResult
 from .workspace import canonical_payload_hash
 
@@ -258,13 +260,11 @@ def validate_commit_projection(
 
 
 def mapping(value: Any) -> Mapping[str, Any]:
-    return value if isinstance(value, Mapping) else {}
+    return as_mapping(value)
 
 
 def rows(value: Any) -> list[Mapping[str, Any]]:
-    if not isinstance(value, (list, tuple)):
-        return []
-    return [item for item in value if isinstance(item, Mapping)]
+    return mapping_rows(value)
 
 
 def optional_text(value: Any) -> str | None:
