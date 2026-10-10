@@ -10,6 +10,8 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping
 from typing import Any
 
+from inv_trend.core.serializers import as_mapping as _mapping
+
 from .renderer import render_daily_dashboard
 
 
@@ -101,10 +103,6 @@ def _aggregate_summary(rows: Iterable[Mapping[str, Any]]) -> Mapping[str, Any]:
     return {
         "instrument_count": sum(1 for _ in rows),
     }
-
-
-def _mapping(value: Any) -> Mapping[str, Any]:
-    return value if isinstance(value, Mapping) else {}
 
 
 __all__ = [

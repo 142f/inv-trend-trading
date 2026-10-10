@@ -11,9 +11,10 @@ from __future__ import annotations
 from inv_trend.core.math_utils import finite_float as _number
 
 from dataclasses import dataclass, field
-import hashlib
 import math
 from typing import Any, Mapping, TYPE_CHECKING
+
+from ...identity import stable_id as _stable_id
 
 import pandas as pd
 
@@ -316,7 +317,7 @@ def _turtle_spec(
     trigger_level: float | None = None
     trigger_atr: float | None = None
     trigger_conditions: tuple[Mapping[str, Any], ...] = ()
-    for position, (timestamp, row) in enumerate(frame.iterrows()):
+    for position, timestamp, row in _iter_rows(frame):
         close = _number(row.get("close"))
         atr = _number(row.get("atr"))
         entry_high = _number(row.get(f"channel_high_{entry_period}"))
@@ -455,7 +456,7 @@ def _turtle_spec(
 
 def _sma_cross_spec(prepared: PreparedDailyAnalysis) -> _Spec:
     points: list[_Point] = []
-    for position, (timestamp, row) in enumerate(prepared.base.iterrows()):
+    for position, timestamp, row in _iter_rows(prepared.base):
         fast, slow, atr, price = (_number(row.get(name)) for name in ("sma_10", "sma_20", "atr", "close"))
         points.append(
             _directional_gap_point(
@@ -473,7 +474,7 @@ def _sma_cross_spec(prepared: PreparedDailyAnalysis) -> _Spec:
 def _sma_stack_spec(prepared: PreparedDailyAnalysis) -> _Spec:
     periods = prepared.strategy.config.sma_periods
     points: list[_Point] = []
-    for position, (timestamp, row) in enumerate(prepared.base.iterrows()):
+    for position, timestamp, row in _iter_rows(prepared.base):
         values = [_number(row.get(f"sma_{period}")) for period in periods]
         atr, price = _number(row.get("atr")), _number(row.get("close"))
         available = all(value is not None for value in values) and atr is not None and atr > 0
@@ -521,7 +522,7 @@ def _sma_stack_spec(prepared: PreparedDailyAnalysis) -> _Spec:
 def _ema_spec(prepared: PreparedDailyAnalysis) -> _Spec:
     short, long = prepared.strategy.config.ema_periods
     points: list[_Point] = []
-    for position, (timestamp, row) in enumerate(prepared.base.iterrows()):
+    for position, timestamp, row in _iter_rows(prepared.base):
         fast, slow, atr, price = (
             _number(row.get(f"ema_{short}")), _number(row.get(f"ema_{long}")),
             _number(row.get("atr")), _number(row.get("close")),
@@ -549,7 +550,7 @@ def _macd_spec(prepared: PreparedDailyAnalysis, sessions: int) -> _Spec:
     minimum = prepared.strategy.config.macd_slow + prepared.strategy.config.macd_signal - 1
     positions = {timestamp: index for index, timestamp in enumerate(prepared.base.index)}
     points: list[_Point] = []
-    for native_position, (timestamp, row) in enumerate(frame.iterrows()):
+    for native_position, timestamp, row in _iter_rows(frame):
         dif, dea, atr, price = (
             _number(row.get("dif")), _number(row.get("dea")),
             _number(row.get("atr")), _number(row.get("close")),
@@ -608,7 +609,7 @@ def _macd_spec(prepared: PreparedDailyAnalysis, sessions: int) -> _Spec:
 def _adx_spec(prepared: PreparedDailyAnalysis) -> _Spec:
     threshold = prepared.strategy.config.adx_threshold
     points: list[_Point] = []
-    for position, (timestamp, row) in enumerate(prepared.base.iterrows()):
+    for position, timestamp, row in _iter_rows(prepared.base):
         adx, plus_di, minus_di, price = (
             _number(row.get("adx")), _number(row.get("plus_di")),
             _number(row.get("minus_di")), _number(row.get("close")),
@@ -655,7 +656,7 @@ def _adx_spec(prepared: PreparedDailyAnalysis) -> _Spec:
 def _atr_spec(prepared: PreparedDailyAnalysis) -> _Spec:
     config = prepared.strategy.config
     points: list[_Point] = []
-    for position, (timestamp, row) in enumerate(prepared.base.iterrows()):
+    for position, timestamp, row in _iter_rows(prepared.base):
         percentile, atr, atr_pct, price = (
             _number(row.get("atr_percentile")), _number(row.get("atr")),
             _number(row.get("atr_pct")), _number(row.get("close")),
@@ -697,7 +698,7 @@ def _atr_spec(prepared: PreparedDailyAnalysis) -> _Spec:
 def _volume_spec(prepared: PreparedDailyAnalysis) -> _Spec:
     threshold = prepared.strategy.config.volume_confirmation_ratio
     points: list[_Point] = []
-    for position, (timestamp, row) in enumerate(prepared.base.iterrows()):
+    for position, timestamp, row in _iter_rows(prepared.base):
         relative, volume, price = (
             _number(row.get("relative_volume")), _number(row.get("volume")),
             _number(row.get("close")),
@@ -822,8 +823,35 @@ def _round_delta(value: float) -> float:
 
 
 
-def _stable_id(*parts: Any) -> str:
-    return hashlib.sha256("|".join(map(str, parts)).encode("utf-8")).hexdigest()[:24]
+class _BarRow:
+    """Column view valid only for the current iteration of :func:`_iter_rows`."""
+
+    __slots__ = ("_arrays", "_position")
+
+    def __init__(self, arrays: dict[str, Any]) -> None:
+        self._arrays = arrays
+        self._position = 0
+
+    def get(self, key: str, default: Any = None) -> Any:
+        values = self._arrays.get(key)
+        if values is None:
+            return default
+        return values[self._position]
+
+
+def _iter_rows(frame: pd.DataFrame):
+    """Yield position, index label, and column lookup without a Series per bar."""
+
+    if frame.columns.has_duplicates:
+        for position, (timestamp, row) in enumerate(frame.iterrows()):
+            yield position, timestamp, row
+        return
+    arrays = {column: frame[column].to_numpy(copy=False) for column in frame.columns}
+    row = _BarRow(arrays)
+    index = frame.index
+    for position in range(len(frame)):
+        row._position = position
+        yield position, index[position], row
 
 
 __all__ = [
