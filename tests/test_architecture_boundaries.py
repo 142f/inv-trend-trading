@@ -166,7 +166,20 @@ def test_ports_only_depend_on_pure_layers() -> None:
     assert violations == []
 
 
-def test_adapter_reverse_dependencies_are_an_explicit_transition_allowlist() -> None:
+def test_adapters_do_not_depend_on_the_application_package() -> None:
+    """Adapter code must never import the use-case layer above it.
+
+    ``adapters -> observability`` is deliberately *not* checked here.  The
+    presentation package owns rendering only — it is already forbidden from
+    importing ``data`` or ``adapters`` — so a filesystem publisher composing an
+    HTML renderer is a *downward* dependency, not a reversed one; forcing it
+    out would require the application layer (which may not import
+    ``observability``) to build the default renderer, and direct
+    ``DailyMarketScanService`` constructions rely on that default.  The exact
+    package graph, including that edge, is pinned by ``DECLARED_PACKAGE_EDGES``
+    above, so the pair still cannot grow.
+    """
+
     root = Path(__file__).parents[1] / "src" / "inv_trend" / "adapters"
     observed: set[tuple[str, str]] = set()
     for source in root.rglob("*.py"):
@@ -180,12 +193,10 @@ def test_adapter_reverse_dependencies_are_an_explicit_transition_allowlist() -> 
             elif isinstance(node, ast.Call):
                 names = _dynamic_import_names(node)
             for name in names:
-                if _is_banned(name, {"inv_trend.application", "inv_trend.observability"}):
+                if _is_banned(name, {"inv_trend.application"}):
                     observed.add((source.relative_to(root).as_posix(), name))
 
-    assert observed == {
-        ("daily/composition.py", "inv_trend.observability.daily"),
-    }
+    assert observed == set()
 
 
 def test_historical_data_does_not_depend_on_strategy_or_application_packages() -> None:
@@ -297,7 +308,6 @@ DECLARED_PACKAGE_EDGES: frozenset[tuple[str, str]] = frozenset({
     ("monitoring", "observability"),
     ("notifications", "monitoring"),
     ("notifications", "observability"),
-    ("observability", "application"),
     ("observability", "core"),
     ("ports", "core"),
     ("storage", "adapters"),

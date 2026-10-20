@@ -9,14 +9,23 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Mapping
+from typing import TYPE_CHECKING, Any, Mapping, Protocol
 
 if TYPE_CHECKING:
-    from inv_trend.application.daily_models import InstrumentReportBundle
+
+    class ReportBundleLike(Protocol):
+        """Structural stand-in for the application's report DTO.
+
+        The renderer only needs ``to_dict``; describing that shape locally keeps
+        presentation independent of the application package.
+        """
+
+        def to_dict(self) -> Mapping[str, Any]:
+            """Return the serializable report payload."""
 
 
 def write_instrument_report(
-    bundle: InstrumentReportBundle | Mapping[str, Any],
+    bundle: ReportBundleLike | Mapping[str, Any],
     path: str | Path,
 ) -> Path:
     # The presentation layer accepts a serialized report bundle and does not
