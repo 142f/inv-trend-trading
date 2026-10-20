@@ -3,13 +3,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-import json
 from pathlib import Path
 
 import pandas as pd
 
 from .exporter import ensure_processed_layout, export_csv, export_json, export_metadata_rows
-from .loader import load_backtest_ready_csv
 from .pipeline import (
     align_assets,
     clean_data,
@@ -26,11 +24,7 @@ from .pipeline import (
     validate_data,
 )
 from ..profiles.asset_profiles import infer_asset_fields
-from ..strategy.profiles import turtle_rules
-from inv_trend.application.backtest.execution import UnifiedBacktestExecutor
-from ..config import BacktestConfig
 from ..models.domain import AssetSpec
-from inv_trend.application.backtest.single_artifacts import write_single_backtest_outputs
 
 
 CORE_DATASET_NAME = "metal_tech_core"
@@ -72,12 +66,24 @@ class SourceRecord:
     path: Path
 
 
-def build_metal_tech_core_dataset(
+@dataclass(frozen=True)
+class PreparedCoreDataset:
+    """Outputs of the core-dataset preparation, before any backtest evaluation.
+
+    The evaluation itself is an application use case (see
+    ``inv_trend.application.backtest.core_dataset_runner``); keeping the data
+    preparation here is what lets this package stay free of application imports.
+    """
+
+    summary: dict[str, object]
+    selected_frames: dict[str, pd.DataFrame]
+    backtest_ready_path: Path
+
+
+def prepare_metal_tech_core_dataset(
     processed_dir: str | Path = "processed_data",
     output_dir: str | Path = "processed_data",
-    reports_dir: str | Path = "outputs",
-    backtest_config: BacktestConfig | None = None,
-) -> dict[str, object]:
+) -> PreparedCoreDataset:
     processed_root = Path(processed_dir)
     outputs = ensure_processed_layout(output_dir)
     source_catalog = discover_cleaned_sources(processed_root)
@@ -209,25 +215,17 @@ def build_metal_tech_core_dataset(
         outputs["metadata"] / f"{CORE_DATASET_NAME}_build_summary.json",
     )
 
-    report_payload = run_core_backtest_and_compare(
-        backtest_path=backtest_path,
+    return PreparedCoreDataset(
+        summary={
+            "dataset_name": CORE_DATASET_NAME,
+            "selected_symbol_count": len(selected_frames),
+            "selected_symbols": sorted(selected_frames),
+            "merged_path": str(merged_path),
+            "backtest_ready_path": str(backtest_path),
+        },
         selected_frames=selected_frames,
-        reports_dir=reports_dir,
-        backtest_config=backtest_config,
+        backtest_ready_path=backtest_path,
     )
-
-    report_json_path = Path(reports_dir) / CORE_DATASET_NAME / "report.json"
-    report_json_path.parent.mkdir(parents=True, exist_ok=True)
-    report_json_path.write_text(json.dumps(report_payload, indent=2, ensure_ascii=False, default=str), encoding="utf-8")
-
-    return {
-        "dataset_name": CORE_DATASET_NAME,
-        "selected_symbol_count": len(selected_frames),
-        "selected_symbols": sorted(selected_frames),
-        "merged_path": str(merged_path),
-        "backtest_ready_path": str(backtest_path),
-        "report_path": str(report_json_path),
-    }
 
 
 def discover_cleaned_sources(processed_root: Path) -> list[SourceRecord]:
@@ -307,76 +305,6 @@ def build_asset_specs(symbols: list[str]) -> dict[str, AssetSpec]:
             slippage_bps=float(inferred["slippage_bps"]),
         )
     return specs
-
-
-def run_core_backtest_and_compare(
-    *,
-    backtest_path: Path,
-    selected_frames: dict[str, pd.DataFrame],
-    reports_dir: str | Path,
-    backtest_config: BacktestConfig | None = None,
-) -> dict[str, object]:
-    reports_root = Path(reports_dir) / CORE_DATASET_NAME
-    reports_root.mkdir(parents=True, exist_ok=True)
-
-    original_data = {
-        symbol: frame.sort_values("date").set_index("date")[["open", "high", "low", "close", "volume", "spread"]]
-        for symbol, frame in selected_frames.items()
-    }
-    merged_data = load_backtest_ready_csv(backtest_path)
-    specs = build_asset_specs(sorted(selected_frames))
-    rules = turtle_rules("classic-bars")
-
-    baseline_result = UnifiedBacktestExecutor(
-        original_data,
-        specs,
-        rules,
-        config=backtest_config,
-    ).run()
-    rebuilt_result = UnifiedBacktestExecutor(
-        merged_data,
-        specs,
-        rules,
-        config=backtest_config,
-    ).run()
-
-    baseline_summary = summarize_backtest_result(baseline_result)
-    rebuilt_summary = summarize_backtest_result(rebuilt_result)
-    comparison = compare_summaries(baseline_summary, rebuilt_summary)
-
-    export_backtest_outputs(
-        baseline_result,
-        reports_root / "baseline",
-        strategy_version=backtest_config.strategy_version,
-        html=backtest_config.html_report,
-    )
-    export_backtest_outputs(
-        rebuilt_result,
-        reports_root / "rebuilt",
-        strategy_version=backtest_config.strategy_version,
-        html=backtest_config.html_report,
-    )
-    export_csv(build_signal_table(rebuilt_result.orders), reports_root / "buy_sell_signals.csv")
-    export_csv(build_contribution_table(rebuilt_result.trades), reports_root / "symbol_contribution.csv")
-    export_csv(build_daily_equity_curve(rebuilt_result.equity_curve), reports_root / "daily_equity_curve.csv")
-    export_json(baseline_summary, reports_root / "baseline_metrics.json")
-    export_json(rebuilt_summary, reports_root / "rebuilt_metrics.json")
-    export_json(comparison, reports_root / "comparison.json")
-
-    return {
-        "baseline": baseline_summary,
-        "rebuilt": rebuilt_summary,
-        "comparison": comparison,
-    }
-
-
-def export_backtest_outputs(
-    result: object, out_dir: Path, *, strategy_version: str = "corrected-v2",
-    html: bool = True,
-) -> None:
-    write_single_backtest_outputs(
-        result, out_dir, strategy_version=strategy_version, html=html
-    )
 
 
 def summarize_backtest_result(result: object) -> dict[str, object]:

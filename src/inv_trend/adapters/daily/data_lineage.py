@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from inv_trend.application.daily.ports import MarketDataPort
+from inv_trend.ports.daily import MarketDataPort
 from inv_trend.data.lineage import load_current_lineage
 
 

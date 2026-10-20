@@ -208,7 +208,9 @@ class PreparedBars:
              pd.DataFrame(generated, index=bars.index, copy=False)], axis=1,
         ).reindex(columns=columns)
         out.attrs = deepcopy(bars.attrs)
-        out.attrs["_feature_request"] = request
+        # Keep attrs non-empty (cache-payload guard) without re-storing the request
+        # object that ``PreparedBars.request`` already holds; pandas deep-copies attrs
+        # onto every derived frame via ``NDFrame.__finalize__``.
         out.attrs["_ohlcv_fingerprint"] = fingerprint
         return cls(frame=out, request=request, input_fingerprint=fingerprint)
 

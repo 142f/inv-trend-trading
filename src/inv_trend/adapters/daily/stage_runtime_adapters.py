@@ -128,19 +128,16 @@ class PublishStageRuntimeAdapter(_MinimalStageRuntimeAdapter):
     @property
     def artifact_publisher(self) -> Any:
         if self._artifact_publisher is None:
-            # The outer composition helper pairs a canonical-JSON renderer
-            # with the filesystem writer.  It deliberately needs neither a
-            # state store nor current market/configuration inputs.
+            # The outer composition helper pairs a canonical-JSON renderer with
+            # the filesystem writer; it needs neither a state store nor current
+            # market/configuration inputs.  ``DailyWorkflow`` wraps whatever port
+            # it receives in ``ArtifactPublicationService`` (which owns snapshot
+            # validation), so this adapter never imports the application layer.
             from inv_trend.adapters.daily.composition import create_daily_run_artifact_writer
-            from inv_trend.application.daily.artifact_publication import (
-                ArtifactPublicationService,
-            )
 
-            self._artifact_publisher = ArtifactPublicationService(
-                create_daily_run_artifact_writer(
-                    self.output_dir,
-                    signal_log_root=self.signal_log_dir,
-                )
+            self._artifact_publisher = create_daily_run_artifact_writer(
+                self.output_dir,
+                signal_log_root=self.signal_log_dir,
             )
         return self._artifact_publisher
 

@@ -10,7 +10,7 @@ from inv_trend.adapters.multi_asset.data.builder import (
     DEFAULT_DATASET_DIRS,
     build_unified_processed_data,
 )
-from inv_trend.adapters.multi_asset.data.core_dataset import build_metal_tech_core_dataset
+from inv_trend.application.backtest.core_dataset_runner import build_metal_tech_core_dataset
 from inv_trend.adapters.multi_asset.us_trend_alerts import TrendAlertConfig, run_us_trend_alerts
 
 

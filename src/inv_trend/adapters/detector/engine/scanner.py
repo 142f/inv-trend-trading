@@ -214,9 +214,10 @@ class TurtleScanner:
         state: DetectorState,
     ) -> tuple[TurtleSignal, DetectorState]:
         atr = float(row["atr"])
+        close = float(row["close"])
         mode = self.config.confirmation_mode
-        long_price = float(row["close"] if mode == "close" else row["high"])
-        short_price = float(row["close"] if mode == "close" else row["low"])
+        long_price = close if mode == "close" else float(row["high"])
+        short_price = close if mode == "close" else float(row["low"])
         s1_high = float(row.get(f"channel_high_{self.config.system1_entry}", np.nan))
         s1_low = float(row.get(f"channel_low_{self.config.system1_entry}", np.nan))
         s2_high = float(row.get(f"channel_high_{self.config.system2_entry}", np.nan))
@@ -240,7 +241,7 @@ class TurtleScanner:
                 SignalType.NO_SIGNAL,
                 SignalType.NO_SIGNAL,
                 Direction.NONE,
-                float(row["close"]),
+                close,
                 None,
                 state,
                 ("ambiguous_two_sided_intrabar_breakout",),
@@ -269,18 +270,19 @@ class TurtleScanner:
             pending = mode == "intraday" and tradeable
             next_state = state
             if tradeable:
+                when = row.name.isoformat()
                 next_state = enter_position(
                     state,
                     direction,
                     system,
-                    row.name.isoformat(),
+                    when,
                     price,
                     level,
                     atr,
                     self.config,
                     pending,
                 )
-                next_state.last_processed_time = row.name.isoformat()
+                next_state.last_processed_time = when
             return (
                 self._build_signal(
                     row,
@@ -299,9 +301,9 @@ class TurtleScanner:
 
         distances: list[tuple[float, Direction, float]] = []
         if np.isfinite(s1_high):
-            distances.append(((s1_high - float(row["close"])) / atr, Direction.LONG, s1_high))
+            distances.append(((s1_high - close) / atr, Direction.LONG, s1_high))
         if np.isfinite(s1_low) and asset.allow_short:
-            distances.append(((float(row["close"]) - s1_low) / atr, Direction.SHORT, s1_low))
+            distances.append(((close - s1_low) / atr, Direction.SHORT, s1_low))
         distances = [item for item in distances if 0 <= item[0] <= self.config.approaching_atr]
         if distances:
             _, direction, level = min(distances, key=lambda item: item[0])
@@ -313,7 +315,7 @@ class TurtleScanner:
                     SignalType.APPROACHING_BREAKOUT,
                     SignalType.APPROACHING_BREAKOUT,
                     direction,
-                    float(row["close"]),
+                    close,
                     level,
                     state,
                     (),
@@ -518,6 +520,7 @@ class TurtleScanner:
         filtered_reasons: tuple[str, ...],
     ) -> TurtleSignal:
         atr = float(row["atr"])
+        close = float(row["close"])
         if breakout_level is None or direction is Direction.NONE:
             distance = 0.0
         else:
@@ -526,7 +529,7 @@ class TurtleScanner:
         if not np.isfinite(vol_percentile):
             vol_percentile = 0.5
         risk_multiplier = max(0.25, 1.0 - max(0.0, vol_percentile - 0.5))
-        trend_status = self._trend_status(row)
+        trend_status = self._trend_status(row, close)
         stop = state.stop_price
         add_price = state.next_add_price
         if direction is not Direction.NONE and signal_type in {
@@ -576,7 +579,7 @@ class TurtleScanner:
             channel_high=channel_high,
             channel_low=channel_low,
             atr=atr,
-            atr_pct=atr / float(row["close"]),
+            atr_pct=atr / close,
             stop_price=stop,
             next_add_price=add_price,
             distance_to_breakout_atr=float(distance),
@@ -617,8 +620,7 @@ class TurtleScanner:
             (),
         )
 
-    def _trend_status(self, row: pd.Series) -> str:
-        close = float(row["close"])
+    def _trend_status(self, row: pd.Series, close: float) -> str:
         ma = _finite_or_none(row.get(f"sma_{self.config.trend_ma_period}"))
         long_ma = _finite_or_none(
             row.get(f"sma_{self.config.long_trend_ma_period}")
