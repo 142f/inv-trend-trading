@@ -1,6 +1,7 @@
 """Public facade for the unified, reproducible backtest application module."""
 
 from .artifacts import BacktestArtifactWriter, render_backtest_html
+from .core_dataset_runner import build_metal_tech_core_dataset
 from .execution import UnifiedBacktestExecutor
 from .grid import combination_id, expand_parameter_grid, signal_parameters
 from .models import (
@@ -30,7 +31,8 @@ __all__ = [
     "StrategyBacktestService", "StrategySignalAdapter", "UnifiedBacktestExecutor",
     "ValidationPolicy",
     "EMAContractStrategy", "TurtleContractStrategy",
-    "build_report_model", "combination_id", "expand_parameter_grid",
+    "build_report_model", "build_metal_tech_core_dataset", "combination_id",
+    "expand_parameter_grid",
     "load_source_bundle", "load_versioned_data", "render_backtest_html",
     "signal_parameters",
 ]

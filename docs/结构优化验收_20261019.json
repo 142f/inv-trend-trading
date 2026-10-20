@@ -1,0 +1,120 @@
+{
+  "date": "2026-10-19",
+  "scope": "在不改变功能行为与运行结果的前提下优化：热点路径性能、重复计算与冗余 attrs 载荷；公共接口与输出保持不变",
+  "preconditions": {
+    "note": "工作区内已存在用户进行中的未提交改动（backtest/runner.py、models/domain.py、strategy/engine.py、tests/test_海龟入场过滤合同.py）。本轮只修改 core/features.py 与 detector/engine/scanner.py，未触碰上述进行中改动。",
+    "baseline_regression": {
+      "command": ".venv/Scripts/python.exe -m pytest -q --basetemp .tmp/pytest-baseline",
+      "passed": 1425,
+      "failed": 6,
+      "warnings": 7,
+      "elapsed_seconds": 642.17,
+      "pre_existing_failures": [
+        "tests/test_监控扫描与回放合同.py::test_saved_decisions_reproduce_without_current_state_or_new_writes[sqlite|duckdb|v3]",
+        "tests/test_监控扫描与回放合同.py::test_real_h4_repository_replay_matches_backtest_and_saved_decisions[sqlite|duckdb|v3]"
+      ],
+      "pre_existing_failure_cause": "monitoring/扫描器.py:283 DataLineageError：录制的 input_key 与当前代码/配置不一致；由工作区已有未提交改动引起，与本轮优化无关"
+    }
+  },
+  "changes": [
+    {
+      "id": "P1",
+      "path": "src/inv_trend/core/features.py",
+      "symbol": "PreparedBars._build_validated",
+      "before_sha256": "2022a4ed349be2dfe99f2b87aa4b9e418c92c0c6e2bfdbc3132a88df7cf7669c",
+      "after_sha256": "c7517a322f4790dfc81226ef289cf34c3ffd284e8cf303e1214f16e04ea1053b",
+      "diff": "- 删除 `out.attrs[\"_feature_request\"] = request`（保留 `out.attrs = deepcopy(bars.attrs)` 与 `out.attrs[\"_ohlcv_fingerprint\"] = fingerprint`）",
+      "kind": ["性能", "代码冗余"],
+      "motivation": "同一 FeatureRequest 已由 PreparedBars.request 字段持有；在 attrs 中重复存放一份是冗余载荷。pandas 的 NDFrame.__finalize__ 会把 attrs 深拷贝到每一个派生 Series/DataFrame，而 FeatureRequest 含嵌套元组，深拷贝成本被逐行放大。",
+      "measured_evidence": {
+        "profiler": "cProfile 调用方统计：deepcopy 的 18287 次调用来自 pandas generic.__finalize__（而非本项目代码）",
+        "benchmark_refactor": {
+          "detector_replay_row": {"before_s": 0.58109, "after_s": 0.45495, "speedup": 1.277},
+          "multi_asset_timeline": {"before_s": 0.09957, "after_s": 0.09035, "speedup": 1.102},
+          "feature_preparation": {"before_s": 0.01858, "after_s": 0.01796, "speedup": 1.035}
+        },
+        "cprofile_total": {"before_s": 33.15, "after_s": 24.63, "note": "整段 benchmark 的 profile 总时长下降约 26%"}
+      },
+      "impact": "只影响 prepared frame 的 attrs 键集合（少一个未被读取的键）；列、dtype、数值全部不变；attrs 仍非空，FeatureCache 的载荷隔离守卫语义不变。",
+      "verification": [
+        "digest A/B：列名/dtype/数值哈希 after=before=9a3c246408faca36374e0770e706a5081f94ea948facb03164d0a2afe26329ef",
+        "tests/test_golden_master.py 通过（事件/订单精确、浮点 1e-10 容差）",
+        "全量回归通过数与基线一致"
+      ]
+    },
+    {
+      "id": "P2",
+      "path": "src/inv_trend/adapters/detector/engine/scanner.py",
+      "symbol": "TurtleScanner._flat_signal / _build_signal / _trend_status",
+      "before_sha256": "02f113643b78b4fdd7407eb214494d02053518b54d7debc08815d35040a8f4df",
+      "after_sha256": "8c8eff02927465ce85b543fb16cec19a2569af1adc23afb25fbbf69fd682cafc",
+      "diff": "在同一根 bar 内把重复的 row[\"close\"] / row[\"atr\"] 提取提升为局部变量 close/atr；把重复的 row.name.isoformat() 收敛为单个 when；_trend_status 改为接收已取出的 close，不再自行重复提取",
+      "kind": ["性能", "代码冗余", "结构"],
+      "motivation": "热点循环内对同一行 Series 的重复标量访问属于纯重复计算；私有方法 _trend_status 只需 close 值，改为显式参数后职责单一、调用链一致。",
+      "measured_evidence": {
+        "micro_replay_no_tracemalloc": {"detect_row_median_ms": {"before": 68.50, "after": 66.72, "speedup": 1.027}, "bars": 661},
+        "benchmark_refactor_detector_row": {"before_s": 0.45614, "after_s": 0.45495, "note": "tracemalloc 基准下差异落在噪声内"}
+      },
+      "impact": "仅合并同一行内的重复读取与重复 isoformat；不放宽任何分支或类型。改写后的 long_price/short_price 在 close 与 intraday 两种模式下与原表达式逐位相同。",
+      "verification": [
+        "信号 digest A/B：1562 条信号，sha256 after=before=c5b67f92893f1df967c030906c0273c1e9d93c920e14bbf5c5b76f79ceb2fb71",
+        "tests/test_golden_master.py、tests/test_turtle_detector.py、tests/test_daily_signals.py 等回归通过",
+        "benchmark 内 built-in 断言 old_prefix_replay() == row_replay() 保持成立"
+      ]
+    }
+  ],
+  "review": {
+    "passes": 3,
+    "pass_1_correctness": {
+      "method": "逐行对照 diff，确认等价性；用 digest A/B 在真实数据上比对输出",
+      "findings": [
+        "P1：只删除了未被任何 src/tests/scripts/research/docs 读取的 attrs 键；保留的 _ohlcv_fingerprint 使 attrs 仍为真值，FeatureCache.prepare 的守卫分支不变",
+        "P2：close/atr 均为纯局部提升；_flat_signal 内 close 与 _build_signal 内 close 无重赋值；atr_pct、distance_to_breakout_atr 输入不变"
+      ],
+      "result": "无阻断项"
+    },
+    "pass_2_interface_and_callsites": {
+      "method": "全仓库检索调用方与读者",
+      "findings": [
+        "`_trend_status` 仅出现在 scanner.py（定义 L623 + 调用 L532），无测试/子类/反射引用",
+        "没有任何 `attrs[\"_feature_request\"]` / `attrs.get(\"_feature_request\")` 读取；其余匹配均为 `daily_signal_feature_request` 等函数名",
+        "公开接口（detect/detect_row/detect_prepared/prepare/scan_*、PreparedBars.build/FeatureCache.prepare）签名与返回类型未变"
+      ],
+      "result": "对外接口保持不变"
+    },
+    "pass_3_adversarial_and_regression": {
+      "method": "反向验证 + 精确输出回归 + 全量回归",
+      "findings": [
+        "尝试把 row Series 转成 dict 一次性取值：实测 37.2us vs 15.4us，更慢，已否决",
+        "尝试把 concat+reindex 换成逐列赋值：实测 3022us vs 904us，更慢，已否决"
+      ],
+      "result": "见 verification_stages"
+    },
+    "ruff_F_checks": "passed（src scripts research tests）"
+  },
+  "rejected_candidates": [
+    {
+      "item": "budget_policy.py 内联 `math.floor(qty/step)*step` 合并到 sizing._round_down",
+      "reason": "代码库中有 8+ 处同形取整且 epsilon 语义不同；只合并一处收益近零，全量合并会改变部分路径的浮点边界行为，不符合“改动最小化/数值一致”"
+    },
+    {
+      "item": "monitoring/回放.py 与 features.py 的 frame.attrs deepcopy",
+      "reason": "该 deepcopy 是 tests/unit/test_核心计算回归.py 明确断言的载荷隔离契约，必须保留"
+    },
+    {
+      "item": "backtest/runner.py 中 `_trade_cost` 已成为未被引用的包装函数（死代码）",
+      "reason": "该文件属于工作区中用户进行中的未提交改动；为避免干扰未完成的特性工作，本轮不改动，仅记录"
+    }
+  ],
+  "performance_method": "scripts/benchmark_refactor.py（每次 7 轮取中位数，共 3 个独立进程再取中位数）+ 无 tracemalloc 的临时微基准脚本（位于系统临时目录，未入库）",
+  "verification_stages": [
+    {"stage": "改动前全量基线", "passed": 1425, "failed": 6, "warnings": 7, "elapsed_seconds": 642.17},
+    {"stage": "改动后全量回归", "passed": 1425, "failed": 6, "warnings": 7, "elapsed_seconds": 631.88, "command": ".venv/Scripts/python.exe -m pytest -q --basetemp .tmp/pytest-after", "note": "失败集合与错误信息与基线逐项一致；仅剩基线已有的 6 项监控回放录制 fixture 失败"},
+    {"stage": "精确输出回归 tests/test_golden_master.py", "passed": 1, "note": "事件/订单精确比对、浮点 1e-10 容差，输出与 pinned fixture 一致"},
+    {"stage": "回放契约文件 tests/test_监控扫描与回放合同.py", "passed": 42, "failed": 6, "note": "失败集合与基线同名同错误，行为未变"},
+    {"stage": "定向子集（golden/detector/核心计算回归/特征准备/FeatureRequest 合并）", "passed": 93},
+    {"stage": "静态检查 ruff -select F（src scripts research tests）", "passed": 1, "note": "All checks passed"},
+    {"stage": "数值/接口等价 A/B digest", "passed": 2, "note": "P1 列名+dtype+数值哈希一致；P2 1562 条信号 sha256 一致"}
+  ],
+  "data_protection": "未修改原行情、研究数据、私有配置或 Git 历史；测量使用内存构造数据，未写入受保护目录"
+}

@@ -140,6 +140,32 @@ def test_observability_does_not_depend_on_data_or_strategy_adapters() -> None:
     assert violations == []
 
 
+def test_ports_only_depend_on_pure_layers() -> None:
+    """Interface contracts must stay importable from every layer below them."""
+
+    root = Path(__file__).parents[1] / "src" / "inv_trend" / "ports"
+    banned = {
+        "inv_trend.application", "inv_trend.adapters", "inv_trend.data",
+        "inv_trend.storage", "inv_trend.observability", "inv_trend.monitoring",
+        "inv_trend.notifications", "inv_trend.cli",
+    }
+    violations = []
+    for source in root.rglob("*.py"):
+        tree = ast.parse(source.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            names = []
+            if isinstance(node, ast.Import):
+                names = [alias.name for alias in node.names]
+            elif isinstance(node, ast.ImportFrom) and node.module:
+                names = [node.module]
+            elif isinstance(node, ast.Call):
+                names = _dynamic_import_names(node)
+            for name in names:
+                if _is_banned(name, banned):
+                    violations.append(f"{source.name}: {name}")
+    assert violations == []
+
+
 def test_adapter_reverse_dependencies_are_an_explicit_transition_allowlist() -> None:
     root = Path(__file__).parents[1] / "src" / "inv_trend" / "adapters"
     observed: set[tuple[str, str]] = set()
@@ -158,26 +184,7 @@ def test_adapter_reverse_dependencies_are_an_explicit_transition_allowlist() -> 
                     observed.add((source.relative_to(root).as_posix(), name))
 
     assert observed == {
-        (
-            "daily/artifact_publisher.py",
-            "inv_trend.application.daily.artifact_publication",
-        ),
-        ("daily/artifact_publisher.py", "inv_trend.application.daily.ports"),
-        ("daily/composition.py", "inv_trend.application.daily.ports"),
         ("daily/composition.py", "inv_trend.observability.daily"),
-        ("daily/data_lineage.py", "inv_trend.application.daily.ports"),
-        (
-            "daily/stage_runtime_adapters.py",
-            "inv_trend.application.daily.artifact_publication",
-        ),
-        (
-            "multi_asset/data/core_dataset.py",
-            "inv_trend.application.backtest.execution",
-        ),
-        (
-            "multi_asset/data/core_dataset.py",
-            "inv_trend.application.backtest.single_artifacts",
-        ),
     }
 
 
@@ -242,3 +249,124 @@ def _dynamic_import_names(node: ast.Call) -> list[str]:
         return []
     first = node.args[0]
     return [first.value] if isinstance(first, ast.Constant) and isinstance(first.value, str) else []
+
+
+# --- Package-level dependency contract -------------------------------------
+#
+# ``DECLARED_PACKAGE_EDGES`` is the complete, reviewed package-to-package import
+# graph.  A new pair must be deliberate, so the test fails until it is added
+# here; this is the structure-refactor counterpart of the whitespace-forbidden
+# ``adapters`` allowlist below.
+#
+# ``KNOWN_PACKAGE_CYCLES`` is the shrink-only progress counter for the refactor:
+# it lists the bidirectional package pairs still awaiting removal and must
+# eventually become empty.
+
+_SOURCE_ROOT = Path(__file__).parents[1] / "src" / "inv_trend"
+
+DECLARED_PACKAGE_EDGES: frozenset[tuple[str, str]] = frozenset({
+    ("adapters", "config"),
+    ("adapters", "core"),
+    ("adapters", "data"),
+    ("adapters", "domain"),
+    ("adapters", "observability"),
+    ("adapters", "ports"),
+    ("application", "adapters"),
+    ("application", "config"),
+    ("application", "core"),
+    ("application", "data"),
+    ("application", "domain"),
+    ("application", "ports"),
+    ("application", "storage"),
+    ("cli", "adapters"),
+    ("cli", "application"),
+    ("cli", "config"),
+    ("cli", "core"),
+    ("cli", "data"),
+    ("cli", "monitoring"),
+    ("cli", "notifications"),
+    ("cli", "observability"),
+    ("cli", "storage"),
+    ("core", "storage"),
+    ("data", "core"),
+    ("data", "storage"),
+    ("integrations", "adapters"),
+    ("monitoring", "adapters"),
+    ("monitoring", "core"),
+    ("monitoring", "data"),
+    ("monitoring", "observability"),
+    ("notifications", "monitoring"),
+    ("notifications", "observability"),
+    ("observability", "application"),
+    ("observability", "core"),
+    ("ports", "core"),
+    ("storage", "adapters"),
+    ("storage", "application"),
+    ("storage", "core"),
+    ("storage", "data"),
+})
+
+KNOWN_PACKAGE_CYCLES: frozenset[frozenset[str]] = frozenset({
+    frozenset({"application", "storage"}),
+    frozenset({"core", "storage"}),
+    frozenset({"data", "storage"}),
+})
+
+
+def _imported_modules(source: Path) -> list[str]:
+    """Return every literal ``inv_trend.*`` module name imported by ``source``."""
+
+    tree = ast.parse(source.read_text(encoding="utf-8"))
+    found: list[str] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            found.extend(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom):
+            found.append(_absolute_import_target(node, source))
+        elif isinstance(node, ast.Call):
+            found.extend(_dynamic_import_names(node))
+    return [item for item in found if item]
+
+
+def _absolute_import_target(node: ast.ImportFrom, source: Path) -> str:
+    """Resolve a (possibly relative) ``from`` import to its absolute module."""
+
+    if not node.level:
+        return node.module or ""
+    package = ["inv_trend", *source.relative_to(_SOURCE_ROOT).parts[:-1]]
+    base = package[: len(package) - (node.level - 1)]
+    if node.module:
+        base = base + node.module.split(".")
+    return ".".join(base)
+
+
+def _package_edges() -> set[tuple[str, str]]:
+    """Return the distinct importer-package -> imported-package edge set."""
+
+    edges: set[tuple[str, str]] = set()
+    for source in _SOURCE_ROOT.rglob("*.py"):
+        importer = source.relative_to(_SOURCE_ROOT).parts[0]
+        for target in _imported_modules(source):
+            if not target.startswith("inv_trend."):
+                continue
+            imported = target.split(".")[1]
+            if imported != importer:
+                edges.add((importer, imported))
+    return edges
+
+
+def test_package_dependency_graph_matches_the_declared_contract() -> None:
+    """The package graph is exactly the reviewed set; drift must be deliberate."""
+
+    assert _package_edges() == set(DECLARED_PACKAGE_EDGES)
+
+
+def test_only_the_declared_package_cycles_remain() -> None:
+    """Bidirectional package pairs are the refactor's measurable counter."""
+
+    edges = _package_edges()
+    cycles = {frozenset(pair) for pair in edges if (pair[1], pair[0]) in edges}
+    assert cycles == set(KNOWN_PACKAGE_CYCLES), (
+        "package cycle set changed; update KNOWN_PACKAGE_CYCLES only when a cycle "
+        f"has been removed, never added: {sorted(tuple(sorted(c)) for c in cycles)}"
+    )

@@ -17,8 +17,7 @@ from inv_trend.core.serializers import mapping_rows as _rows
 from inv_trend.data.integrity import sha256_file, stable_hash
 
 if TYPE_CHECKING:
-    from inv_trend.application.daily.artifact_publication import DailyArtifactPublication
-    from inv_trend.application.daily.ports import DailyReportRendererPort
+    from inv_trend.ports.daily import DailyArtifactPublication, DailyReportRendererPort
 
 
 CANONICAL_DIR = "01_canonical"
@@ -696,7 +695,7 @@ def _publication(**kwargs: Any) -> "DailyArtifactPublication":
     while the concrete adapter remains outside the application package.
     """
 
-    from inv_trend.application.daily.artifact_publication import DailyArtifactPublication
+    from inv_trend.ports.daily import DailyArtifactPublication
 
     return DailyArtifactPublication(**kwargs)
 

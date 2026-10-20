@@ -16,7 +16,7 @@ from inv_trend.observability.daily import DailyReportRendererAdapter
 from .artifact_publisher import DailyRunArtifactWriter
 
 if TYPE_CHECKING:
-    from inv_trend.application.daily.ports import DailyReportRendererPort
+    from inv_trend.ports.daily import DailyReportRendererPort
 
 
 def create_daily_report_renderer() -> "DailyReportRendererPort":
