@@ -8,24 +8,12 @@ published run when the same ``run_id`` is retried.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from pathlib import Path
 from typing import TYPE_CHECKING, Any, Mapping
 
-from .ports import ArtifactPublisherPort
+from inv_trend.ports.daily import ArtifactPublisherPort, DailyArtifactPublication
 
 if TYPE_CHECKING:
     from ..daily_artifacts import DailyRunArtifactWriter
-
-
-@dataclass(frozen=True)
-class DailyArtifactPublication:
-    """Locations published for a single immutable daily-run snapshot."""
-
-    run_directory: Path
-    compatibility_json: Path
-    compatibility_html: Path | None
-    complete_results: Mapping[str, Path]
 
 
 class ArtifactPublicationService:
