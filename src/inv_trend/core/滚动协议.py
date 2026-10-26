@@ -1,9 +1,12 @@
-"""时间边界、不可变记录、无外层结果的参数选择。"""
+"""时间边界、不可变记录、无外层结果的参数选择。
+
+不可变写盘（``immutable_json``）属于存储职责，已下移到
+``inv_trend.storage.基础``；本模块只保留纯时间边界与参数选择。
+"""
 from __future__ import annotations
 from dataclasses import dataclass, asdict
 import hashlib
 import json
-from pathlib import Path
 import numpy as np
 import pandas as pd
 
@@ -12,24 +15,6 @@ def digest(value):
     return hashlib.sha256(json.dumps(value, ensure_ascii=False, sort_keys=True,
         separators=(",", ":"), allow_nan=False, default=str).encode()).hexdigest()
 
-
-def immutable_json(path, value):
-    from inv_trend.storage.研究结果_v3 import store_for
-    store = store_for(path)
-    if store is not None:
-        payload = json.dumps(value, ensure_ascii=False, indent=2, allow_nan=False, default=str).encode()
-        store.put_document(path, payload, kind="research_audit", idempotent=False)
-        return hashlib.sha256(payload).hexdigest()
-    path = Path(path)
-    payload = json.dumps(value, ensure_ascii=False, indent=2, allow_nan=False, default=str).encode()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    # O_EXCL prevents overwrite/races; no mutable "latest" can rewrite a frozen choice.
-    with path.open("xb") as stream:
-        stream.write(payload)
-        stream.flush()
-        import os
-        os.fsync(stream.fileno())
-    return hashlib.sha256(payload).hexdigest()
 
 @dataclass(frozen=True)
 class WalkForwardWindow:

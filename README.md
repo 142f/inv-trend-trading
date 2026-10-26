@@ -28,6 +28,12 @@
 `core/signals.py` 的 `is_execution_notification_event`。执行上下文解析统一放在
 `application/daily/stage_payloads.py`，CSV 导出复用 `adapters/multi_asset/data/exporter.py`。
 
+跨包依赖由 `tests/test_architecture_boundaries.py` 固定：`DECLARED_PACKAGE_EDGES` 是
+全部已评审的包级依赖集合，`KNOWN_PACKAGE_CYCLES` 是仍待消除的双向依赖（本轮之后仅剩
+`data ↔ storage`）。跨层接口（Protocol 与纯 DTO）集中在新增的 `inv_trend/ports`，
+适配器因此不再 import `application`。分层表、依赖图、接口变更清单与残余说明见
+[模块依赖契约](docs/模块依赖契约_v1.md)。
+
 正式测试位于 `tests/` 和 `tests/unit/`。保留可复用的研究、运维、数据核验和基准工具；
 固定历史提交的重构证据脚本、一次性基线认证脚本、缺失清单的旧清理脚本、
 历史补丁覆盖前核验、一次性交付打包和浏览器自检脚本已移除。其中仍有效的特征复用、
@@ -36,7 +42,8 @@
 
 Windows 验证入口为 `scripts/run_tests.ps1 -q`；静态未使用代码检查使用
 `python -m ruff check src scripts research tests --select F`。
-本轮变更清单、性能测量与最终回归回执见 [结构重构验收](docs/结构重构验收_20261006.json)。
+本轮变更清单、性能测量与最终回归回执见 [结构重构验收](docs/结构重构验收_20261006.json)；
+本轮模块解耦回执见 [结构解耦验收](docs/结构重构验收_20261020.json)。
 
 ## 运行
 

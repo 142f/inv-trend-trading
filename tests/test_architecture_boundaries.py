@@ -298,7 +298,6 @@ DECLARED_PACKAGE_EDGES: frozenset[tuple[str, str]] = frozenset({
     ("cli", "notifications"),
     ("cli", "observability"),
     ("cli", "storage"),
-    ("core", "storage"),
     ("data", "core"),
     ("data", "storage"),
     ("integrations", "adapters"),
@@ -318,7 +317,6 @@ DECLARED_PACKAGE_EDGES: frozenset[tuple[str, str]] = frozenset({
 
 KNOWN_PACKAGE_CYCLES: frozenset[frozenset[str]] = frozenset({
     frozenset({"application", "storage"}),
-    frozenset({"core", "storage"}),
     frozenset({"data", "storage"}),
 })
 
