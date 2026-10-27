@@ -71,23 +71,46 @@ class MarketDataPipeline:
     def ingest(
         self, key: DatasetKey, start: datetime, end: datetime, *, retries: int = 3
     ):
-        """= acquire → transform → persist；返回发布后的 Manifest。"""
+        """= acquire → transform → persist；返回发布后的 Manifest。
+
+        质量门禁回退（主源未通过时切换 fallback_sources）由 acquire 端口的
+        可选 ``retry_fallback`` 提供：命中时用**新的 run_id** 再走一遍
+        transform → persist，语义与搬移前完全一致。
+        """
 
         context = self._context(key, start, end, retries=retries)
         acquired = self.spec.acquire.acquire(context)
         transformed = self.spec.transform.transform(acquired, context)
         published = self.spec.persist.persist(transformed, context)
+
+        retry = getattr(self.spec.acquire, "retry_fallback", None)
+        if retry is not None:
+            retry_result = retry(context, acquired, published)
+            if retry_result is not None:
+                fallback_context, fallback_acquired = retry_result
+                fallback_transformed = self.spec.transform.transform(
+                    fallback_acquired, fallback_context
+                )
+                fallback_published = self.spec.persist.persist(
+                    fallback_transformed, fallback_context
+                )
+                if fallback_published.manifest is not None:
+                    return fallback_published.manifest
+
         if published.manifest is None:
             raise RuntimeError("pipeline persist produced no manifest")
         return published.manifest
 
     def reprocess_raw(self, key: DatasetKey, run_id: str):
-        """复用 transform → persist 的重新处理入口（P1 委托 facade）。"""
+        """复用 transform → persist 的重新处理入口（不调用任何 provider）。"""
 
-        manifest = self.spec.acquire.backend.reprocess_raw(  # type: ignore[attr-defined]
-            key.symbol, key.timeframe, run_id
-        )
-        return manifest
+        core = getattr(self.spec.acquire, "core", None)
+        if core is None:
+            raise NotImplementedError(
+                f"pipeline kind {self.spec.kind!r} does not support reprocess_raw"
+            )
+        instrument = core.instrument(key.symbol)
+        return core.reprocess_raw(instrument, key.timeframe.upper(), run_id)
 
     # --- 读取 ---------------------------------------------------------------
     def read(self, key: DatasetKey, **filters: Any):

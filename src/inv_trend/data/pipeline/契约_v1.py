@@ -62,7 +62,9 @@ class AcquireOutcome:
 class TransformOutcome:
     """阶段 2 输出：纯计算结果（不落盘）。
 
-    P1 阶段只有 remit 自 Manifest 的身份与质量字段；P2 起填充分析性字段。
+    除方案列出的分析性字段外，另带 P2 拆分所需的**传递字段**（``provider_result``、
+    ``raw_path``、``status``、``curated_view`` 等），使 stage 3 无需回读即可落盘。
+    这些字段为新增，不改变既有字段的名称与语义。
     """
 
     normalized: Any = None
@@ -75,7 +77,21 @@ class TransformOutcome:
     request_id: str = ""
     raw_snapshot_id: str = ""
     outside_window_revisions: tuple[dict[str, object], ...] = ()
-    manifest: "Manifest | None" = None
+    # --- 阶段 2 → 阶段 3 传递字段（P2 新增） ---
+    provider_result: "ProviderResult | None" = None
+    raw_path: "Path | None" = None
+    raw_frame_path: "Path | None" = None
+    errors: tuple[str, ...] = ()
+    status: str = ""
+    publishable: bool = False
+    current_pointer: dict | None = None
+    parent_dataset_version: str | None = None
+    is_new_dataset: bool = False
+    curated_view: "pd.DataFrame | None" = None
+    complete_count: int = 0
+    inherited_research_only: bool = False
+    config_hash: str = ""
+    metadata_hash: str = ""
 
 
 @dataclass(frozen=True)

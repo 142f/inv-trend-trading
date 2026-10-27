@@ -299,6 +299,41 @@ def test_pipeline_ingest_matches_legacy_service(tmp_path: Path) -> None:
     )
 
 
+def test_transform_does_not_write_normalized_or_curated(tmp_path: Path) -> None:
+    """阶段边界：transform 只计算。normalized / curated 只能在 persist 之后出现。"""
+
+    from inv_trend.data import DatasetKey
+
+    frame = pd.read_csv(FIXTURE)
+    start = pd.Timestamp(frame["timestamp"].iloc[0]).to_pydatetime()
+    end = pd.Timestamp(frame["timestamp"].iloc[-1]).to_pydatetime()
+    service = _service(tmp_path / "lake")
+    pipeline = _bars_pipeline(service)
+    context = pipeline._context(DatasetKey("BTC", "D1"), start, end)
+    acquired = pipeline.spec.acquire.acquire(context)
+    lake = service.lake.root
+
+    def parquet_under(*names: str) -> list[Path]:
+        found: list[Path] = []
+        for name in names:
+            root = lake / name
+            if root.exists():
+                found.extend(path for path in root.rglob("*.parquet") if path.is_file())
+        return found
+
+    assert parquet_under("raw"), "acquire 应写下 raw"
+    assert parquet_under("normalized", "curated") == []
+
+    transformed = pipeline.spec.transform.transform(acquired, context)
+    assert parquet_under("normalized", "curated") == []
+    assert transformed.dataset_version
+
+    published = pipeline.spec.persist.persist(transformed, context)
+    assert published.manifest is not None
+    assert parquet_under("normalized")
+    assert parquet_under("curated")
+
+
 def test_pipeline_read_forwards_version_and_filters(tmp_path: Path) -> None:
     from inv_trend.data import DatasetKey
 

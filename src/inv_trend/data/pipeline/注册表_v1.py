@@ -8,10 +8,11 @@ from ..models import InstrumentConfig
 from ..providers import BarsProvider
 from ..storage import DataLake
 from .契约_v1 import PipelineSpec
-from .行情阶段_v1 import BarsAcquire, BarsBackend, BarsPersist, BarsRead, BarsTransform
+from .行情阶段_v1 import BarsAcquire, BarsPersist, BarsRead, BarsTransform, build_bars_core
 
-# 构造一个 kind 的完整流水线。``backend`` 是 P1 过渡参数：builder 需要一个
-# 已打开 lake 的服务对象来整体委托；P2 拆分四阶段后该参数可移除。
+# 构造一个 kind 的完整流水线。
+# ``load_update_base`` / ``manifest_for_pointer`` 由 facade 注入：它们同时服务于
+# facade 上的 update*/missing_intervals 等方法，注入可避免 pipeline 反向依赖 api。
 PipelineBuilder = Callable[..., PipelineSpec]
 
 
@@ -51,17 +52,42 @@ def build_bars_spec(
     instruments: Mapping[str, InstrumentConfig],
     providers: Mapping[str, BarsProvider],
     lake: DataLake,
-    backend: BarsBackend,
+    *,
+    load_update_base: Callable[[str, str], tuple[object, dict | None]] | None = None,
+    manifest_for_pointer: Callable[[dict | None], object] | None = None,
+    backend: object | None = None,
 ) -> PipelineSpec:
-    """构造 bars 流水线：四个阶段共享同一个 backend 与 lake。"""
+    """构造 bars 流水线：四个阶段共享同一个 ``BarsCore``。
 
-    del instruments, providers, lake  # P1 由 backend 承载；P2 起按阶段注入
+    ``load_update_base`` / ``manifest_for_pointer`` 由 facade 注入（它们同时服务于
+    facade 上的 update*/missing_intervals）。传入 ``backend``（一个
+    ``HistoricalDataService`` 兼容对象）时会从它身上取这两个方法，便于
+    直接以服务对象构造流水线。
+    """
+
+    if backend is not None:
+        load_update_base = load_update_base or backend._load_update_base  # type: ignore[attr-defined]
+        manifest_for_pointer = (
+            manifest_for_pointer or backend._manifest_for_pointer  # type: ignore[attr-defined]
+        )
+    if load_update_base is None or manifest_for_pointer is None:
+        raise TypeError(
+            "build_bars_spec requires load_update_base and manifest_for_pointer (or a backend)"
+        )
+
+    core = build_bars_core(
+        lake=lake,
+        instruments=instruments,
+        providers=providers,
+        load_update_base=load_update_base,
+        manifest_for_pointer=manifest_for_pointer,
+    )
     return PipelineSpec(
         kind="bars",
-        acquire=BarsAcquire(backend=backend),
-        transform=BarsTransform(),
-        persist=BarsPersist(),
-        read=BarsRead(backend=backend),
+        acquire=BarsAcquire(core=core),
+        transform=BarsTransform(core=core),
+        persist=BarsPersist(core=core),
+        read=BarsRead(core=core),
     )
 
 
