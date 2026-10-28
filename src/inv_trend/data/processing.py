@@ -362,6 +362,68 @@ def apply_equity_adjustments(frame: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
+def apply_provider_equity_adjustment(
+    frame: pd.DataFrame, instrument: InstrumentConfig,
+) -> pd.DataFrame:
+    """Scale OHLC by the provider adjusted-close factor, keeping raw columns.
+
+    This is the same price basis as ``load_bars(adjusted=True)`` for equities.
+    ``apply_equity_adjustments`` (plural) reconstructs factors from split and
+    dividend columns; this function consumes an already provider-adjusted close
+    and never re-derives corporate actions.
+    """
+
+    out = frame.copy()
+    if (instrument.asset_class == "equity" and "adjusted_close" in out.columns
+            and "close" in out.columns):
+        factor = out["adjusted_close"] / out["close"]
+        for column in ("open", "high", "low", "close"):
+            out[f"unadjusted_{column}"] = out[column]
+            out[column] = out[column] * factor
+        out["adjustment_factor"] = factor
+    return out
+
+
+def select_completed_bars(
+    raw: pd.DataFrame,
+    instrument: InstrumentConfig,
+    timeframe: str,
+    source: str,
+    *,
+    now: datetime | None = None,
+    completed_only: bool = True,
+) -> tuple[pd.DataFrame, dict]:
+    """Normalize, count rejects, adjust, then keep completed bars.
+
+    Shared entry for batch snapshots and scripts so completeness, quarantine
+    accounting and the adjusted price basis cannot drift between callers.
+    """
+
+    normalized = normalize_bars(raw, instrument, timeframe, source, now=now)
+    clean = normalized.clean
+    incomplete_mask = ~clean["is_complete"].astype(bool)
+    used = clean.loc[~incomplete_mask].copy() if completed_only else clean.copy()
+    used = apply_provider_equity_adjustment(used, instrument)
+    finite = used[["open", "high", "low", "close"]].apply(pd.to_numeric, errors="coerce")
+    bad_factor = ~pd.Series(
+        pd.notna(finite).all(axis=1) & (finite.abs() != float("inf")).all(axis=1),
+        index=used.index,
+    )
+    factor_rejects = int(bad_factor.sum())
+    used = used.loc[~bad_factor].copy()
+    volume_missing = int(used["volume"].isna().sum()) if "volume" in used.columns else 0
+    counts = {
+        "duplicate_count": int(normalized.duplicate_count),
+        "ohlc_anomaly_count": int(normalized.ohlc_anomaly_count),
+        "conflicting_duplicate_count": int(normalized.conflicting_duplicate_count),
+        "quarantine_count": int(len(normalized.quarantine)),
+        "volume_missing_count": volume_missing,
+        "partial_rows": int(incomplete_mask.sum()),
+        "adjustment_reject_count": factor_rejects,
+    }
+    return used, counts
+
+
 def build_back_adjusted_continuous(frame: pd.DataFrame) -> pd.DataFrame:
     required = {"timestamp", "contract", "open", "high", "low", "close"}
     if not required.issubset(frame):

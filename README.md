@@ -28,6 +28,8 @@
 `core/signals.py` 的 `is_execution_notification_event`。执行上下文解析统一放在
 `application/daily/stage_payloads.py`，CSV 导出复用 `adapters/multi_asset/data/exporter.py`。
 
+K 线的获取、转换、保存和读取走 `data/pipeline/` 标准四阶段；`HistoricalDataService` 仍是对外入口。字段、注册表和扩展方式见 [数据管理流水线规范](docs/数据管理流水线规范_v1.md)。
+
 跨包依赖由 `tests/test_architecture_boundaries.py` 固定：`DECLARED_PACKAGE_EDGES` 是
 全部已评审的包级依赖集合，`KNOWN_PACKAGE_CYCLES` 是仍待消除的双向依赖（本轮之后仅剩
 `data ↔ storage`）。跨层接口（Protocol 与纯 DTO）集中在新增的 `inv_trend/ports`，
