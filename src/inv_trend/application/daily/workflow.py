@@ -8,7 +8,7 @@ commit/delivery stages mutate external state.
 
 from __future__ import annotations
 
-from inv_trend.data.integrity import sha256_file
+from inv_trend.infra.integrity import sha256_file
 
 from dataclasses import asdict, replace
 from datetime import datetime

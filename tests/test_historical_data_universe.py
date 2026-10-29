@@ -13,7 +13,7 @@ from inv_trend.data.api import HistoricalDataService
 from inv_trend.data.calendar import is_nyse_trading_day
 from inv_trend.data.config import load_instruments
 from inv_trend.data.models import DataConflictError, DataQualityError, ProviderResult
-from inv_trend.data.integrity import sha256_file
+from inv_trend.infra.integrity import sha256_file
 from inv_trend.data.storage import DataLake
 
 pytest.importorskip("pyarrow")

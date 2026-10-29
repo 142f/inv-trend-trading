@@ -7,7 +7,8 @@ import numpy as np
 import pandas as pd
 import pytest
 from inv_trend.core.执行约束 import ExecutionPolicy
-from inv_trend.core.滚动协议 import make_windows,immutable_json,choose_from_training
+from inv_trend.core.滚动协议 import make_windows,choose_from_training
+from inv_trend.storage.基础 import immutable_json
 from inv_trend.adapters.multi_asset.backtest.runner import TurtleBacktester
 from inv_trend.adapters.multi_asset.models.domain import AssetSpec,Order,PortfolioState
 from inv_trend.application.滚动验证 import prefix

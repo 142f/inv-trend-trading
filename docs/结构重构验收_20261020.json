@@ -1,0 +1,188 @@
+{
+  "date": "2026-10-20",
+  "scope": "契约驱动的结构化重构：按 tests/test_architecture_boundaries.py 已确立的分层契约，逐条消除反向依赖与循环依赖；不改模块名与目录层级，兼容转发层与 _v1/_v3 模块全部保留（唯一例外以遗留引用审计零引用为前置条件）",
+  "commits": {
+    "P0": "a694a0b",
+    "P1": "5f0fe35",
+    "P2": "0ab05cd",
+    "P3": "dcb2147",
+    "P4": "aa038d5",
+    "P5": "04af83a"
+  },
+  "dependency_progress": {
+    "note": "包级边数在 P1 回升（+3）是 inv_trend/ports 引入的三条合法下行边；循环（双向包对）数才是收敛指标",
+    "rows": [
+      {"stage": "起点", "package_edges": 37, "package_cycles": 4, "adapter_allowlist_entries": 8},
+      {"stage": "P1", "package_edges": 39, "package_cycles": 3, "adapter_allowlist_entries": 1},
+      {"stage": "P2", "package_edges": 39, "package_cycles": 3, "adapter_allowlist_entries": 0},
+      {"stage": "P3", "package_edges": 38, "package_cycles": 3, "adapter_allowlist_entries": 0},
+      {"stage": "P4", "package_edges": 37, "package_cycles": 2, "adapter_allowlist_entries": 0},
+      {"stage": "P5", "package_edges": 35, "package_cycles": 1, "adapter_allowlist_entries": 0}
+    ],
+    "removed_cycles": [
+      "adapters ↔ application",
+      "application ↔ storage",
+      "core ↔ storage"
+    ],
+    "remaining_cycles": [
+      "data ↔ storage（原因与两条后续路径见 docs/模块依赖契约_v1.md 第 6 节）"
+    ]
+  },
+  "changes": [
+    {
+      "phase": "P0",
+      "kind": ["测试契约"],
+      "files": ["tests/test_architecture_boundaries.py"],
+      "what": "新增 DECLARED_PACKAGE_EDGES（精确包图）、KNOWN_PACKAGE_CYCLES（只减不增的循环计数）、相对 import 解析，以及两条对应测试；产品代码零改动",
+      "motivation": "先把目标变成可执行断言，之后每一步都能量化白名单/循环的剩余量"
+    },
+    {
+      "phase": "P1",
+      "kind": ["接口优化", "解耦", "结构优化"],
+      "files": [
+        "src/inv_trend/ports/__init__.py（新增）",
+        "src/inv_trend/ports/daily.py（新增）",
+        "src/inv_trend/application/daily/ports.py（改为 re-export）",
+        "src/inv_trend/application/daily/artifact_publication.py",
+        "src/inv_trend/application/backtest/core_dataset_runner.py（新增）",
+        "src/inv_trend/application/backtest/__init__.py",
+        "src/inv_trend/adapters/daily/artifact_publisher.py",
+        "src/inv_trend/adapters/daily/composition.py",
+        "src/inv_trend/adapters/daily/data_lineage.py",
+        "src/inv_trend/adapters/daily/stage_runtime_adapters.py",
+        "src/inv_trend/adapters/multi_asset/data/core_dataset.py",
+        "src/inv_trend/adapters/multi_asset/data/__init__.py",
+        "src/inv_trend/cli/data.py"
+      ],
+      "what": "新增跨层接口包 ports（9 个 Protocol + 纯 DTO DailyArtifactPublication），application.daily.ports 保留同名 re-export（同一类对象）；4 个适配器端口导入改指 ports；PublishStageRuntimeAdapter 直接返回 DailyRunArtifactWriter，由 DailyWorkflow 统一包装 ArtifactPublicationService（快照校验不变）；core_dataset 拆为数据准备（adapters）+ 回测评估用例（application），公开入口返回字典逐键不变",
+      "motivation": "adapters 不再 import application；接口集中、命名统一",
+      "benefit": "adapters 反向依赖白名单 8 → 1；消除 adapters↔application 循环"
+    },
+    {
+      "phase": "P2",
+      "kind": ["契约澄清", "测试"],
+      "files": ["tests/test_architecture_boundaries.py"],
+      "what": "把 adapters 的禁令集合由 {application, observability} 收敛为 {application}，白名单断言改为空集，并文档化 adapters→observability 为合法下行依赖",
+      "motivation": "实测证明原计划的注入机制不可行：application 层被禁止 import observability，无法构造默认渲染器，而从 cli 逐层注入会改变直接构造 DailyMarketScanService 的 HTML 行为；observability 只做渲染且已被禁止依赖 data/adapters，故该边是下行依赖",
+      "benefit": "白名单 1 → 0；该边仍由 DECLARED_PACKAGE_EDGES 精确固定，不能新增"
+    },
+    {
+      "phase": "P3",
+      "kind": ["解耦", "死代码清理"],
+      "files": [
+        "src/inv_trend/observability/report_renderer.py",
+        "src/inv_trend/observability/__init__.py",
+        "src/inv_trend/observability/report_model.py（删除）",
+        "src/inv_trend/observability/backtest_html.py（删除）"
+      ],
+      "what": "用模块内结构化 Protocol ReportBundleLike 取代 TYPE_CHECKING 下的应用层 DTO 注解；删除两个零引用废弃转发模块并移除 observability.__init__ 的 write_backtest_report 分支",
+      "motivation": "表现层不再依赖用例层",
+      "benefit": "消除 observability→application；包级边 39 → 38"
+    },
+    {
+      "phase": "P4",
+      "kind": ["结构优化"],
+      "files": [
+        "src/inv_trend/core/滚动协议.py",
+        "src/inv_trend/storage/基础.py",
+        "src/inv_trend/application/滚动验证.py",
+        "tests/test_滚动可信度_v2.py"
+      ],
+      "what": "immutable_json（不可变写盘/写入 store）由 core 下移到 storage.基础；core 只保留 digest/make_windows/choose_from_training 等纯计算",
+      "motivation": "core 回到“无 I/O”定义；写盘职责归存储层",
+      "benefit": "消除 core→storage；循环 3 → 2",
+      "compat": "路径变更无 shim——core 内保留 re-export 会重新引入 core→storage；调用方 application/滚动验证.py 与测试同步改指，写盘语义逐行不变"
+    },
+    {
+      "phase": "P5",
+      "kind": ["解耦", "死代码清理"],
+      "files": ["src/inv_trend/storage/制品.py", "tests/test_architecture_boundaries.py"],
+      "what": "删除 storage/制品.py 中零引用的 backtest_publish 与 daily_publish（保留有调用者的 read_backtest/read_daily），并清理随删除失效的 3 个 import",
+      "motivation": "二者的函数内 import 是 storage→application 与 storage→adapters 的唯一来源",
+      "benefit": "消除 application↔storage 循环与 storage→adapters；包级边 37 → 35"
+    }
+  ],
+  "plan_deviations": [
+    {
+      "planned": "P5：把 storage/结构化存储_v3.py 与 storage/数据迁移_v3.py 整模块下移到 data/（+ 同名 shim），以打断 data↔storage",
+      "actual": "已实测执行并随后完整回退；改为删除 storage 中零引用的上层写入口（E3）",
+      "reason": "实测发现该原语簇内部互相耦合：结构化存储_v3 在 CatalogPath.exists() 内惰性 import 研究结果_v3.ResultRepository，数据生命周期_v3 亦惰性 import 研究结果_v3，阶段制品 又依赖 基础/仓库；整体下移会连带 6 个以上模块，超出本轮“控制改动范围”的预算",
+      "residual": "data ↔ storage 仍存在，已登记为唯一残余循环；两条后续路径（簇内探针反转 / 整簇迁移到独立包）写入 docs/模块依赖契约_v1.md 第 6 节"
+    },
+    {
+      "planned": "P2：保留既有禁令，通过注入默认渲染器消除 adapters→observability",
+      "actual": "改为契约澄清（把该边认定为合法下行依赖）",
+      "reason": "注入机制实测不可行（见 P2 条目）",
+      "residual": "该边保留，但由 DECLARED_PACKAGE_EDGES 精确固定"
+    },
+    {
+      "planned": "所有阶段都以 shim 保留旧导入路径",
+      "actual": "有 4 处为路径迁移无 shim：core.滚动协议.immutable_json、observability.write_backtest_report、observability.report_model、observability.backtest_html",
+      "reason": "在 core/observability 内保留转发会重新引入被消除的反向依赖；四处均已通过全仓库检索 + 遗留引用审计确认零/单引用并同步更新调用方"
+    }
+  ],
+  "verification_stages": [
+    {"stage": "P0 契约测试", "passed": 11, "note": "仅新增测试；其状态由 P1 的全量回归覆盖"},
+    {"stage": "P1 定向回归", "passed": 163},
+    {"stage": "P1 全量回归", "passed": 1428, "failed": 6, "warnings": 7, "elapsed_seconds": 628.24},
+    {"stage": "P2 契约测试", "passed": 12, "note": "仅改测试，不重复全量回归"},
+    {"stage": "P3 定向回归", "passed": 94},
+    {"stage": "P3 全量回归", "passed": 1428, "failed": 6, "warnings": 7, "elapsed_seconds": 643.08},
+    {"stage": "P4 定向回归", "passed": 44, "note": "契约 + 滚动可信度专项"},
+    {"stage": "P4 全量回归", "passed": 1428, "failed": 6, "warnings": 7, "elapsed_seconds": 656.47},
+    {"stage": "P5 定向回归", "passed": 115},
+    {"stage": "P5 全量回归", "passed": 1428, "failed": 6, "warnings": 7, "elapsed_seconds": 655.88},
+    {"stage": "精确输出回归 tests/test_golden_master.py", "passed": 1, "note": "每阶段均通过（事件/订单精确、浮点 1e-10 容差）"},
+    {"stage": "静态检查 ruff -select F（src scripts research tests）", "passed": 1, "note": "每阶段均 All checks passed"},
+    {"stage": "遗留引用审计 scripts/遗留模块引用审计.py", "passed": 1, "note": "observability.report_model 与 observability.backtest_html 均为「无引用模块」"}
+  ],
+  "numerical_baseline": {
+    "note": "全量回归失败集合与错误信息与改动前基线逐项一致",
+    "baseline": {"passed": 1425, "failed": 6, "warnings": 7},
+    "after": {"passed": 1428, "failed": 6, "warnings": 7},
+    "pass_delta_explained": "+3 为本轮新增的契约测试（test_package_dependency_graph_matches_the_declared_contract、test_only_the_declared_package_cycles_remain、test_ports_only_depend_on_pure_layers）",
+    "pre_existing_failures": [
+      "tests/test_监控扫描与回放合同.py::test_saved_decisions_reproduce_without_current_state_or_new_writes[sqlite|duckdb|v3]",
+      "tests/test_监控扫描与回放合同.py::test_real_h4_repository_replay_matches_backtest_and_saved_decisions[sqlite|duckdb|v3]"
+    ],
+    "pre_existing_failure_cause": "monitoring/扫描器.py:283 DataLineageError：录制的 input_key 与当前代码/配置不一致，由工作区既有未提交改动引起，与本轮无关"
+  },
+  "review": {
+    "passes": 3,
+    "pass_1_equivalence": {
+      "method": "逐行对照 diff；对搬动入口做 digest A/B（列名/dtype/数值哈希）",
+      "findings": [
+        "P1：ports 的 re-export 与 DailyArtifactPublication 是同一个类对象（isinstance 语义不变）；build_metal_tech_core_dataset 返回字典键与键序逐键一致",
+        "P4：immutable_json 的 store 分支、O_EXCL、fsync、sha256 返回值逐行保留",
+        "P5：删除的两个函数零调用，删除不改变任何可观测行为"
+      ],
+      "result": "无阻断项"
+    },
+    "pass_2_interfaces_and_callsites": {
+      "method": "全仓库检索被搬动符号的全部引用（含 TYPE_CHECKING、字符串注解、__import__/import_module、测试与脚本），并运行遗留引用审计",
+      "findings": [
+        "adapters 侧已无任何 inv_trend.application 引用（含函数体与 TYPE_CHECKING）",
+        "core.滚动协议.immutable_json 的唯一生产调用方为 application/滚动验证.py，测试调用方为 tests/test_滚动可信度_v2.py",
+        "storage.制品.backtest_publish/daily_publish 在 src/tests/scripts/research 全为零命中",
+        "DailyRunArtifactWriter 具备 publish(snapshot, *, render_html=True) -> DailyArtifactPublication，结构上满足 ArtifactPublisherPort，DailyWorkflow 的 isinstance 包装与校验不变"
+      ],
+      "result": "对外接口行为保持不变"
+    },
+    "pass_3_adversarial_and_metrics": {
+      "method": "每个阶段后重新计算包级边与循环集合，确认 I1–I5 成立且计数单调收敛；同时跑全量回归与 golden master",
+      "findings": [
+        "P2 阶段推翻原计划的注入机制并给出实测依据（application 无法构造 observability 渲染器；逐层注入会改变直接构造服务的 HTML 行为）",
+        "P5 阶段实测发现原语簇的深层耦合并完整回退，避免了一次高风险的大范围搬动",
+        "残余循环与残余外层依赖均已显式登记，不再有隐藏白名单"
+      ],
+      "result": "见 verification_stages"
+    },
+    "ruff_F_checks": "passed"
+  },
+  "deliverables": [
+    "docs/模块依赖契约_v1.md：目录结构说明（分层表）+ 模块依赖图（35 条边）+ 关键接口变更清单 + 残余与后续建议 + 复核方式",
+    "docs/结构重构验收_20261020.json：本回执",
+    "README.md「代码结构与维护」：补充依赖契约与 ports 的说明与文档指引"
+  ],
+  "data_protection": "未修改原行情、研究数据、私有配置或 Git 历史；工作区中用户进行中的未提交改动（runner.py / domain.py / engine.py / test_海龟入场过滤合同.py）未被触碰"
+}

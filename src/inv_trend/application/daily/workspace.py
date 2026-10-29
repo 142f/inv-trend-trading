@@ -7,7 +7,7 @@ publication stage promotes a completed run through :class:`DailyRunArtifactWrite
 
 from __future__ import annotations
 
-from inv_trend.data.文件操作 import atomic_write
+from inv_trend.infra.文件操作 import atomic_write
 
 from dataclasses import dataclass
 from datetime import date

@@ -1,7 +1,7 @@
 """统一研究入口：study / stage / report；阶段交换只使用数据库中的结构化对象。"""
 from __future__ import annotations
 
-from inv_trend.data.integrity import sha256_file
+from inv_trend.infra.integrity import sha256_file
 
 import argparse
 from dataclasses import asdict

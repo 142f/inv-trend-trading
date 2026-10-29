@@ -8,7 +8,7 @@ from pathlib import Path
 import sqlite3
 
 from inv_trend.data.api import HistoricalDataService
-from inv_trend.data.locking import _owner_process_state
+from inv_trend.infra.locking import _owner_process_state
 from inv_trend.monitoring.扫描器 import CodeVersion
 from inv_trend.observability.脱敏 import redact
 

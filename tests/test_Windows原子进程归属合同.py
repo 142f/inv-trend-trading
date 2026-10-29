@@ -8,7 +8,7 @@ import time
 
 import pytest
 
-from inv_trend.data.locking import _owner_process_state
+from inv_trend.infra.locking import _owner_process_state
 
 
 @pytest.mark.parametrize('point',['native_create_return','launch_return','start_recorded'])

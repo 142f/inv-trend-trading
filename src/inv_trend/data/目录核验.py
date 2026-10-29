@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from .integrity import sha256_file
+from inv_trend.infra.integrity import sha256_file
 
 
 def verify_catalog(lake) -> dict[str, object]:

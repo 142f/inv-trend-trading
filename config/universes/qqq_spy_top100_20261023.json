@@ -1,0 +1,831 @@
+{
+ "id": "qqq_spy_top100_20261023",
+ "source": "QQQ and SPY top-100 constituents by weight",
+ "as_of": "2026-10-23",
+ "notes": "SPCX is not registered in assets.yaml and keeps its source QQQ rank; no company-level merging; GOOG and GOOGL are separate rows.",
+ "exclusions": [
+  {
+   "symbol": "SPCX",
+   "qqq_rank": 11,
+   "reason": "not registered in assets.yaml"
+  }
+ ],
+ "count": 163,
+ "members": [
+  {
+   "symbol": "NVDA",
+   "qqq_rank": 1,
+   "spy_rank": 1
+  },
+  {
+   "symbol": "AAPL",
+   "qqq_rank": 2,
+   "spy_rank": 2
+  },
+  {
+   "symbol": "MSFT",
+   "qqq_rank": 3,
+   "spy_rank": 3
+  },
+  {
+   "symbol": "MU",
+   "qqq_rank": 4,
+   "spy_rank": 12
+  },
+  {
+   "symbol": "AMZN",
+   "qqq_rank": 5,
+   "spy_rank": 4
+  },
+  {
+   "symbol": "AMD",
+   "qqq_rank": 6,
+   "spy_rank": 14
+  },
+  {
+   "symbol": "TSLA",
+   "qqq_rank": 7,
+   "spy_rank": 9
+  },
+  {
+   "symbol": "META",
+   "qqq_rank": 8,
+   "spy_rank": 8
+  },
+  {
+   "symbol": "GOOGL",
+   "qqq_rank": 9,
+   "spy_rank": 5
+  },
+  {
+   "symbol": "GOOG",
+   "qqq_rank": 10,
+   "spy_rank": 7
+  },
+  {
+   "symbol": "WMT",
+   "qqq_rank": 12,
+   "spy_rank": 18
+  },
+  {
+   "symbol": "AVGO",
+   "qqq_rank": 13,
+   "spy_rank": 6
+  },
+  {
+   "symbol": "INTC",
+   "qqq_rank": 14,
+   "spy_rank": 24
+  },
+  {
+   "symbol": "PLTR",
+   "qqq_rank": 15,
+   "spy_rank": 22
+  },
+  {
+   "symbol": "COST",
+   "qqq_rank": 16,
+   "spy_rank": 23
+  },
+  {
+   "symbol": "CSCO",
+   "qqq_rank": 17,
+   "spy_rank": 25
+  },
+  {
+   "symbol": "PANW",
+   "qqq_rank": 18,
+   "spy_rank": 34
+  },
+  {
+   "symbol": "AMAT",
+   "qqq_rank": 19,
+   "spy_rank": 35
+  },
+  {
+   "symbol": "LRCX",
+   "qqq_rank": 20,
+   "spy_rank": 37
+  },
+  {
+   "symbol": "NFLX",
+   "qqq_rank": 21,
+   "spy_rank": 38
+  },
+  {
+   "symbol": "CRWD",
+   "qqq_rank": 22,
+   "spy_rank": 39
+  },
+  {
+   "symbol": "TXN",
+   "qqq_rank": 23,
+   "spy_rank": 40
+  },
+  {
+   "symbol": "AMGN",
+   "qqq_rank": 24,
+   "spy_rank": 46
+  },
+  {
+   "symbol": "LIN",
+   "qqq_rank": 25,
+   "spy_rank": 47
+  },
+  {
+   "symbol": "SHOP",
+   "qqq_rank": 26,
+   "spy_rank": null
+  },
+  {
+   "symbol": "MRVL",
+   "qqq_rank": 27,
+   "spy_rank": 53
+  },
+  {
+   "symbol": "GILD",
+   "qqq_rank": 28,
+   "spy_rank": 55
+  },
+  {
+   "symbol": "KLAC",
+   "qqq_rank": 29,
+   "spy_rank": 57
+  },
+  {
+   "symbol": "ADI",
+   "qqq_rank": 30,
+   "spy_rank": 56
+  },
+  {
+   "symbol": "PEP",
+   "qqq_rank": 31,
+   "spy_rank": 60
+  },
+  {
+   "symbol": "QCOM",
+   "qqq_rank": 32,
+   "spy_rank": 58
+  },
+  {
+   "symbol": "SNDK",
+   "qqq_rank": 33,
+   "spy_rank": 63
+  },
+  {
+   "symbol": "ISRG",
+   "qqq_rank": 34,
+   "spy_rank": 76
+  },
+  {
+   "symbol": "TMUS",
+   "qqq_rank": 35,
+   "spy_rank": null
+  },
+  {
+   "symbol": "ASML",
+   "qqq_rank": 36,
+   "spy_rank": null
+  },
+  {
+   "symbol": "STX",
+   "qqq_rank": 37,
+   "spy_rank": 82
+  },
+  {
+   "symbol": "VRTX",
+   "qqq_rank": 38,
+   "spy_rank": 87
+  },
+  {
+   "symbol": "FTNT",
+   "qqq_rank": 39,
+   "spy_rank": null
+  },
+  {
+   "symbol": "WDC",
+   "qqq_rank": 40,
+   "spy_rank": 93
+  },
+  {
+   "symbol": "ADP",
+   "qqq_rank": 41,
+   "spy_rank": 96
+  },
+  {
+   "symbol": "BKNG",
+   "qqq_rank": 42,
+   "spy_rank": null
+  },
+  {
+   "symbol": "SBUX",
+   "qqq_rank": 43,
+   "spy_rank": null
+  },
+  {
+   "symbol": "ADBE",
+   "qqq_rank": 44,
+   "spy_rank": null
+  },
+  {
+   "symbol": "MAR",
+   "qqq_rank": 45,
+   "spy_rank": null
+  },
+  {
+   "symbol": "CSX",
+   "qqq_rank": 46,
+   "spy_rank": null
+  },
+  {
+   "symbol": "INTU",
+   "qqq_rank": 47,
+   "spy_rank": null
+  },
+  {
+   "symbol": "MELI",
+   "qqq_rank": 48,
+   "spy_rank": null
+  },
+  {
+   "symbol": "ARM",
+   "qqq_rank": 49,
+   "spy_rank": null
+  },
+  {
+   "symbol": "MNST",
+   "qqq_rank": 50,
+   "spy_rank": null
+  },
+  {
+   "symbol": "DDOG",
+   "qqq_rank": 51,
+   "spy_rank": null
+  },
+  {
+   "symbol": "CEG",
+   "qqq_rank": 52,
+   "spy_rank": null
+  },
+  {
+   "symbol": "CTAS",
+   "qqq_rank": 53,
+   "spy_rank": null
+  },
+  {
+   "symbol": "CDNS",
+   "qqq_rank": 54,
+   "spy_rank": null
+  },
+  {
+   "symbol": "SNPS",
+   "qqq_rank": 55,
+   "spy_rank": null
+  },
+  {
+   "symbol": "CMCSA",
+   "qqq_rank": 56,
+   "spy_rank": null
+  },
+  {
+   "symbol": "MDLZ",
+   "qqq_rank": 57,
+   "spy_rank": null
+  },
+  {
+   "symbol": "REGN",
+   "qqq_rank": 58,
+   "spy_rank": null
+  },
+  {
+   "symbol": "MRNA",
+   "qqq_rank": 59,
+   "spy_rank": null
+  },
+  {
+   "symbol": "APP",
+   "qqq_rank": 60,
+   "spy_rank": null
+  },
+  {
+   "symbol": "ROST",
+   "qqq_rank": 61,
+   "spy_rank": null
+  },
+  {
+   "symbol": "DASH",
+   "qqq_rank": 62,
+   "spy_rank": null
+  },
+  {
+   "symbol": "ORLY",
+   "qqq_rank": 63,
+   "spy_rank": null
+  },
+  {
+   "symbol": "ABNB",
+   "qqq_rank": 64,
+   "spy_rank": null
+  },
+  {
+   "symbol": "AEP",
+   "qqq_rank": 65,
+   "spy_rank": null
+  },
+  {
+   "symbol": "HON",
+   "qqq_rank": 66,
+   "spy_rank": null
+  },
+  {
+   "symbol": "LITE",
+   "qqq_rank": 67,
+   "spy_rank": null
+  },
+  {
+   "symbol": "FAST",
+   "qqq_rank": 68,
+   "spy_rank": null
+  },
+  {
+   "symbol": "NXPI",
+   "qqq_rank": 69,
+   "spy_rank": null
+  },
+  {
+   "symbol": "FANG",
+   "qqq_rank": 70,
+   "spy_rank": null
+  },
+  {
+   "symbol": "PCAR",
+   "qqq_rank": 71,
+   "spy_rank": null
+  },
+  {
+   "symbol": "MPWR",
+   "qqq_rank": 72,
+   "spy_rank": null
+  },
+  {
+   "symbol": "BKR",
+   "qqq_rank": 73,
+   "spy_rank": null
+  },
+  {
+   "symbol": "MSTR",
+   "qqq_rank": 74,
+   "spy_rank": null
+  },
+  {
+   "symbol": "PDD",
+   "qqq_rank": 75,
+   "spy_rank": null
+  },
+  {
+   "symbol": "ADSK",
+   "qqq_rank": 76,
+   "spy_rank": null
+  },
+  {
+   "symbol": "HONA",
+   "qqq_rank": 77,
+   "spy_rank": null
+  },
+  {
+   "symbol": "PYPL",
+   "qqq_rank": 78,
+   "spy_rank": null
+  },
+  {
+   "symbol": "XEL",
+   "qqq_rank": 79,
+   "spy_rank": null
+  },
+  {
+   "symbol": "TER",
+   "qqq_rank": 80,
+   "spy_rank": null
+  },
+  {
+   "symbol": "CCEP",
+   "qqq_rank": 81,
+   "spy_rank": null
+  },
+  {
+   "symbol": "KDP",
+   "qqq_rank": 82,
+   "spy_rank": null
+  },
+  {
+   "symbol": "TRI",
+   "qqq_rank": 83,
+   "spy_rank": null
+  },
+  {
+   "symbol": "EXC",
+   "qqq_rank": 84,
+   "spy_rank": null
+  },
+  {
+   "symbol": "ALAB",
+   "qqq_rank": 85,
+   "spy_rank": null
+  },
+  {
+   "symbol": "IDXX",
+   "qqq_rank": 86,
+   "spy_rank": null
+  },
+  {
+   "symbol": "ROP",
+   "qqq_rank": 87,
+   "spy_rank": null
+  },
+  {
+   "symbol": "PAYX",
+   "qqq_rank": 88,
+   "spy_rank": null
+  },
+  {
+   "symbol": "WDAY",
+   "qqq_rank": 89,
+   "spy_rank": null
+  },
+  {
+   "symbol": "MCHP",
+   "qqq_rank": 90,
+   "spy_rank": null
+  },
+  {
+   "symbol": "TTWO",
+   "qqq_rank": 91,
+   "spy_rank": null
+  },
+  {
+   "symbol": "ODFL",
+   "qqq_rank": 92,
+   "spy_rank": null
+  },
+  {
+   "symbol": "NBIS",
+   "qqq_rank": 93,
+   "spy_rank": null
+  },
+  {
+   "symbol": "FER",
+   "qqq_rank": 94,
+   "spy_rank": null
+  },
+  {
+   "symbol": "AXON",
+   "qqq_rank": 95,
+   "spy_rank": null
+  },
+  {
+   "symbol": "GEHC",
+   "qqq_rank": 96,
+   "spy_rank": null
+  },
+  {
+   "symbol": "RKLB",
+   "qqq_rank": 97,
+   "spy_rank": null
+  },
+  {
+   "symbol": "ALNY",
+   "qqq_rank": 98,
+   "spy_rank": null
+  },
+  {
+   "symbol": "DXCM",
+   "qqq_rank": 99,
+   "spy_rank": null
+  },
+  {
+   "symbol": "CPRT",
+   "qqq_rank": 100,
+   "spy_rank": null
+  },
+  {
+   "symbol": "LLY",
+   "qqq_rank": null,
+   "spy_rank": 10
+  },
+  {
+   "symbol": "BRK.B",
+   "qqq_rank": null,
+   "spy_rank": 11
+  },
+  {
+   "symbol": "JPM",
+   "qqq_rank": null,
+   "spy_rank": 13
+  },
+  {
+   "symbol": "XOM",
+   "qqq_rank": null,
+   "spy_rank": 15
+  },
+  {
+   "symbol": "V",
+   "qqq_rank": null,
+   "spy_rank": 16
+  },
+  {
+   "symbol": "JNJ",
+   "qqq_rank": null,
+   "spy_rank": 17
+  },
+  {
+   "symbol": "ABBV",
+   "qqq_rank": null,
+   "spy_rank": 19
+  },
+  {
+   "symbol": "MA",
+   "qqq_rank": null,
+   "spy_rank": 20
+  },
+  {
+   "symbol": "CVX",
+   "qqq_rank": null,
+   "spy_rank": 21
+  },
+  {
+   "symbol": "UNH",
+   "qqq_rank": null,
+   "spy_rank": 26
+  },
+  {
+   "symbol": "PG",
+   "qqq_rank": null,
+   "spy_rank": 27
+  },
+  {
+   "symbol": "KO",
+   "qqq_rank": null,
+   "spy_rank": 28
+  },
+  {
+   "symbol": "MRK",
+   "qqq_rank": null,
+   "spy_rank": 29
+  },
+  {
+   "symbol": "BAC",
+   "qqq_rank": null,
+   "spy_rank": 30
+  },
+  {
+   "symbol": "HD",
+   "qqq_rank": null,
+   "spy_rank": 31
+  },
+  {
+   "symbol": "CAT",
+   "qqq_rank": null,
+   "spy_rank": 32
+  },
+  {
+   "symbol": "PM",
+   "qqq_rank": null,
+   "spy_rank": 33
+  },
+  {
+   "symbol": "GE",
+   "qqq_rank": null,
+   "spy_rank": 36
+  },
+  {
+   "symbol": "RTX",
+   "qqq_rank": null,
+   "spy_rank": 41
+  },
+  {
+   "symbol": "GS",
+   "qqq_rank": null,
+   "spy_rank": 42
+  },
+  {
+   "symbol": "WFC",
+   "qqq_rank": null,
+   "spy_rank": 43
+  },
+  {
+   "symbol": "TMO",
+   "qqq_rank": null,
+   "spy_rank": 44
+  },
+  {
+   "symbol": "IBM",
+   "qqq_rank": null,
+   "spy_rank": 45
+  },
+  {
+   "symbol": "ORCL",
+   "qqq_rank": null,
+   "spy_rank": 48
+  },
+  {
+   "symbol": "GEV",
+   "qqq_rank": null,
+   "spy_rank": 49
+  },
+  {
+   "symbol": "MS",
+   "qqq_rank": null,
+   "spy_rank": 50
+  },
+  {
+   "symbol": "CRM",
+   "qqq_rank": null,
+   "spy_rank": 51
+  },
+  {
+   "symbol": "C",
+   "qqq_rank": null,
+   "spy_rank": 52
+  },
+  {
+   "symbol": "DIS",
+   "qqq_rank": null,
+   "spy_rank": 54
+  },
+  {
+   "symbol": "VZ",
+   "qqq_rank": null,
+   "spy_rank": 59
+  },
+  {
+   "symbol": "APH",
+   "qqq_rank": null,
+   "spy_rank": 61
+  },
+  {
+   "symbol": "COP",
+   "qqq_rank": null,
+   "spy_rank": 62
+  },
+  {
+   "symbol": "ANET",
+   "qqq_rank": null,
+   "spy_rank": 64
+  },
+  {
+   "symbol": "ABT",
+   "qqq_rank": null,
+   "spy_rank": 65
+  },
+  {
+   "symbol": "MCD",
+   "qqq_rank": null,
+   "spy_rank": 66
+  },
+  {
+   "symbol": "UNP",
+   "qqq_rank": null,
+   "spy_rank": 67
+  },
+  {
+   "symbol": "NEE",
+   "qqq_rank": null,
+   "spy_rank": 68
+  },
+  {
+   "symbol": "PFE",
+   "qqq_rank": null,
+   "spy_rank": 69
+  },
+  {
+   "symbol": "WELL",
+   "qqq_rank": null,
+   "spy_rank": 70
+  },
+  {
+   "symbol": "AXP",
+   "qqq_rank": null,
+   "spy_rank": 71
+  },
+  {
+   "symbol": "NOW",
+   "qqq_rank": null,
+   "spy_rank": 72
+  },
+  {
+   "symbol": "DE",
+   "qqq_rank": null,
+   "spy_rank": 73
+  },
+  {
+   "symbol": "BLK",
+   "qqq_rank": null,
+   "spy_rank": 74
+  },
+  {
+   "symbol": "TJX",
+   "qqq_rank": null,
+   "spy_rank": 75
+  },
+  {
+   "symbol": "ACN",
+   "qqq_rank": null,
+   "spy_rank": 77
+  },
+  {
+   "symbol": "BA",
+   "qqq_rank": null,
+   "spy_rank": 78
+  },
+  {
+   "symbol": "SCHW",
+   "qqq_rank": null,
+   "spy_rank": 79
+  },
+  {
+   "symbol": "DHR",
+   "qqq_rank": null,
+   "spy_rank": 80
+  },
+  {
+   "symbol": "T",
+   "qqq_rank": null,
+   "spy_rank": 81
+  },
+  {
+   "symbol": "ETN",
+   "qqq_rank": null,
+   "spy_rank": 83
+  },
+  {
+   "symbol": "DELL",
+   "qqq_rank": null,
+   "spy_rank": 84
+  },
+  {
+   "symbol": "UBER",
+   "qqq_rank": null,
+   "spy_rank": 85
+  },
+  {
+   "symbol": "SPGI",
+   "qqq_rank": null,
+   "spy_rank": 86
+  },
+  {
+   "symbol": "PGR",
+   "qqq_rank": null,
+   "spy_rank": 88
+  },
+  {
+   "symbol": "MPC",
+   "qqq_rank": null,
+   "spy_rank": 89
+  },
+  {
+   "symbol": "BMY",
+   "qqq_rank": null,
+   "spy_rank": 90
+  },
+  {
+   "symbol": "CB",
+   "qqq_rank": null,
+   "spy_rank": 91
+  },
+  {
+   "symbol": "MO",
+   "qqq_rank": null,
+   "spy_rank": 92
+  },
+  {
+   "symbol": "COF",
+   "qqq_rank": null,
+   "spy_rank": 94
+  },
+  {
+   "symbol": "LMT",
+   "qqq_rank": null,
+   "spy_rank": 95
+  },
+  {
+   "symbol": "VLO",
+   "qqq_rank": null,
+   "spy_rank": 97
+  },
+  {
+   "symbol": "PLD",
+   "qqq_rank": null,
+   "spy_rank": 98
+  },
+  {
+   "symbol": "CVS",
+   "qqq_rank": null,
+   "spy_rank": 99
+  },
+  {
+   "symbol": "MDT",
+   "qqq_rank": null,
+   "spy_rank": 100
+  }
+ ]
+}

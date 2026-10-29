@@ -15,14 +15,14 @@ import threading
 import time
 from uuid import uuid4
 
-from inv_trend.data.integrity import sha256_file as file_hash
-from inv_trend.data.文件操作 import atomic_write, sync_directory
-from inv_trend.data.models import parse_utc_datetime, to_rfc3339_utc
+from inv_trend.infra.integrity import sha256_file as file_hash
+from inv_trend.infra.文件操作 import atomic_write, sync_directory
+from inv_trend.infra.时间 import parse_utc_datetime, to_rfc3339_utc
 
 __all__ = [
     "Lease", "atomic_write", "beneath", "closing_connection", "connect", "digest",
-    "encoded", "file_hash", "lease_active", "now", "process_identity", "redact",
-    "segment", "sync_directory", "transaction",
+    "encoded", "file_hash", "immutable_json", "lease_active", "now",
+    "process_identity", "redact", "segment", "sync_directory", "transaction",
 ]
 
 
@@ -50,6 +50,30 @@ def encoded(value):
 
 def digest(value):
     return hashlib.sha256(encoded(value)).hexdigest()
+
+
+def immutable_json(path, value):
+    """Write a frozen JSON record once; O_EXCL forbids overwrite/races.
+
+    This lived in ``inv_trend.core.滚动协议`` until the storage layer stopped
+    reaching back into the application layer: writing bytes to a file or store
+    is a storage responsibility, so the function belongs here.
+    """
+    from inv_trend.storage.研究结果_v3 import store_for
+    store = store_for(path)
+    if store is not None:
+        payload = json.dumps(value, ensure_ascii=False, indent=2, allow_nan=False, default=str).encode()
+        store.put_document(path, payload, kind="research_audit", idempotent=False)
+        return hashlib.sha256(payload).hexdigest()
+    path = Path(path)
+    payload = json.dumps(value, ensure_ascii=False, indent=2, allow_nan=False, default=str).encode()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    # O_EXCL prevents overwrite/races; no mutable "latest" can rewrite a frozen choice.
+    with path.open("xb") as stream:
+        stream.write(payload)
+        stream.flush()
+        os.fsync(stream.fileno())
+    return hashlib.sha256(payload).hexdigest()
 
 
 

@@ -13,10 +13,13 @@ from uuid import uuid4
 
 import pandas as pd
 
-from .文件操作 import atomic_write
-from .integrity import frame_hash, json_bytes
-from .locking import FileLock
-from .目录故障 import catalog_access
+from inv_trend.infra.backend import (
+    LEGACY_CATALOGS, V3_AUTHORITY, V3_AUTHORITY_PATH, resolve_authority,
+)
+from inv_trend.infra.文件操作 import atomic_write
+from inv_trend.infra.integrity import frame_hash, json_bytes
+from inv_trend.infra.locking import FileLock
+from inv_trend.infra.目录故障 import catalog_access
 from .models import CatalogBackendConflictError, DataConflictError, DataLineageError, path_text
 
 
@@ -26,7 +29,7 @@ _EXPECTED_VERSION_UNSET = object()
 def validate_v3_authority(root: str | Path) -> None:
     """Reject ambiguous mixed layouts before opening or migrating a database."""
     root = Path(root)
-    conflicts = [root / name for name in ('catalog.sqlite3', 'catalog.duckdb', 'catalog_backend.json')
+    conflicts = [root / name for name in (*LEGACY_CATALOGS, 'catalog_backend.json')
                  if (root / name).exists()]
     if conflicts:
         raise CatalogBackendConflictError(
@@ -51,16 +54,15 @@ def open_data_lake(root: str | Path = "data", *, backend: str = "auto", startup_
     """
     if backend not in {"auto", "legacy", "v3"}:
         raise ValueError("backend must be 'auto', 'legacy' or 'v3'")
-    from inv_trend.storage.结构化存储_v3 import DB_RELATIVE
 
     root_path = Path(root)
-    has_v3 = (root_path / DB_RELATIVE).is_file()
+    has_v3 = resolve_authority(root_path) == V3_AUTHORITY
     selected = "v3" if backend == "auto" and has_v3 else backend
     if selected == "auto":
         selected = "legacy"
     if selected == "v3":
         if not has_v3:
-            raise DataLineageError(f"v3 authority is missing: {root_path / DB_RELATIVE}")
+            raise DataLineageError(f"v3 authority is missing: {root_path / V3_AUTHORITY_PATH}")
         validate_v3_authority(root_path)
         from .数据湖适配_v3 import DatabaseDataLake
         return DatabaseDataLake(root_path, startup_check=startup_check)
@@ -74,18 +76,19 @@ def open_data_lake(root: str | Path = "data", *, backend: str = "auto", startup_
 class DataLake:
     """Append-only local data lake with recoverable current-version activation."""
 
+    #: Legacy catalogs remain readable, but only the v3 authority is writable.
+    authority = "legacy"
+
     def __new__(cls, root: str | Path = "data", *, startup_check: bool = True):
         # v3 data roots have one explicit database authority; legacy roots remain readable.
-        if cls is DataLake:
-            from inv_trend.storage.结构化存储_v3 import DB_RELATIVE
-            if (Path(root) / DB_RELATIVE).is_file():
-                warnings.warn(
-                    "implicit DataLake backend selection is deprecated; use open_data_lake()",
-                    DeprecationWarning,
-                    stacklevel=2,
-                )
-                from .数据湖适配_v3 import DatabaseDataLake
-                return object.__new__(DatabaseDataLake)
+        if cls is DataLake and resolve_authority(root) == V3_AUTHORITY:
+            warnings.warn(
+                "implicit DataLake backend selection is deprecated; use open_data_lake()",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            from .数据湖适配_v3 import DatabaseDataLake
+            return object.__new__(DatabaseDataLake)
         return object.__new__(cls)
 
     def __init__(self, root: str | Path = "data", *, startup_check: bool = True) -> None:
@@ -671,7 +674,7 @@ class DataLake:
                 self._unlink_and_sync(journal_path)
 
     def _review_artifact_matches(self, item: dict[str, Any]) -> bool:
-        from .integrity import sha256_file
+        from inv_trend.infra.integrity import sha256_file
         path = self._resolve_root_relative(item['path'])
         return path.is_file() and sha256_file(path) == item['sha256']
 

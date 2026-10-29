@@ -7,7 +7,7 @@ import math
 from pathlib import Path
 import sqlite3
 
-from inv_trend.data.locking import _owner_process_state
+from inv_trend.infra.locking import _owner_process_state
 from inv_trend.monitoring.模型 import DecisionSnapshot
 from inv_trend.monitoring.扫描器 import CodeVersion
 from inv_trend.notifications.队列 import NotificationQueue

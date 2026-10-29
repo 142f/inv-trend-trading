@@ -16,7 +16,7 @@ import pandas as pd
 from .calendar import classify_missing
 from .config import load_instruments
 from .processing import FRAME_DELTAS
-from .integrity import sha256_file
+from inv_trend.infra.integrity import sha256_file
 from .storage import open_data_lake
 
 

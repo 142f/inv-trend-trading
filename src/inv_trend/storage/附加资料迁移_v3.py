@@ -2,7 +2,7 @@
 from __future__ import annotations
 import json,zipfile
 from pathlib import Path
-from inv_trend.data.integrity import sha256_file as file_hash
+from inv_trend.infra.integrity import sha256_file as file_hash
 from .结构化存储_v3 import UnifiedStore,utcnow,StoreError
 from .研究结果_v3 import import_market_csv,ResultRepository
 

@@ -36,7 +36,8 @@ class HistoricalReplay:
     def run(self, symbol: str, frame: str, dataset_version: str, *,
             account: ReferenceAccount | None = None,
             account_at_bar: Callable[[pd.Timestamp], ReferenceAccount] | None = None,
-            compare_backtest: bool = False, reference_equity: float = 100000.) -> ReplayResult:
+            compare_backtest: bool = False, reference_equity: float = 100000.,
+            progress: Callable[[int, int], None] | None = None) -> ReplayResult:
         if self.scanner.store.purpose != 'replay':
             raise ValueError('historical replay requires a separate replay event store')
         symbol, frame = symbol.upper(), timeframe(frame)
@@ -52,6 +53,7 @@ class HistoricalReplay:
             recorder.run(bars)
             account_at_bar = recorder.account_at_bar
         decisions = []
+        total = len(bars)
         for index, bar_time in enumerate(bars.index):
             prefix = bars.iloc[:index + 1].copy()
             prefix.attrs = deepcopy(bars.attrs)
@@ -62,6 +64,8 @@ class HistoricalReplay:
             result = self.scanner._scan_verified_prefix(prefix, instrument, frame, now=evaluated_at,
                                                          account=selected, mode='replay')
             decisions.append(result['snapshot'])
+            if progress is not None:
+                progress(index + 1, total)
         comparison = recorder.compare(decisions) if recorder else None
         return ReplayResult(symbol, frame, dataset_version, tuple(decisions), comparison)
 

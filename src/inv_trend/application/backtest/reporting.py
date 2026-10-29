@@ -180,6 +180,22 @@ def render_backtest_html(
         f"<span>{escape(str(item.get('message', '')))}</span></li>"
         for item in issues
     ) or "<li><span>未发现额外关键问题。</span></li>"
+    basic = model.basic_information
+    data_versions = sorted({str(value) for value in (basic.get("data_versions") or {}).values() if value})
+    meta_html = "".join(
+        f"<div><dt>{escape(label)}</dt><dd>{escape(_short(value))}</dd></div>"
+        for label, value in (
+            ("运行 ID", basic.get("run_id")),
+            ("生成时间", basic.get("generated_at") or basic.get("report_date")),
+            ("策略版本", basic.get("strategy_version")),
+            ("代码版本", basic.get("code_version")),
+            ("品种数", len(basic.get("symbols") or [])),
+            ("数据版本", ",".join(data_versions) or "—"),
+            ("源哈希", basic.get("source_hash")),
+            ("结果哈希", basic.get("result_hash")),
+            ("校验状态", basic.get("validation_status")),
+        )
+    )
     return f"""<!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>统一策略回测报告</title><style>{_CSS}</style></head><body>
@@ -188,6 +204,7 @@ def render_backtest_html(
 <p>先看样本外风险，再看收益。排名依据验证集，最终留出不参与调参。</p></div>
 <div class="status"><b>{escape(str(model.conclusion.get('status', 'UNKNOWN')))}</b>
 <span>候选：{escape(str(model.best_combination_id or '未确认'))}</span></div></header>
+<dl class="meta">{meta_html}</dl>
 <section id="overview"><h2>回测基本信息</h2><div class="cards" id="summary"></div>
 <div class="toolbar"><label>分析组合 <select id="activeSelect"></select></label><span id="activeStatus" role="status"></span></div>
 <div class="cards" id="metricCards"></div><p>指标卡分别标明全样本、验证集与留出集；下方资金及回撤曲线展示全样本。</p></section>
@@ -195,18 +212,22 @@ def render_backtest_html(
 <label>叠加组合 <select id="curveSelect" multiple size="1"></select></label></div>
 <div class="toolbar"><label>开始 <input id="startDate" type="date"></label><label>结束 <input id="endDate" type="date"></label><button id="resetRange">全部历史</button><span id="rangeStatus" role="status"></span></div>
 <div id="chartLegend" class="legend"></div><div class="grid"><div class="panel wide"><h3>收益曲线 · 账户权益</h3><canvas id="equityChart" aria-label="全样本权益时间序列"></canvas></div>
-<div class="panel"><h3>回撤曲线</h3><canvas id="drawdownChart"></canvas></div>
-<div class="panel"><h3>样本外风险收益</h3><canvas id="scatterChart"></canvas></div>
-<div class="panel"><h3>参数热力图</h3><canvas id="heatmapChart"></canvas></div>
-<div class="panel"><h3>分折稳定性</h3><canvas id="foldChart"></canvas></div></div></section>
+<div class="panel"><h3>回撤曲线</h3><canvas id="drawdownChart" aria-label="全样本回撤时间序列"></canvas></div>
+<div class="panel"><h3>样本外风险收益</h3><canvas id="scatterChart" aria-label="验证集最大回撤与年化收益散点"></canvas></div>
+<div class="panel"><h3>参数热力图</h3><canvas id="heatmapChart" aria-label="参数组合评分热力图"></canvas></div>
+<div class="panel"><h3>分折稳定性</h3><canvas id="foldChart" aria-label="各验证折年化收益"></canvas></div></div></section>
 <section id="comparison"><h2>核心指标与超参数横向比较</h2><p>排名来自验证集综合分；总收益、年化、回撤、Sharpe、胜率和交易数为全样本指标。点击组合联动交易记录。</p><div class="table-wrap"><table><thead><tr>
 <th>排名</th><th>组合</th><th>状态</th><th>综合分</th><th>总收益</th><th>年化收益</th><th>最大回撤</th>
 <th>Sharpe</th><th>胜率</th><th>盈亏比</th><th>交易数</th><th>留出收益</th><th>风险</th></tr></thead><tbody>{rows}</tbody></table></div></section>
-<section><h2>多空表现与交易分布</h2><div class="grid"><div class="panel"><h3>多头 / 空头贡献</h3><canvas id="sideChart"></canvas></div>
-<div class="panel"><h3>交易盈亏分布</h3><canvas id="tradeChart"></canvas></div></div></section>
+<section><h2>多空表现与交易分布</h2><div class="grid"><div class="panel"><h3>多头 / 空头贡献</h3><canvas id="sideChart" aria-label="多头与空头盈亏贡献"></canvas></div>
+<div class="panel"><h3>交易盈亏分布</h3><canvas id="tradeChart" aria-label="已平仓交易盈亏分布"></canvas></div></div></section>
 <section id="ledger"><h2>交易记录与信号执行</h2><div class="panel">
 <div class="toolbar"><button data-ledger="trades" aria-pressed="true">已平仓交易</button><button data-ledger="orders" aria-pressed="false">执行订单</button><button data-ledger="signals" aria-pressed="false">策略信号</button>
-<label>筛选 <input id="ledgerSearch" type="search" placeholder="品种、方向、原因或状态"></label><button id="exportLedger">导出筛选 CSV</button></div>
+<label>筛选 <input id="ledgerSearch" type="search" placeholder="品种、方向、原因或状态"></label>
+<label>品种 <input id="ledgerSymbol" type="search" placeholder="全部"></label>
+<label>方向 <select id="ledgerSide"><option value="">全部</option><option value="long">多头</option><option value="short">空头</option></select></label>
+<label>仅盈利 <input id="ledgerProfit" type="checkbox"></label>
+<button id="exportLedger">导出筛选 CSV</button></div>
 <p id="ledgerDescription"></p><div class="table-wrap"><table><thead id="ledgerHead"></thead><tbody id="ledgerBody"></tbody></table></div>
 <div class="toolbar"><button id="prevPage">上一页</button><span id="pageStatus" aria-live="polite"></span><button id="nextPage">下一页</button></div></div></section>
 <section><h2>最终回测结论和关键问题</h2><div class="grid"><div class="panel conclusion"><p>{escape(str(model.conclusion.get('summary', '暂无结论。')))}</p>
@@ -216,6 +237,13 @@ def render_backtest_html(
 <div class="grid"><details class="panel"><summary>参数空间</summary><pre id="parameters"></pre></details><details class="panel"><summary>验证与固定假设</summary><pre id="assumptions"></pre></details></div>
 <details class="panel"><summary>当前组合完整证据</summary><pre id="details"></pre></details></section>
 </main><div id="chartTooltip" role="status" hidden></div><script id="reportData" type="application/json">{data}</script><script>{_JS}</script></body></html>"""
+
+
+def _short(value, limit=22):
+    if value is None or value == "":
+        return "—"
+    text = str(value)
+    return text if len(text) <= limit else text[:limit] + "…"
 
 
 def _ranking_row(item: Mapping[str, Any]) -> Mapping[str, Any]:

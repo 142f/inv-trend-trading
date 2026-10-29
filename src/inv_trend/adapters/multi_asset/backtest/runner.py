@@ -107,6 +107,7 @@ class TurtleBacktester:
         self._entry_labels = {}
         self._cumulative_fees = 0.0
         self._cumulative_slippage = 0.0
+        self._cumulative_spread = 0.0
         self._wf_retiring = set()
         self._margin_retiring = set()
         self._realized_by_symbol = {}
@@ -249,7 +250,7 @@ class TurtleBacktester:
         if not dates:
             raise ValueError("evaluation_start/evaluation_end contain no available market data")
         cash = self.initial_equity
-        state = PortfolioState()
+        state = PortfolioState(equity_peak=float(self.initial_equity))
         reservations = ReservationBook()
         expiry = ExpiryPolicy()
         equity_points, order_rows, trade_rows, detail_rows, decision_rows, ledger_rows = [], [], [], [], [], []
@@ -257,7 +258,7 @@ class TurtleBacktester:
         attribution_rows = []
         bankrupt = False
         self._schedule_cursor = 0
-        self._cumulative_fees = self._cumulative_slippage = 0.0
+        self._cumulative_fees = self._cumulative_slippage = self._cumulative_spread = 0.0
         self._carry_clock, self._entry_labels, self._realized_by_symbol = {}, {}, {}
         self._wf_retiring, self._margin_retiring = set(), set()
         self._policy_id = "固定策略"
@@ -343,11 +344,14 @@ class TurtleBacktester:
             ledger_rows.append({"time": when, "cash": cash, "equity": equity,
                 "gross_notional":gross, "margin_reserved":gross/cap, "free_collateral":equity-gross/cap,
                 "gross_leverage":gross/equity if equity>0 else 0.,"margin_call":margin_call,
-                "fee_cost_cumulative":self._cumulative_fees,"slippage_cost_cumulative":self._cumulative_slippage,
+                "fee_cost_cumulative":self._cumulative_fees,"spread_cost_cumulative":self._cumulative_spread,
+                "slippage_cost_cumulative":self._cumulative_slippage,
                 "open_positions": len(state.positions), "carry_cost_cumulative": carry_total,
                 "bankrupt_latched": bankrupt, "candidate_id": self._policy_id})
             if self.execution_policy and self.execution_policy.reduce_excess_leverage:
                 ledger_rows[-1]["exposure_breach"] = exposure_breach
+            if np.isfinite(equity) and equity > state.equity_peak:
+                state.equity_peak = float(equity)
             if last or bankrupt:
                 continue
             snapshots = dict(self._known_rows)
@@ -654,7 +658,7 @@ class TurtleBacktester:
                         current = position.total_qty if position else 0.
                         weight = abs(order.metadata["target_weight"])
                         loss_per_qty = spec.point_value * (abs(fill_price-reference_price)
-                            + fill_price * spec.cost_bps / 10000.)
+                            + fill_price * (spec.cost_bps + spec.spread_bps) / 10000.)
                         target_capacity = max(0., weight * equity_now - current * reference_price * spec.point_value)
                         qty = min(qty, _round_down(target_capacity /
                             (reference_price * spec.point_value + weight * loss_per_qty), spec.qty_step))
@@ -664,7 +668,7 @@ class TurtleBacktester:
                         cap = min(self.execution_policy.max_gross_leverage, self.rules.max_total_leverage)
                         gross = sum(abs(pos.total_qty * prices.get(sym, pos.avg_entry_price)
                                     * self.specs[sym].point_value) for sym,pos in state.positions.items())
-                        fee_unit = fill_price*spec.point_value*spec.cost_bps/10000.
+                        fee_unit = fill_price*spec.point_value*(spec.cost_bps+spec.spread_bps)/10000.
                         slip_unit = abs(fill_price-reference_price)*spec.point_value
                         denominator = reference_price*spec.point_value+cap*(fee_unit+slip_unit)
                         qty = min(qty, _round_down(max(0.,equity_now*cap-gross)/denominator,spec.qty_step))
@@ -687,7 +691,9 @@ class TurtleBacktester:
                         order = replace(order, metadata={**order.metadata, "requested_qty": requested,
                             "execution_resolution": "capital/target/participation_scaled" if qty < requested - spec.qty_step else "approved"})
                 if self.cash_model == "cash" and order.side == LONG:
-                    charged_bps = spec.cost_bps if self._price_slippage_enabled() else spec.cost_bps + spec.slippage_bps
+                    charged_bps = spec.cost_bps + spec.spread_bps
+                    if not self._price_slippage_enabled():
+                        charged_bps += spec.slippage_bps
                     unit_cost = fill_price * spec.point_value * (1 + charged_bps / 10000)
                     qty = min(order.qty, _round_down(max(cash, 0.) / unit_cost, spec.qty_step))
                     if qty <= 0 or qty < spec.min_qty or qty * fill_price * spec.point_value < spec.min_notional:
@@ -697,10 +703,13 @@ class TurtleBacktester:
                         })
                         continue
                     order = replace(order, qty=qty)
-            cost = (abs(order.qty * fill_price * spec.point_value) * spec.cost_bps / 10000
-                    if self._price_slippage_enabled() else _trade_cost(order.qty, fill_price, spec))
+            cost = _fill_cash_cost(
+                order.qty, fill_price, spec, price_slippage=self._price_slippage_enabled(),
+            )
+            spread_cost = abs(order.qty * fill_price * spec.point_value) * spec.spread_bps / 10000.0
             if self.execution_policy is not None:
-                self._cumulative_fees += cost
+                self._cumulative_spread += spread_cost
+                self._cumulative_fees += cost - spread_cost
                 self._cumulative_slippage += abs(order.qty * (fill_price-reference_price) * spec.point_value)
                 volume_used = getattr(self, "_volume_used", None)
                 if volume_used is not None:
@@ -896,10 +905,13 @@ class TurtleBacktester:
         row_qty = order.qty if qty is None else qty
         row_system = order.system if system is None else system
         extra = {}
+        spread_cost = (
+            abs(row_qty * fill_price * spec.point_value) * spec.spread_bps / 10000.0 if cost else 0.0
+        )
         if self.execution_policy is not None:
             direction = row_side if order.action in {"open", "add"} else -row_side
             reference = fill_price / (1 + direction*spec.slippage_bps/10000.) if self._price_slippage_enabled() else fill_price
-            extra = {"reference_price":reference, "fee_cost":cost,
+            extra = {"reference_price":reference, "fee_cost":cost - spread_cost if cost else 0.,
                 "slippage_cost":abs(row_qty*(fill_price-reference)*spec.point_value) if self._price_slippage_enabled() else 0.,
                 "fill_phase":self._event_phase,
                 "candidate_id":order.metadata.get("candidate_id", self._policy_id),
@@ -930,6 +942,7 @@ class TurtleBacktester:
             "qty": row_qty,
             "fill_price": fill_price,
             "cost": cost,
+            **({"spread_cost": spread_cost} if spread_cost else {}),
             "reason": order.reason,
             "system": row_system,
             "risk_1n_pct": order.risk_1n_pct,
@@ -1219,9 +1232,18 @@ def _stable_intent_id(date: pd.Timestamp, order: Order) -> str:
     return hashlib.sha256(encoded).hexdigest()[:32]
 
 
-def _trade_cost(qty: float, price: float, spec: AssetSpec) -> float:
+def _fill_cash_cost(qty: float, price: float, spec: AssetSpec, *, price_slippage: bool) -> float:
+    """Cash charged on a fill. Price slippage stays in the fill price, not here."""
+
     notional = abs(qty * price * spec.point_value)
-    return notional * (spec.cost_bps + spec.slippage_bps) / 10000.0
+    bps = spec.cost_bps + spec.spread_bps
+    if not price_slippage:
+        bps += spec.slippage_bps
+    return notional * bps / 10000.0
+
+
+def _trade_cost(qty: float, price: float, spec: AssetSpec) -> float:
+    return _fill_cash_cost(qty, price, spec, price_slippage=False)
 
 
 def _exit_type(reason: str) -> str:

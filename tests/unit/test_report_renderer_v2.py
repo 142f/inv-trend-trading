@@ -215,6 +215,34 @@ def test_dashboard_keeps_failed_symbol_visible() -> None:
     assert "无法生成报告" in html
 
 
+def test_dashboard_header_exposes_data_identity() -> None:
+    bundle = _bundle().to_dict()
+    html = render_daily_dashboard(
+        {
+            "report_date": "2026-08-21",
+            "symbols": [
+                {
+                    "symbol": "BTC",
+                    "timeframe": "D1",
+                    "data_update_result": {"provider": "binance", "dataset_version": "v-1"},
+                    "report_bundle": bundle,
+                }
+            ],
+        }
+    )
+    for text in ("报告日期", "2026-08-21", "周期", "标的数", "数据来源", "binance", "数据集版本", "v-1"):
+        assert text in html
+    assert '<dl class="meta">' in html
+
+
+def test_dashboard_header_tolerates_snapshots_without_data_identity() -> None:
+    html = render_daily_dashboard(
+        {"report_date": "2026-08-21", "symbols": [{"symbol": "BTC", "report_bundle": {}}]}
+    )
+    assert "数据来源" in html and "数据集版本" in html
+    assert "D1" in html
+
+
 def test_embedded_dashboard_javascript_has_balanced_delimiters() -> None:
     """A syntax error would prevent all embedded snapshot data from rendering."""
 

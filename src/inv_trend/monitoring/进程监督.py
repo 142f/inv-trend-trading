@@ -16,7 +16,7 @@ from uuid import uuid4
 import pandas as pd
 import yaml
 
-from inv_trend.data.locking import FileLock, _owner_process_state
+from inv_trend.infra.locking import FileLock, _owner_process_state
 from .事件存储 import EventStore
 from .执行记录 import RuntimeLedger
 from .健康 import HealthRecorder

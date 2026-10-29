@@ -5,6 +5,16 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from inv_trend.infra.errors import (
+    CatalogAccessError as CatalogAccessError,
+    CatalogBackendConflictError as CatalogBackendConflictError,
+    DataLineageError as DataLineageError,
+)
+from inv_trend.infra.时间 import (
+    parse_utc_datetime as parse_utc_datetime,
+    to_rfc3339_utc as to_rfc3339_utc,
+)
+
 CANONICAL_COLUMNS = (
     "symbol", "instrument_id", "asset_class", "market", "instrument_type",
     "source_symbol", "timeframe", "timestamp", "bar_end", "timezone", "open",
@@ -36,20 +46,8 @@ class DataConflictError(ValueError):
     """Raised when conflicting OHLCV bars share one timestamp and cannot be resolved silently."""
 
 
-class DataLineageError(RuntimeError):
-    """Raised when a required immutable lineage artifact is missing or inconsistent."""
-
-
 class DataCertificationError(DataLineageError):
     """Verified data explicitly fails quality certification; still fail closed."""
-
-
-class CatalogBackendConflictError(DataLineageError):
-    """More than one metadata authority is present in a data root."""
-
-
-class CatalogAccessError(DataLineageError):
-    """An owned catalog cannot be opened, queried, or committed reliably."""
 
 
 class ProviderIdentityError(ValueError):
@@ -254,25 +252,6 @@ class QualityReport:
 
 def utc_now() -> datetime:
     return datetime.now(timezone.utc)
-
-
-def parse_utc_datetime(value: datetime | str) -> datetime:
-    """Parse current RFC 3339 and legacy ISO-8601 values as aware UTC."""
-    if isinstance(value, datetime):
-        parsed = value
-    else:
-        text = str(value).strip()
-        if text.endswith("Z"):
-            text = text[:-1] + "+00:00"
-        parsed = datetime.fromisoformat(text)
-    if parsed.tzinfo is None:
-        raise ValueError("naive timestamps are forbidden")
-    return parsed.astimezone(timezone.utc)
-
-
-def to_rfc3339_utc(value: datetime | str) -> str:
-    """Normalize an aware timestamp before writing a new artifact."""
-    return parse_utc_datetime(value).isoformat(timespec="microseconds")
 
 
 def date_iso(value: date | datetime) -> str:

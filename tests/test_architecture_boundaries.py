@@ -166,7 +166,20 @@ def test_ports_only_depend_on_pure_layers() -> None:
     assert violations == []
 
 
-def test_adapter_reverse_dependencies_are_an_explicit_transition_allowlist() -> None:
+def test_adapters_do_not_depend_on_the_application_package() -> None:
+    """Adapter code must never import the use-case layer above it.
+
+    ``adapters -> observability`` is deliberately *not* checked here.  The
+    presentation package owns rendering only — it is already forbidden from
+    importing ``data`` or ``adapters`` — so a filesystem publisher composing an
+    HTML renderer is a *downward* dependency, not a reversed one; forcing it
+    out would require the application layer (which may not import
+    ``observability``) to build the default renderer, and direct
+    ``DailyMarketScanService`` constructions rely on that default.  The exact
+    package graph, including that edge, is pinned by ``DECLARED_PACKAGE_EDGES``
+    above, so the pair still cannot grow.
+    """
+
     root = Path(__file__).parents[1] / "src" / "inv_trend" / "adapters"
     observed: set[tuple[str, str]] = set()
     for source in root.rglob("*.py"):
@@ -180,12 +193,10 @@ def test_adapter_reverse_dependencies_are_an_explicit_transition_allowlist() -> 
             elif isinstance(node, ast.Call):
                 names = _dynamic_import_names(node)
             for name in names:
-                if _is_banned(name, {"inv_trend.application", "inv_trend.observability"}):
+                if _is_banned(name, {"inv_trend.application"}):
                     observed.add((source.relative_to(root).as_posix(), name))
 
-    assert observed == {
-        ("daily/composition.py", "inv_trend.observability.daily"),
-    }
+    assert observed == set()
 
 
 def test_historical_data_does_not_depend_on_strategy_or_application_packages() -> None:
@@ -212,7 +223,7 @@ def test_source_has_one_canonical_package_namespace() -> None:
     repository = Path(__file__).parents[1]
     source = repository / "src" / "inv_trend"
     assert {
-        "domain", "core", "data", "application", "adapters", "integrations",
+        "domain", "core", "data", "infra", "application", "adapters", "integrations",
         "observability", "cli",
     } <= {
         path.name for path in source.iterdir() if path.is_dir()
@@ -229,6 +240,26 @@ def test_source_has_one_canonical_package_namespace() -> None:
             "turtle_multi_asset",
         )
     )
+
+
+def test_okx_order_port_is_declared_research_only_without_runtime_callers() -> None:
+    """The guarded OKX client exists, but no runtime package may import it yet.
+
+    Wiring it into an execution module is a deliberate product decision; until
+    then this contract keeps the "has an order client but nothing calls it"
+    state explicit instead of silently drifting.
+    """
+
+    source_root = Path(__file__).parents[1] / "src" / "inv_trend"
+    allowed = {source_root / "integrations" / "okx.py",
+               source_root / "integrations" / "__init__.py"}
+    callers = {
+        source.relative_to(source_root).as_posix()
+        for source in source_root.rglob("*.py")
+        if source not in allowed
+        and "inv_trend.integrations.okx" in _imported_modules(source)
+    }
+    assert callers == set()
 
 
 def _is_banned(name: str, banned: set[str]) -> bool:
@@ -269,6 +300,7 @@ DECLARED_PACKAGE_EDGES: frozenset[tuple[str, str]] = frozenset({
     ("adapters", "core"),
     ("adapters", "data"),
     ("adapters", "domain"),
+    ("adapters", "infra"),
     ("adapters", "observability"),
     ("adapters", "ports"),
     ("application", "adapters"),
@@ -276,6 +308,7 @@ DECLARED_PACKAGE_EDGES: frozenset[tuple[str, str]] = frozenset({
     ("application", "core"),
     ("application", "data"),
     ("application", "domain"),
+    ("application", "infra"),
     ("application", "ports"),
     ("application", "storage"),
     ("cli", "adapters"),
@@ -283,34 +316,29 @@ DECLARED_PACKAGE_EDGES: frozenset[tuple[str, str]] = frozenset({
     ("cli", "config"),
     ("cli", "core"),
     ("cli", "data"),
+    ("cli", "infra"),
     ("cli", "monitoring"),
     ("cli", "notifications"),
     ("cli", "observability"),
     ("cli", "storage"),
-    ("core", "storage"),
     ("data", "core"),
+    ("data", "infra"),
     ("data", "storage"),
     ("integrations", "adapters"),
     ("monitoring", "adapters"),
     ("monitoring", "core"),
     ("monitoring", "data"),
+    ("monitoring", "infra"),
     ("monitoring", "observability"),
     ("notifications", "monitoring"),
     ("notifications", "observability"),
-    ("observability", "application"),
     ("observability", "core"),
     ("ports", "core"),
-    ("storage", "adapters"),
-    ("storage", "application"),
     ("storage", "core"),
-    ("storage", "data"),
+    ("storage", "infra"),
 })
 
-KNOWN_PACKAGE_CYCLES: frozenset[frozenset[str]] = frozenset({
-    frozenset({"application", "storage"}),
-    frozenset({"core", "storage"}),
-    frozenset({"data", "storage"}),
-})
+KNOWN_PACKAGE_CYCLES: frozenset[frozenset[str]] = frozenset()
 
 
 def _imported_modules(source: Path) -> list[str]:
