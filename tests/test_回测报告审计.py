@@ -36,3 +36,18 @@ def test_report_is_offline_and_does_not_inject_untrusted_html():
     assert not any(tag=="script" and "src" in attrs for tag,attrs in parser.tags)
     ids={attrs.get("id") for _,attrs in parser.tags}
     assert {"ledgerBody","activeSelect","metricCards","startDate","exportLedger"}<=ids
+
+
+def test_report_header_and_ledger_filters_are_present():
+    payload={"run_id":"run-1","generated_at":"2026-10-28T00:00:00Z","result_hash":"r"*64,
+             "source":{"strategy_version":"v2","code_version":"abc123","source_hash":"s"*64,
+                       "instruments":[{"symbol":"BTC","timeframe":"D1","dataset_version":"d1"}]},
+             "combinations":[],"conclusion":{"status":"PASS"}}
+    document=render_backtest_html(payload)
+    for text in ("运行 ID","run-1","策略版本","v2","代码版本","abc123","结果哈希","数据版本"):
+        assert text in document
+    assert document.count('class="meta"')==1
+    for control in ('id="ledgerSymbol"','id="ledgerSide"','id="ledgerProfit"'):
+        assert control in document
+    assert 'aria-label="全样本回撤时间序列"' in document
+    assert 'sideKey(row)' in document

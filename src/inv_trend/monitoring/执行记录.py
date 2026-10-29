@@ -9,7 +9,7 @@ from uuid import uuid4
 
 import pandas as pd
 
-from inv_trend.data.locking import _owner_process_state
+from inv_trend.infra.locking import _owner_process_state
 from inv_trend.observability.脱敏 import redact
 
 from .事件存储 import EventStore
@@ -153,9 +153,11 @@ class RuntimeLedger:
             raise ValueError('task limit must be between 1 and 1000')
         clauses, params = [], []
         if symbol is not None:
-            clauses.append('symbol=?'); params.append(symbol.upper())
+            clauses.append('symbol=?')
+            params.append(symbol.upper())
         if frame is not None:
-            clauses.append('timeframe=?'); params.append(timeframe(frame))
+            clauses.append('timeframe=?')
+            params.append(timeframe(frame))
         query = 'SELECT * FROM runtime_tasks' + (' WHERE ' + ' AND '.join(clauses) if clauses else '')
         with self.store._connection() as db:
             rows = db.execute(query + ' ORDER BY rowid DESC LIMIT ?', (*params, limit)).fetchall()

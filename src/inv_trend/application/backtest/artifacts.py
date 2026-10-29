@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from inv_trend.data.integrity import sha256_file
+from inv_trend.infra.integrity import sha256_file
 
 import json
 import os

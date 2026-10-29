@@ -1,7 +1,7 @@
 """Translate failures only within an explicitly owned catalog connection."""
 from contextlib import contextmanager
 
-from .models import CatalogAccessError
+from .errors import CatalogAccessError
 
 
 @contextmanager

@@ -1,7 +1,7 @@
 """Repository-only scanning, shared strategy calculation and durable decisions."""
 from __future__ import annotations
 
-from inv_trend.data.integrity import sha256_file
+from inv_trend.infra.integrity import sha256_file
 
 from dataclasses import asdict, dataclass, replace
 from datetime import datetime

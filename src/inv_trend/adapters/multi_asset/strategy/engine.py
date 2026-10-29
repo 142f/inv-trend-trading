@@ -56,6 +56,7 @@ class MultiAssetTurtleStrategy:
 
         exit_orders: list[Order] = []
         blocked_symbols: set[str] = set()
+        new_risk_halted = self._new_risk_halted(state, equity)
         for symbol, position in list(state.positions.items()):
             if symbol not in active_symbols:
                 continue
@@ -81,6 +82,8 @@ class MultiAssetTurtleStrategy:
             if row is None:
                 continue
             position = state.positions.get(symbol)
+            if new_risk_halted:
+                continue
             if position is None:
                 signal = self._entry_signal(symbol, row, spec, state)
                 if signal is not None:
@@ -105,6 +108,18 @@ class MultiAssetTurtleStrategy:
             equity,
         )
         return exit_orders + accepted
+
+    def _new_risk_halted(self, state: PortfolioState, equity: float) -> bool:
+        """Block opens and adds after a causal drawdown. Exits stay outside this gate."""
+
+        halt = self.rules.entry_drawdown_halt
+        if halt <= 0.0:
+            return False
+        peak = state.equity_peak
+        if peak <= 0.0 or equity <= 0.0 or not np.isfinite(peak) or not np.isfinite(equity):
+            return True
+        # The added tolerance keeps an exact -halt boundary halted under binary division.
+        return (peak - equity) / peak + 1e-12 >= halt
 
     def risk_usage(
         self,
@@ -326,7 +341,7 @@ class MultiAssetTurtleStrategy:
         score = signal.strength
         if signal.system == "slow":
             score += self.rules.slow_entry_score_bonus
-        score -= (spec.cost_bps + spec.slippage_bps) / 10000
+        score -= (spec.cost_bps + spec.slippage_bps + spec.spread_bps) / 10000
         return Order(
             symbol=signal.symbol,
             action=action,

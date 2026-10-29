@@ -162,7 +162,7 @@ def test_windows_parent_kernel_exit_closes_only_owned_job(tmp_path):
     import os
     import subprocess
     from pathlib import Path
-    from inv_trend.data.locking import _owner_process_state
+    from inv_trend.infra.locking import _owner_process_state
     from inv_trend.monitoring.进程监督 import ProcessSupervisor
     from inv_trend.monitoring.运行配置 import RuntimeConfig
     if os.name != 'nt':

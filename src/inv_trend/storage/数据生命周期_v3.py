@@ -1,12 +1,12 @@
 """默认只读清理计划。任何来源、父版本、运行/审计引用都保护正式数据。"""
 from __future__ import annotations
 
-from inv_trend.data.integrity import sha256_file
+from inv_trend.infra.integrity import sha256_file
 from datetime import datetime,timezone,timedelta
 from pathlib import Path
 import sqlite3
 from .结构化存储_v3 import UnifiedStore,StoreError
-from inv_trend.data.locking import FileLock
+from inv_trend.infra.locking import FileLock
 
 
 def cleanup(store,*,apply=False,min_age_days=7):

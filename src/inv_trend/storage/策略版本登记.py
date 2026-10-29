@@ -1,10 +1,10 @@
 """Immutable strategy contracts, source archives and verifiable result references."""
 
 from datetime import datetime, timezone
-from inv_trend.data.integrity import sha256_bytes as digest
+from inv_trend.infra.integrity import sha256_bytes as digest
 import json
 from pathlib import Path
-from inv_trend.data.integrity import sha256_file
+from inv_trend.infra.integrity import sha256_file
 import subprocess
 import zipfile
 

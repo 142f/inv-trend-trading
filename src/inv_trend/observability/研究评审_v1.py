@@ -31,9 +31,15 @@ def render_study(report: dict) -> str:
 main{{max-width:1150px;margin:35px auto;padding:0 24px}}h1{{font-size:32px;margin-bottom:5px}}
 section{{background:white;padding:22px 26px;margin:20px 0;border-radius:10px;border:1px solid #dbe2ea}}
 .label{{font-size:13px;letter-spacing:2px;color:#64748b}}.warning{{border-left:5px solid #c77721;background:#fff8ed}}
-table{{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums}}td,th{{padding:10px;text-align:right;border-bottom:1px solid #e2e8f0}}th:first-child,td:first-child{{text-align:left}}th{{background:#eef2f6}}pre{{white-space:pre-wrap;word-break:break-word;font-size:12px}}.scroll{{overflow:auto}}a{{color:#155e75}}</style></head><body><main>
+table{{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums}}td,th{{padding:10px;text-align:right;border-bottom:1px solid #e2e8f0}}th:first-child,td:first-child{{text-align:left}}th{{background:#eef2f6}}pre{{white-space:pre-wrap;word-break:break-word;font-size:12px}}.scroll{{overflow:auto}}a{{color:#155e75}}.meta{{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:10px 18px;background:#f8fafc;border:1px solid #dbe2ea;border-radius:8px;padding:14px 18px;margin:14px 0}}.meta div{{min-width:0}}.meta dt{{font-size:11px;color:#64748b}}.meta dd{{margin:0;font-family:Consolas,monospace;font-size:12px;overflow-wrap:anywhere}}</style></head><body><main>
 <div class="label">CAUSAL RESEARCH / WALK-FORWARD / AUDITABLE</div><h1>多方法滚动研究评审</h1>
-<p>研究编号：{escape(report['study_id'])} · 协议 SHA256：{escape(report['protocol_hash'])}</p>
+<dl class="meta">
+<div><dt>研究编号</dt><dd>{escape(report['study_id'])}</dd></div>
+<div><dt>协议 SHA256</dt><dd>{escape(report['protocol_hash'])}</dd></div>
+<div><dt>独立参数</dt><dd>{report['distinct_parameters']} 组</dd></div>
+<div><dt>训练折回放</dt><dd>{report['training_trials']} 次</dd></div>
+<div><dt>样本外标的窗口</dt><dd>{report['oos_symbol_windows']} 个</dd></div>
+</dl>
 <section class="warning"><b>RESEARCH_ONLY · 不批准实盘</b><p>以下是上传历史数据上的因果回放，不是新增实盘业绩。
 来源、公司行为、历史成分股及交易日历未经独立认证；2025 年起的留出区间未参与本轮实验。内部评分不是成功概率。</p></section>
 <section><h2>研究规模与净收益</h2><p>独立参数 {report['distinct_parameters']} 组；训练折回放 {report['training_trials']} 次；

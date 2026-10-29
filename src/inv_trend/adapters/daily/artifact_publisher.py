@@ -14,7 +14,7 @@ from uuid import uuid4
 
 from inv_trend.core.serializers import as_mapping as _mapping
 from inv_trend.core.serializers import mapping_rows as _rows
-from inv_trend.data.integrity import sha256_file, stable_hash
+from inv_trend.infra.integrity import sha256_file, stable_hash
 
 if TYPE_CHECKING:
     from inv_trend.ports.daily import DailyArtifactPublication, DailyReportRendererPort

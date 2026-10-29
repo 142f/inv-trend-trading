@@ -1,7 +1,7 @@
 """Public OKX history acquisition with raw-page lineage and explicit coverage gaps."""
 from __future__ import annotations
 
-from inv_trend.data.integrity import sha256_file
+from inv_trend.infra.integrity import sha256_file
 
 import hashlib
 import json

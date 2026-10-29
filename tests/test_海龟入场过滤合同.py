@@ -95,6 +95,29 @@ def test_missing_confirmation_evidence_cannot_fall_back_to_single_breakout():
         {'TEST': row(1)}, PortfolioState(), 100000.)
 
 
+def test_drawdown_brake_blocks_new_risk_and_keeps_the_exit():
+    from inv_trend.adapters.multi_asset.models.domain import LONG, Position, PositionUnit
+
+    rules = TurtleRules(entry_drawdown_halt=0.20)
+    specs = {
+        "HELD": AssetSpec("HELD", "crypto", "crypto"),
+        "NEW": AssetSpec("NEW", "crypto", "crypto"),
+    }
+    engine = MultiAssetTurtleStrategy(specs, rules)
+    held = Position(
+        "HELD", LONG, "fast",
+        [PositionUnit(qty=1.0, entry_price=10.0, n_at_entry=1.0)],
+        10.0, stop_price=11.0,
+    )
+    rows = {"HELD": row(1) | {"close": 10.0}, "NEW": row(1)}
+    halted = engine.generate_orders(rows, PortfolioState(positions={"HELD": held}, equity_peak=100000.0), 80000.0)
+    assert [order.action for order in halted] == ["exit"]
+    assert halted[0].symbol == "HELD"
+    released = engine.generate_orders(rows, PortfolioState(positions={"HELD": held}, equity_peak=100000.0), 95000.0)
+    assert {order.symbol: order.action for order in released} == {"HELD": "exit", "NEW": "open"}
+    assert strategy(TurtleRules()).generate_orders({"TEST": row(1)}, PortfolioState(), 80000.0)
+
+
 def test_disabled_filters_preserve_entry_without_optional_evidence():
     values = row(1)
     values.pop('adx')

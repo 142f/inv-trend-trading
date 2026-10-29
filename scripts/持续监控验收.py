@@ -257,7 +257,7 @@ def run(args):
         with receiver_lock:
             report['receiver'] = {'requests':receiver_requests[0],'unique_events':len(receiver_ids)}
         if short or unfinished: raise RuntimeError('requested minimum completed target cycles not achieved')
-        from inv_trend.data.locking import _owner_process_state
+        from inv_trend.infra.locking import _owner_process_state
         if any(r['finished_at'] is None or _owner_process_state({'pid':r['child_pid']}) is not False
                 for r in report['owned_processes']):
             raise RuntimeError('owned process shutdown not verified')

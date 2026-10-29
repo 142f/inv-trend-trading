@@ -1,6 +1,6 @@
 """Pinned inputs from the existing authority; no implicit symbol/calendar/FX conversion."""
 from dataclasses import dataclass
-from .integrity import sha256_file
+from inv_trend.infra.integrity import sha256_file
 
 import numpy as np
 import pandas as pd

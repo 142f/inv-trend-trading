@@ -24,7 +24,7 @@ from inv_trend.data.processing import (
 )
 from inv_trend.data.providers import QqqHoldingsCsvProvider
 from inv_trend.data.legacy import migrate_legacy_csv
-from inv_trend.data.integrity import sha256_file
+from inv_trend.infra.integrity import sha256_file
 from inv_trend.data.storage import DataLake
 
 pytest.importorskip("pyarrow")

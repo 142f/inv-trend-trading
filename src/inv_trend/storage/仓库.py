@@ -10,7 +10,8 @@ import sqlite3
 import warnings
 from uuid import uuid4
 
-from inv_trend.data.locking import FileLock
+from inv_trend.infra.backend import V3_AUTHORITY, V3_AUTHORITY_PATH, resolve_authority
+from inv_trend.infra.locking import FileLock
 from .基础 import (Lease, atomic_write, beneath, closing_connection, digest, encoded,
                  file_hash, lease_active, now, redact, segment, sync_directory, transaction)
 
@@ -23,18 +24,16 @@ def open_storage(root=".", *, backend="auto"):
     """Open the legacy or v3 result authority explicitly."""
     if backend not in {"auto", "legacy", "v3"}:
         raise ValueError("backend must be 'auto', 'legacy' or 'v3'")
-    from .结构化存储_v3 import DB_RELATIVE
 
     project_root = Path(root).resolve()
-    has_v3 = (project_root / "data" / DB_RELATIVE).is_file()
+    authority_path = project_root / "data" / V3_AUTHORITY_PATH
+    has_v3 = resolve_authority(project_root, project_scoped=True) == V3_AUTHORITY
     selected = "v3" if backend == "auto" and has_v3 else backend
     if selected == "auto":
         selected = "legacy"
     if selected == "v3":
         if not has_v3:
-            raise StorageIntegrityError(
-                f"v3 authority is missing: {project_root / 'data' / DB_RELATIVE}"
-            )
+            raise StorageIntegrityError(f"v3 authority is missing: {authority_path}")
         from .统一仓库适配_v3 import DatabaseStorage
         return DatabaseStorage(project_root)
     if has_v3:
@@ -45,17 +44,18 @@ def open_storage(root=".", *, backend="auto"):
 
 
 class Storage:
+    #: Legacy result databases remain readable, but only the v3 authority is writable.
+    authority = "legacy"
+
     def __new__(cls, root="."):
-        if cls is Storage:
-            from .结构化存储_v3 import DB_RELATIVE
-            if (Path(root).resolve() / "data" / DB_RELATIVE).is_file():
-                warnings.warn(
-                    "implicit Storage backend selection is deprecated; use open_storage()",
-                    DeprecationWarning,
-                    stacklevel=2,
-                )
-                from .统一仓库适配_v3 import DatabaseStorage
-                return object.__new__(DatabaseStorage)
+        if cls is Storage and resolve_authority(root, project_scoped=True) == V3_AUTHORITY:
+            warnings.warn(
+                "implicit Storage backend selection is deprecated; use open_storage()",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            from .统一仓库适配_v3 import DatabaseStorage
+            return object.__new__(DatabaseStorage)
         return object.__new__(cls)
 
     def __init__(self, root="."):

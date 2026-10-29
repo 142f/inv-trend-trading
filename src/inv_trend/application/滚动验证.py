@@ -4,7 +4,7 @@
 """
 from __future__ import annotations
 
-from inv_trend.data.integrity import sha256_file
+from inv_trend.infra.integrity import sha256_file
 from datetime import datetime, timezone
 import hashlib
 import json
@@ -16,7 +16,8 @@ import numpy as np
 import pandas as pd
 
 from inv_trend.core.执行约束 import ExecutionPolicy
-from inv_trend.core.滚动协议 import make_windows, choose_from_training, digest, immutable_json
+from inv_trend.core.滚动协议 import make_windows, choose_from_training, digest
+from inv_trend.storage.基础 import immutable_json
 from inv_trend.adapters.multi_asset.data.cleaner import clean_ohlcv_frame
 from inv_trend.adapters.multi_asset.models.domain import AssetSpec, TurtleRules
 from inv_trend.adapters.multi_asset.backtest.runner import TurtleBacktester

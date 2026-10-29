@@ -1,7 +1,7 @@
 """原 Storage/StageStore/Registry 接口的单库实现。新数据根不再生成 outputs/系统 的第二权威。"""
 from __future__ import annotations
 
-from inv_trend.data.integrity import sha256_file
+from inv_trend.infra.integrity import sha256_file
 import json
 from pathlib import Path
 from .仓库 import Storage, StorageIntegrityError
@@ -10,6 +10,8 @@ from .基础 import digest, encoded, redact, segment
 
 
 class DatabaseStorage(Storage):
+    authority = 'v3'
+
     def __init__(self,root='.'):
         self.root=Path(root).resolve()
         self.catalog=UnifiedStore(self.root/'data')

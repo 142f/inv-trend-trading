@@ -1,4 +1,4 @@
-"""Deterministic integrity helpers shared by storage and publication flows."""
+"""Deterministic integrity helpers shared by data, storage and publication flows."""
 
 from __future__ import annotations
 

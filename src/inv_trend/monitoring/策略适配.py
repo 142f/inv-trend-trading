@@ -35,6 +35,13 @@ def evidence(value: Any) -> Any:
     return json_value(value)
 
 
+def _equity_peak(value):
+    peak = float(value or 0.0)
+    if not math.isfinite(peak) or peak < 0:
+        raise ValueError('reference equity peak must be finite and nonnegative')
+    return peak
+
+
 @dataclass(frozen=True)
 class ReferenceAccount:
     mode: str = 'unknown'
@@ -100,7 +107,8 @@ class ReferenceAccount:
             positions[symbol] = Position(**(record | {'units': units}))
         state = PortfolioState(positions, portfolio['last_fast_trade_won'],
                                {symbol: SkippedFastTrade(**item)
-                                for symbol, item in portfolio['skipped_fast_trades'].items()})
+                                for symbol, item in portfolio['skipped_fast_trades'].items()},
+                               _equity_peak(portfolio.get('equity_peak', 0.0)))
         return cls(**(value | {'portfolio': state, 'observed_at':
             pd.Timestamp(value['observed_at']) if value['observed_at'] else None}))
 

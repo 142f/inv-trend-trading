@@ -10,7 +10,7 @@ import sqlite3
 from threading import Event as ThreadEvent, Lock
 import time
 
-from inv_trend.data.locking import FileLock
+from inv_trend.infra.locking import FileLock
 from inv_trend.data.models import DataLineageError, DataQualityError
 from inv_trend.observability.脱敏 import redact
 

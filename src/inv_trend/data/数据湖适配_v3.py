@@ -5,11 +5,13 @@ from uuid import uuid4
 
 from inv_trend.storage.结构化存储_v3 import UnifiedStore, CatalogPath, utcnow
 from .storage import DataLake, require_parquet, validate_v3_authority, _validated_version, _EXPECTED_VERSION_UNSET
-from .integrity import json_bytes, sha256_file
+from inv_trend.infra.integrity import json_bytes, sha256_file
 from .models import DataLineageError
 
 
 class DatabaseDataLake(DataLake):
+    authority = 'v3'
+
     def __init__(self, root='data', *, startup_check=True):
         validate_v3_authority(root)
         self.store=UnifiedStore(root)
@@ -40,7 +42,7 @@ class DatabaseDataLake(DataLake):
         if previous:
             if not immutable:raise FileExistsError(key)
             import pandas as pd
-            from .integrity import frame_hash
+            from inv_trend.infra.integrity import frame_hash
             old=pd.read_parquet(self.store.resolve(key))
             if frame_hash(old)!=frame_hash(frame):raise DataLineageError('不可变Parquet内容冲突')
             return CatalogPath(self.root/key)

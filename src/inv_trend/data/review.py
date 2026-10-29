@@ -15,7 +15,7 @@ from typing import Any, Callable
 
 import pandas as pd
 
-from .integrity import (
+from inv_trend.infra.integrity import (
     json_bytes,
     sha256_bytes,
     sha256_file,
