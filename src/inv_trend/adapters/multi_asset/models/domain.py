@@ -32,6 +32,7 @@ class AssetSpec:
     max_symbol_leverage: float = 1.0
     cost_bps: float = 1.0
     slippage_bps: float = 2.0
+    spread_bps: float = 0.0
     entry_freeze_column: str | None = None
     funding_rate_column: str | None = None
     borrow_rate_column: str | None = None
@@ -70,10 +71,12 @@ class AssetSpec:
         if (
             not math.isfinite(self.cost_bps)
             or not math.isfinite(self.slippage_bps)
+            or not math.isfinite(self.spread_bps)
             or self.cost_bps < 0
             or self.slippage_bps < 0
+            or self.spread_bps < 0
         ):
-            raise ValueError("cost and slippage must be non-negative")
+            raise ValueError("cost, spread, and slippage must be non-negative")
 
 
 @dataclass(frozen=True)
@@ -109,6 +112,7 @@ class TurtleRules:
     entry_atr_percentile_max: float = 1.0
     entry_atr_percentile_lookback: int = 120
     risk_atr_fraction_target: float = 0.0
+    entry_drawdown_halt: float = 0.0
 
     def __post_init__(self) -> None:
         if self.trigger_mode not in {"close", "intraday"}:
@@ -134,7 +138,7 @@ class TurtleRules:
             if isinstance(value, bool) or not isinstance(value, Integral) or value < minimum:
                 raise ValueError(f"{name} must be an integer >= {minimum}")
         for name, maximum in (("entry_adx_min", 100.0), ("entry_atr_percentile_max", 1.0),
-                              ("risk_atr_fraction_target", 1.0)):
+                              ("risk_atr_fraction_target", 1.0), ("entry_drawdown_halt", 0.95)):
             value = getattr(self, name)
             if (isinstance(value, bool) or not isinstance(value, Real)
                     or not math.isfinite(value) or not 0.0 <= value <= maximum):
@@ -251,6 +255,7 @@ class PortfolioState:
     positions: dict[str, Position] = field(default_factory=dict)
     last_fast_trade_won: dict[str, bool] = field(default_factory=dict)
     skipped_fast_trades: dict[str, "SkippedFastTrade"] = field(default_factory=dict)
+    equity_peak: float = 0.0
 
 
 @dataclass(frozen=True)

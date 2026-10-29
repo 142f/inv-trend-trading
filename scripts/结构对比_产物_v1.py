@@ -17,6 +17,9 @@
     cli_stdout.txt        CLI 真实入口的 stdout/stderr
     daily/ signals/       日更产物发布树
     daily_readback.json   inv_trend.storage.制品.read_daily 的读取回读
+    raw/ normalized/ curated/ manifests/ quality_reports/
+                      --surface data-pipeline 离线写入 --out 的 K 线制品
+    readback.json         data-pipeline 读取结果的列名、dtype 与 frame_hash
     golden_snapshot.json  Golden Master 快照
     probe.json / immutable_json_probe.json   不可变写入探针
     manifest.json         surface 清单 + 树级溯源
@@ -28,6 +31,7 @@ import argparse
 import hashlib
 import json
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -262,37 +266,111 @@ def immutable_probe(out: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def _manifest(out: Path, surfaces: list[str]) -> None:
+def _pin_run_id(run_id: str) -> None:
+    """在导入产品代码之前固定 uuid4，使两侧制品文件名可以对齐。"""
+
+    import uuid
+
+    token = run_id.strip().lower().replace("-", "")
+    if not token or any(char not in "0123456789abcdef" for char in token):
+        raise SystemExit("--run-id 必须是十六进制字符串")
+    token = (token + ("0" * 32))[:32]
+
+    class _FixedId:
+        hex = token
+
+        def __str__(self) -> str:
+            return token
+
+    uuid.uuid4 = lambda: _FixedId()  # type: ignore[method-assign, assignment]
+
+
+def _drop_runtime_noise(out: Path) -> None:
+    """这些文件每次运行都会变，不参与 data-pipeline 的制品对比。"""
+
+    for relative in (".locks", "logs"):
+        target = out / relative
+        if target.exists():
+            shutil.rmtree(target)
+    for name in ("catalog.duckdb", "catalog.duckdb.wal", "catalog.duckdb-shm", "catalog.duckdb-wal"):
+        target = out / name
+        if target.is_file():
+            target.unlink()
+
+
+def surface_data_pipeline(out: Path, *, run_id: str | None = None, fixture: Path | None = None) -> None:
+    """离线跑一次 K 线 ingest，把链路制品和读回摘要写到 --out。不访问网络。"""
+
+    if run_id:
+        _pin_run_id(run_id)
+
+    import pandas as pd
+
+    from inv_trend.data.api import HistoricalDataService
+    from inv_trend.infra.integrity import strategy_frame_hash
+    from inv_trend.data.providers import CsvBarsProvider
+
+    fixture = (fixture or (TREE_ROOT / "tests" / "fixtures" / "pipeline_bars_d1.csv")).resolve()
+    if not fixture.is_file():
+        raise SystemExit(f"data-pipeline surface 缺少固定样本: {fixture}")
+
+    lake = out
+    service = HistoricalDataService(
+        lake, providers={"licensed_csv": CsvBarsProvider(fixture)}, startup_check=False,
+    )
+    base = service.instruments["BTC"]
+    service.instruments["BTC"] = base.__class__(
+        **{**base.__dict__, "primary_source": "licensed_csv"}
+    )
+    frame = pd.read_csv(fixture)
+    start = pd.Timestamp(frame["timestamp"].iloc[0]).to_pydatetime()
+    end = pd.Timestamp(frame["timestamp"].iloc[-1]).to_pydatetime()
+    manifest = service.ingest("BTC", "D1", start, end)
+    bars = service.load_bars("BTC", "D1", start, end)
+    _write_json(
+        out / "readback.json",
+        {
+            "symbol": "BTC",
+            "timeframe": "D1",
+            "dataset_version": manifest.dataset_version,
+            "rows": int(len(bars)),
+            "columns": [str(column) for column in bars.columns],
+            "dtypes": {str(column): str(dtype) for column, dtype in bars.dtypes.items()},
+            "frame_hash": strategy_frame_hash(bars),
+        },
+    )
+    _drop_runtime_noise(out)
+
+
+def _manifest(out: Path, surfaces: list[str], *, omit_provenance: bool = False) -> None:
     files = sorted(
         path.relative_to(out).as_posix()
         for path in out.rglob("*")
         if path.is_file() and path.name != "manifest.json"
     )
-    _write_json(
-        out / "manifest.json",
-        {
-            "surface": surfaces,
-            "files": files,
-            PROVENANCE_TREE_COMMIT: _tree_commit(),
-            PROVENANCE_MODULE_COUNT: _python_module_count(),
-        },
-    )
+    payload: dict[str, object] = {"surface": surfaces, "files": files}
+    if not omit_provenance:
+        payload[PROVENANCE_TREE_COMMIT] = _tree_commit()
+        payload[PROVENANCE_MODULE_COUNT] = _python_module_count()
+    _write_json(out / "manifest.json", payload)
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--surface",
-        choices=("core-dataset", "daily-publish", "golden-master", "all"),
+        choices=("core-dataset", "daily-publish", "golden-master", "data-pipeline", "all"),
         default="all",
     )
     parser.add_argument("--out", required=True)
-    parser.add_argument("--processed-dir", required=True)
+    parser.add_argument("--processed-dir")
+    parser.add_argument("--run-id", default=None, help="data-pipeline 专用：固定 uuid4，便于两侧文件名对齐")
+    parser.add_argument("--fixture", default=None, help="data-pipeline 专用：CSV 绝对路径。两侧必须相同")
     args = parser.parse_args(argv)
 
     out = Path(args.out).resolve()
-    processed_dir = Path(args.processed_dir).resolve()
     out.mkdir(parents=True, exist_ok=True)
+    processed_dir = Path(args.processed_dir).resolve() if args.processed_dir else None
 
     print(f"tree      : {TREE_ROOT}")
     print(f"guard     : {_guard()}")
@@ -306,18 +384,29 @@ def main(argv: list[str] | None = None) -> int:
         selected = [args.surface]
 
     if "core-dataset" in selected:
-        print("[1/3] core-dataset ...")
+        if processed_dir is None:
+            raise SystemExit("core-dataset surface 需要 --processed-dir")
+        print("[1/4] core-dataset ...")
         surface_core_dataset(out, processed_dir)
     if "daily-publish" in selected:
-        print("[2/3] daily-publish ...")
+        print("[2/4] daily-publish ...")
         surface_daily_publish(out)
     if "golden-master" in selected:
-        print("[3/3] golden-master ...")
+        print("[3/4] golden-master ...")
         surface_golden_master(out)
+    if "data-pipeline" in selected:
+        print("[4/4] data-pipeline ...")
+        surface_data_pipeline(
+            out,
+            run_id=args.run_id,
+            fixture=Path(args.fixture).resolve() if args.fixture else None,
+        )
 
-    print("[probe] immutable_json ...")
-    immutable_probe(out)
-    _manifest(out, selected)
+    data_pipeline_only = selected == ["data-pipeline"]
+    if not data_pipeline_only:
+        print("[probe] immutable_json ...")
+        immutable_probe(out)
+    _manifest(out, selected, omit_provenance=data_pipeline_only)
     print("done")
     return 0
 

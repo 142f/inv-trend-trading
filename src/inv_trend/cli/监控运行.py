@@ -122,16 +122,19 @@ def main(argv=None):
                 return supervisor.serve()
         if args.command == 'dashboard':
             from inv_trend.monitoring.看板 import DashboardReader, create_app
+            from inv_trend.monitoring.回放记录 import ReplaySessionReader
             import uvicorn
             if not 1 <= args.port <= 65535:
                 raise ValueError('dashboard port must be between 1 and 65535')
             store = EventStore(config.runtime_dir / '监控事件.sqlite3')
+            replay = ReplaySessionReader(config.runtime_dir / '历史回放记录.sqlite3')
             repository, repository_error = None, None
             try:
                 repository = HistoricalDataService(config.data_root, providers={})
             except Exception as exc:
                 repository_error = type(exc).__name__ + ': ' + redact(str(exc))
-            app = create_app(DashboardReader(store, config, repository, repository_error=repository_error))
+            app = create_app(DashboardReader(store, config, repository,
+                                             repository_error=repository_error, replay=replay))
             uvicorn.run(app, host='127.0.0.1', port=args.port)
             return 0
         if args.command == 'notify':
@@ -213,10 +216,38 @@ def main(argv=None):
             return 2 if any(item['snapshot']['reasons'][0] == 'HEARTBEAT_MISSING' for item in result) else 0
         scanner = build_scanner(config, purpose='replay' if args.command == 'replay' else 'live')
         if args.command == 'replay':
+            from inv_trend.monitoring.回放记录 import ReplaySessionStore
+            recorder = ReplaySessionStore(config.runtime_dir / '历史回放记录.sqlite3')
+            session = {'id': None, 'last': 0}
+
+            def progress(index, total):
+                if session['id'] is None:
+                    session['id'] = recorder.start(args.symbol, args.timeframe,
+                                                   args.dataset_version, total)
+                if index == total or index - session['last'] >= 10:
+                    recorder.advance(session['id'], index)
+                    session['last'] = index
+
             account = ReferenceAccount('paper', config.paper_equity) if config.paper_equity is not None else None
-            result = HistoricalReplay(scanner).run(args.symbol, args.timeframe, args.dataset_version,
-                account=None if args.compare_backtest else account, compare_backtest=args.compare_backtest,
-                reference_equity=config.paper_equity or 100000.)
+            try:
+                result = HistoricalReplay(scanner).run(
+                    args.symbol, args.timeframe, args.dataset_version,
+                    account=None if args.compare_backtest else account,
+                    compare_backtest=args.compare_backtest,
+                    reference_equity=config.paper_equity or 100000., progress=progress)
+            except Exception as exc:
+                if session['id'] is not None:
+                    recorder.finish(session['id'], status='FAILED', error=redact(str(exc)))
+                raise
+            if session['id'] is None:
+                session['id'] = recorder.start(args.symbol, args.timeframe,
+                                               args.dataset_version, 1)
+            comparison = result.comparison or {}
+            recorder.finish(session['id'], status='SUCCEEDED',
+                            compared_bars=comparison.get('compared_bars'),
+                            mismatch_count=(len(comparison.get('mismatches') or [])
+                                            if result.comparison else None),
+                            uncompared_bars=comparison.get('uncompared_bars'))
             print(json.dumps(result.to_dict(), ensure_ascii=False))
             return 2 if result.comparison and result.comparison['mismatches'] else 0
         with MonitoringRuntime(scanner, config) as runtime:

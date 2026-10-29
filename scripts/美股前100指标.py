@@ -14,9 +14,10 @@ import pandas as pd
 from inv_trend.core.features import FeatureRequest, PreparedBars
 from inv_trend.data.calendar import latest_completed_us_bar, us_session_bounds
 from inv_trend.data.config import load_instruments
-from inv_trend.data.models import DownloadRequest, InstrumentConfig
+from inv_trend.data.models import InstrumentConfig
 from inv_trend.data.processing import select_completed_bars
 from inv_trend.data.providers import YahooChartProvider
+from inv_trend.data.snapshot import resolve_snapshot_bars
 
 ROOT = Path(__file__).resolve().parents[1]
 OUT_HTML = ROOT / "deliverables" / "美股前100指标看板.html"
@@ -28,8 +29,8 @@ MIN_BARS = 169
 WARMUP_FIELDS = ("120", "144", "169")
 PRICE_BASIS = "provider_adjusted_close"
 
-QQQ = """NVDA AAPL MSFT MU AMZN AMD TSLA META GOOGL GOOG SPCX WMT AVGO INTC PLTR COST CSCO PANW AMAT LRCX NFLX CRWD TXN AMGN LIN SHOP MRVL GILD KLAC ADI PEP QCOM SNDK ISRG TMUS ASML STX VRTX FTNT WDC ADP BKNG SBUX ADBE MAR CSX INTU MELI ARM MNST DDOG CEG CTAS CDNS SNPS CMCSA MDLZ REGN MRNA APP ROST DASH ORLY ABNB AEP HON LITE FAST NXPI FANG PCAR MPWR BKR MSTR PDD ADSK HONA PYPL XEL TER CCEP KDP TRI EXC ALAB IDXX ROP PAYX WDAY MCHP TTWO ODFL NBIS FER AXON GEHC RKLB ALNY DXCM CPRT""".split()
-SPY = """NVDA AAPL MSFT AMZN GOOGL AVGO GOOG META TSLA LLY BRK.B MU JPM AMD XOM V JNJ WMT ABBV MA CVX PLTR COST INTC CSCO UNH PG KO MRK BAC HD CAT PM PANW AMAT GE LRCX NFLX CRWD TXN RTX GS WFC TMO IBM AMGN LIN ORCL GEV MS CRM C MRVL DIS GILD ADI KLAC QCOM VZ PEP APH COP SNDK ANET ABT MCD UNP NEE PFE WELL AXP NOW DE BLK TJX ISRG ACN BA SCHW DHR T STX ETN DELL UBER SPGI VRTX PGR MPC BMY CB MO WDC COF LMT ADP VLO PLD CVS MDT""".split()
+UNIVERSE_PATH = ROOT / "config" / "universes" / "qqq_spy_top100_20261023.json"
+UNIVERSE_ID = "qqq_spy_top100_20261023"
 
 REQUEST = FeatureRequest(
     atr_period=14,
@@ -58,22 +59,25 @@ def feature_spec() -> dict:
 
 
 def universe_members() -> list[dict]:
-    """QQQ 99 + SPY 100. SPCX stays at source rank 11 and is not a member."""
+    """Load the registered universe file; validate it at this boundary."""
 
-    members = []
+    payload = json.loads(UNIVERSE_PATH.read_text(encoding="utf-8"))
+    members = payload.get("members")
+    if not isinstance(members, list) or not members:
+        raise ValueError("universe file has no members")
+    if payload.get("count") != len(members):
+        raise ValueError("universe count does not match its members")
     seen: set[str] = set()
-    for index, symbol in enumerate(QQQ, 1):
-        if symbol == "SPCX":
-            continue
-        seen.add(symbol)
-        members.append({"symbol": symbol, "qqq_rank": index, "spy_rank": None})
-    for index, symbol in enumerate(SPY, 1):
-        if symbol in seen:
-            for item in members:
-                if item["symbol"] == symbol:
-                    item["spy_rank"] = index
-            continue
-        members.append({"symbol": symbol, "qqq_rank": None, "spy_rank": index})
+    for item in members:
+        if not isinstance(item, dict) or not isinstance(item.get("symbol"), str) or not item["symbol"]:
+            raise ValueError("universe member symbol is required")
+        if item["symbol"] in seen:
+            raise ValueError(f"duplicate universe symbol: {item['symbol']}")
+        seen.add(item["symbol"])
+        for name in ("qqq_rank", "spy_rank"):
+            value = item.get(name)
+            if value is not None and (type(value) is not int or value < 1):
+                raise ValueError(f"invalid {name} for {item['symbol']}")
     return members
 
 
@@ -349,51 +353,6 @@ def _member_meta(symbol: str, members: list[dict]) -> dict:
     return {"funds": ",".join(funds), "qqq_rank": item["qqq_rank"], "spy_rank": item["spy_rank"]}
 
 
-def _cache_path(cutoff: datetime, symbol: str) -> Path:
-    day = pd.Timestamp(cutoff).tz_convert("America/New_York").date().isoformat()
-    return CACHE_ROOT / day / f"{symbol}.json"
-
-
-def _frame_payload(frame: pd.DataFrame) -> str:
-    out = frame.copy()
-    out["timestamp"] = pd.to_datetime(out["timestamp"], utc=True).map(lambda item: item.isoformat())
-    columns = [name for name in ("timestamp", "open", "high", "low", "close", "volume", "adjusted_close") if name in out.columns]
-    return out.loc[:, columns].to_json(orient="records")
-
-
-def _read_cache(path: Path) -> tuple[pd.DataFrame, str]:
-    payload = json.loads(path.read_text(encoding="utf-8"))
-    frame = pd.DataFrame(payload["rows"])
-    frame["timestamp"] = pd.to_datetime(frame["timestamp"], utc=True)
-    return frame, str(payload.get("sha256", ""))
-
-
-def _frame_digest(frame: pd.DataFrame) -> str:
-    return hashlib.sha256(_frame_payload(frame).encode("utf-8")).hexdigest()
-
-
-def _write_cache(path: Path, frame: pd.DataFrame) -> str:
-    body = _frame_payload(frame)
-    digest = hashlib.sha256(body.encode("utf-8")).hexdigest()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps({"sha256": digest, "rows": json.loads(body)}, ensure_ascii=False), encoding="utf-8")
-    return digest
-
-
-def _load_local(service, symbol: str, start: datetime, end: datetime) -> pd.DataFrame | None:
-    if service is None:
-        return None
-    try:
-        frame = service.load_bars(
-            symbol, "D1", start, end, allow_research=True, completed_only=True,
-        )
-    except Exception:
-        return None
-    if frame is None or len(frame) == 0:
-        return None
-    return frame
-
-
 def _content_hash(rows: list[dict]) -> str:
     stable = []
     for row in rows:
@@ -420,18 +379,10 @@ def _git_commit() -> str:
         return "unknown"
 
 
-def compute_symbol(raw: pd.DataFrame, instrument: InstrumentConfig, source: str, now: datetime, meta: dict, *, completed_only: bool, already_adjusted: bool = False) -> tuple[dict, dict]:
-    if already_adjusted:
-        used = raw.copy()
-        counts = {
-            "duplicate_count": 0, "ohlc_anomaly_count": 0, "conflicting_duplicate_count": 0,
-            "quarantine_count": 0, "partial_rows": 0, "adjustment_reject_count": 0,
-            "volume_missing_count": int(used["volume"].isna().sum()) if "volume" in used.columns else 0,
-        }
-    else:
-        used, counts = select_completed_bars(
-            raw, instrument, "D1", source, now=now, completed_only=completed_only,
-        )
+def compute_symbol(raw: pd.DataFrame, instrument: InstrumentConfig, source: str, now: datetime, meta: dict, *, completed_only: bool) -> tuple[dict, dict]:
+    used, counts = select_completed_bars(
+        raw, instrument, "D1", source, now=now, completed_only=completed_only,
+    )
     features = _feature_frame(used)
     if features.empty:
         raise RuntimeError("no completed bars")
@@ -472,21 +423,22 @@ def main(argv: list[str] | None = None) -> dict:
     for index, symbol in enumerate(symbols, 1):
         meta = _member_meta(symbol, members)
         try:
-            raw, source_name, raw_digest = _raw_bars(
-                symbol, instruments[symbol], service, provider, start, fetch_end,
-                refresh=args.refresh,
+            resolved = resolve_snapshot_bars(
+                symbol=symbol, instrument=instruments[symbol], service=service,
+                provider=provider, start=start, end=fetch_end,
+                cache_root=CACHE_ROOT, refresh=args.refresh,
             )
-            raw_hashes[symbol] = raw_digest
-            raw = clip_fetch(raw, fetch_end)
+            raw_hashes[symbol] = resolved.digest
+            raw = clip_fetch(resolved.frame, fetch_end)
             row, counts = compute_symbol(
                 raw, instruments[symbol], provider.name, cutoff, meta,
-                completed_only=completed_only, already_adjusted=source_name == "local",
+                completed_only=completed_only,
             )
             rows.append(row)
-            sources.append(source_name)
+            sources.append(resolved.source)
             for key in reject_totals:
                 reject_totals[key] += int(counts[key])
-            print(f"{index}/{len(symbols)} {symbol} {row['bias']} {row['as_of']} bars={row['bar_count']} src={source_name}", flush=True)
+            print(f"{index}/{len(symbols)} {symbol} {row['bias']} {row['as_of']} bars={row['bar_count']} src={resolved.source}", flush=True)
         except Exception as exc:
             failed.append({"symbol": symbol, **meta, "error": str(exc)})
             print(f"{index}/{len(symbols)} FAIL {symbol} {exc}", flush=True)
@@ -513,7 +465,7 @@ def main(argv: list[str] | None = None) -> dict:
         "\n".join(f"{symbol}:{raw_hashes[symbol]}" for symbol in sorted(raw_hashes)).encode("utf-8")
     ).hexdigest()
     universe = {
-        "id": "qqq_spy_top100_20261023",
+        "id": UNIVERSE_ID,
         "hash": hashlib.sha256(json.dumps(members, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest(),
         "count": len(members),
     }
@@ -583,20 +535,6 @@ def _local_service():
         return HistoricalDataService(ROOT / "data", startup_check=False)
     except Exception:
         return None
-
-
-def _raw_bars(symbol, instrument, service, provider, start, cutoff, *, refresh: bool) -> tuple[pd.DataFrame, str, str]:
-    if not refresh:
-        local = _load_local(service, symbol, start, cutoff)
-        if local is not None and len(local):
-            return local, "local", _frame_digest(local)
-        cached = _cache_path(cutoff, symbol)
-        if cached.is_file():
-            frame, digest = _read_cache(cached)
-            return frame, "yahoo_cache", digest or _frame_digest(frame)
-    fetched = provider.fetch(DownloadRequest(instrument, "D1", start, cutoff))
-    digest = _write_cache(_cache_path(cutoff, symbol), fetched.frame)
-    return fetched.frame, "yahoo_live", digest
 
 
 def _page(payload: dict, meta: dict | None = None) -> str:

@@ -56,9 +56,24 @@
     if(key==='side')return row.side===1?'long':row.side===-1?'short':row.side;
     return row[key];
   }
+  function sideKey(row){
+    const raw=row.side_name??row.direction??row.side;
+    if(raw===1)return 'long';if(raw===-1)return 'short';
+    const text=String(raw??'').toLowerCase();
+    if(text==='long'||text==='buy'||text.includes('多'))return 'long';
+    if(text==='short'||text==='sell'||text.includes('空'))return 'short';
+    return '';
+  }
   function renderLedger(){
     columns=definitions[ledgerKind];const source=ledgerKind==='signals'?(charts.signal_series?.[detail().signal_parameter_hash]||[]):(detail()[ledgerKind]||[]),text=q('ledgerSearch').value.trim().toLowerCase();
-    filtered=source.filter(row=>inRange(row.exit_time||row.time||row.signal_time)&&(!text||columns.some(([key])=>String(field(row,key)??'').toLowerCase().includes(text))));
+    const symbol=q('ledgerSymbol').value.trim().toUpperCase(),side=q('ledgerSide').value,profit=q('ledgerProfit').checked;
+    filtered=source.filter(row=>{
+      if(!inRange(row.exit_time||row.time||row.signal_time))return false;
+      if(symbol&&String(row.symbol??'').toUpperCase().indexOf(symbol)<0)return false;
+      if(side&&sideKey(row)!==side)return false;
+      if(profit&&ledgerKind==='trades'&&!(numeric(row.pnl)&&Number(row.pnl)>0))return false;
+      return !text||columns.some(([key])=>String(field(row,key)??'').toLowerCase().includes(text));
+    });
     const pages=Math.max(1,Math.ceil(filtered.length/sampleSize));page=Math.max(0,Math.min(page,pages-1));
     const head=element('tr');columns.forEach(([,title])=>head.append(element('th',title)));q('ledgerHead').replaceChildren(head);
     const fragment=document.createDocumentFragment();
@@ -72,11 +87,15 @@
     q('ledgerBody').replaceChildren(fragment);q('pageStatus').textContent=`共 ${filtered.length} 条 · ${page+1}/${pages} 页 · 每页 ${sampleSize} 条`;
     q('prevPage').disabled=page===0;q('nextPage').disabled=page>=pages-1;
     q('ledgerDescription').textContent=ledgerKind==='signals'?'这是策略原始信号，不等于实际成交；执行还受仓位、资金和风险约束。':ledgerKind==='orders'?'未成交行的价格是检查参考价，状态和原因说明是否实际成交。': '仅展示已平仓交易；净盈亏已扣成本，开仓持仓不混入胜率。日期筛选按平仓时间。';
+    if(profit&&ledgerKind!=='trades')q('ledgerDescription').textContent+=' 「仅盈利」只作用于已平仓交易。';
   }
   document.querySelectorAll('[data-ledger]').forEach(button=>button.addEventListener('click',()=>{
     ledgerKind=button.dataset.ledger;page=0;document.querySelectorAll('[data-ledger]').forEach(node=>node.setAttribute('aria-pressed',String(node===button)));renderLedger();
   }));
   q('ledgerSearch').addEventListener('input',()=>{page=0;renderLedger();});
+  q('ledgerSymbol').addEventListener('input',()=>{page=0;renderLedger();});
+  q('ledgerSide').addEventListener('change',()=>{page=0;renderLedger();});
+  q('ledgerProfit').addEventListener('change',()=>{page=0;renderLedger();});
   q('prevPage').addEventListener('click',()=>{page--;renderLedger();});q('nextPage').addEventListener('click',()=>{page++;renderLedger();});
   q('exportLedger').addEventListener('click',()=>{
     const csvCell=value=>{let s=String(value??'');if(typeof value==='string'&&/^[=+@\-\t\r]/.test(s))s="'"+s;return '"'+s.replaceAll('"','""')+'"';};

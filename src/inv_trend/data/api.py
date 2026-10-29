@@ -15,7 +15,7 @@ from .models import (
     DataLineageError, DataQualityError, DataUnavailableError, DatasetManifest, HoldingsSnapshot, InstrumentConfig, Manifest, SurvivorshipBiasError,
     path_text, utc_now,
 )
-from .integrity import sha256_file
+from inv_trend.infra.integrity import sha256_file
 from .lineage import _load_current_lineage, _load_update_lineage, load_current_lineage
 from .processing import FRAME_DELTAS, RULE_VERSION, NormalizationResult, assess_quality
 from .providers import BarsProvider, HoldingsCsvProvider, QqqHoldingsCsvProvider
@@ -95,11 +95,6 @@ class HistoricalDataService:
             allow_research=allow_research, allow_legacy=allow_legacy,
             min_quality_score=min_quality_score,
         )
-
-
-
-
-
 
 
     def missing_intervals(
@@ -441,51 +436,10 @@ def load_bars(symbol: str, timeframe: str, start: datetime | None = None, end: d
                                                   allow_legacy=allow_legacy, min_quality_score=min_quality_score)
 
 
-
-
 def _aware_utc(value: datetime) -> datetime:
     if value.tzinfo is None:
         raise ValueError("datetime boundaries must be timezone-aware")
     return value.astimezone(timezone.utc)
-
-
-def _timestamp_positions(frame: pd.DataFrame) -> tuple[dict[object, int], int | None]:
-    """Last row of each timestamp. NaT is not equal to itself, so it is stored apart."""
-
-    positions: dict[object, int] = {}
-    missing: int | None = None
-    for position, timestamp in enumerate(frame["timestamp"].tolist()):
-        if pd.isna(timestamp):
-            missing = position
-        else:
-            positions[timestamp] = position
-    return positions, missing
-
-
-def _locate_timestamp(
-    timestamp: object, positions: dict[object, int], missing: int | None
-) -> int | None:
-    if pd.isna(timestamp):
-        return missing
-    return positions.get(timestamp)
-
-
-def _flag(frame: pd.DataFrame, column: str, position: int) -> bool:
-    if column not in frame.columns:
-        return False
-    return bool(frame[column].iloc[position])
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 def _group_consecutive(stamps: pd.DatetimeIndex, delta: pd.Timedelta) -> list[list[pd.Timestamp]]:

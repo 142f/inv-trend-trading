@@ -1,0 +1,219 @@
+{
+  "date": "2026-10-27",
+  "scope": "数据管理流水线标准化方案 v1：只标准化 K 线链路。新增 data/pipeline 子包，HistoricalDataService 改为薄封装。不迁移永续、四资产、成分股或时点行情。文件名按方案固定为数据流水线标准化验收_20261020.json。v5 审计补充：pinned 基准改用稳定 provider location 并重钉；补 before 树与 WIP 哈希；统一文档/回执计数。",
+  "commits": {
+    "P0": "4483362",
+    "P1": "9e280c2",
+    "P2": "c0587b5",
+    "P3": "7ba6800",
+    "P4": "520ad13",
+    "P5": "34dd62d",
+    "note": "P2–P5 已按阶段提交，未包含用户 WIP；本回执随 P5 入库。"
+  },
+  "dependency_progress": {
+    "note": "data/pipeline 是 data 的子包。tests/test_architecture_boundaries.py 通过，包级依赖图没有新增边。",
+    "package_edges": 35,
+    "package_cycles": 1,
+    "remaining_cycles": [
+      "data ↔ storage"
+    ]
+  },
+  "verification_stages": [
+    {
+      "stage": "tests/test_数据流水线契约_v1.py",
+      "passed": 12,
+      "note": "基准复现、四阶段常量、bars 注册表、阶段边界"
+    },
+    {
+      "stage": "定向回归：历史数据、封版、增量发布、结构化存储、架构边界、golden master",
+      "passed": 225,
+      "warnings": 6,
+      "elapsed_seconds": 117.55
+    },
+    {
+      "stage": "全量回归（当前树）",
+      "passed": 1440,
+      "failed": 6,
+      "warnings": 7,
+      "elapsed_seconds": 564.26
+    },
+    {
+      "stage": "全量回归（9e280c2 同步 WIP 后）",
+      "passed": 1435,
+      "failed": 10,
+      "warnings": 7,
+      "elapsed_seconds": 558.44
+    },
+    {
+      "stage": "tests/test_golden_master.py",
+      "passed": 1,
+      "note": "含在上面的定向回归和全量回归里"
+    },
+    {
+      "stage": "ruff check src scripts tests --select F",
+      "result": "All checks passed"
+    },
+    {
+      "stage": "scripts/结构对比_产物_v1.py --surface data-pipeline",
+      "result": "写出 raw、normalized、curated、manifests、quality_reports 和 readback.json"
+    },
+    {
+      "stage": "scripts/遗留模块引用审计.py",
+      "result": "审计脚本只认绝对导入。pipeline 子模块由 data/__init__.py、data/api.py 和包内相对导入使用，不是未接入代码"
+    }
+  ],
+  "numerical_baseline": {
+    "note": "全量回归的失败集合与方案记录的既有监控回放失败一致。通过数增加来自本轮 11 个契约测试。",
+    "plan_baseline": {
+      "passed": 1428,
+      "failed": 6,
+      "warnings": 7
+    },
+    "after": {
+      "passed": 1440,
+      "failed": 6,
+      "warnings": 7,
+      "elapsed_seconds": 659.14
+    },
+    "pass_delta_explained": "相对方案里的 1428，多出的通过包含 12 个契约测试（含阶段边界测试）和 test_transform_does_not_write_normalized_or_curated。干净的 9e280c2 是 1429 passed / 4 failed，失败集合与当前树不同，见 junit_comparison。",
+    "pre_existing_failures": [
+      "tests/test_监控扫描与回放合同.py::test_saved_decisions_reproduce_without_current_state_or_new_writes[sqlite]",
+      "tests/test_监控扫描与回放合同.py::test_saved_decisions_reproduce_without_current_state_or_new_writes[duckdb]",
+      "tests/test_监控扫描与回放合同.py::test_saved_decisions_reproduce_without_current_state_or_new_writes[v3]",
+      "tests/test_监控扫描与回放合同.py::test_real_h4_repository_replay_matches_backtest_and_saved_decisions[sqlite]",
+      "tests/test_监控扫描与回放合同.py::test_real_h4_repository_replay_matches_backtest_and_saved_decisions[duckdb]",
+      "tests/test_监控扫描与回放合同.py::test_real_h4_repository_replay_matches_backtest_and_saved_decisions[v3]"
+    ],
+    "pre_existing_failure_cause": "DataLineageError: recorded Repository or reference inputs no longer match。这 6 项是既有监控回放夹具不匹配，本轮没有改监控扫描器。"
+  },
+  "junit_comparison": {
+    "before": "9e280c2 工作树已同步 6 个用户 WIP 文件，.tmp/pipeline/before_junit.xml，1435 passed / 10 failed",
+    "after": "当前工作区，.tmp/pipeline/after_junit.xml，1440 passed / 6 failed / 7 warnings，564.26s",
+    "failed_test_id_set_identical": false,
+    "pass_to_fail_regressions": 0,
+    "only_after_new_tests": [
+      "tests.test_数据流水线契约_v1::test_transform_does_not_write_normalized_or_curated"
+    ],
+    "only_after_new_tests_failed": 0,
+    "note": "同步 WIP 后，6 个监控回放失败在两棵树上都在，不是流水线搬移引入的。零 pass→fail。仅 after 新增 1 个阶段边界测试且通过。失败集合仍不完全相同：before 多 3 个契约测试（工作树样本绝对路径写进 provider_metadata）和 1 个永续审计盘符错误（E: 对 C:）。这 4 个在当前树上是通过的。",
+    "current_failures": [
+      "tests/test_监控扫描与回放合同.py::test_saved_decisions_reproduce_without_current_state_or_new_writes[sqlite]",
+      "tests/test_监控扫描与回放合同.py::test_saved_decisions_reproduce_without_current_state_or_new_writes[duckdb]",
+      "tests/test_监控扫描与回放合同.py::test_saved_decisions_reproduce_without_current_state_or_new_writes[v3]",
+      "tests/test_监控扫描与回放合同.py::test_real_h4_repository_replay_matches_backtest_and_saved_decisions[sqlite]",
+      "tests/test_监控扫描与回放合同.py::test_real_h4_repository_replay_matches_backtest_and_saved_decisions[duckdb]",
+      "tests/test_监控扫描与回放合同.py::test_real_h4_repository_replay_matches_backtest_and_saved_decisions[v3]"
+    ],
+    "before_tree": {
+      "head": "9e280c2",
+      "state": "外部工作树 + 6 个用户 WIP 文件；该树未在仓库注册，实际路径未入库",
+      "wip_file_count": 6,
+      "wip_sha256": {
+        "src/inv_trend/adapters/multi_asset/backtest/runner.py": "97c5ceccb6894fd33abe396ad508699f799a5b6e816064fbfae7b509a87305b1",
+        "src/inv_trend/adapters/multi_asset/models/domain.py": "e01ae8ebb6ad113ff72ac728d25360611b7c106ec46b50d6568d7a3da1e6e06e",
+        "src/inv_trend/adapters/multi_asset/strategy/engine.py": "cdae33de1ae5f8a4321af3ac536feef095f6cc43e2461302d5e44bba05d98f31",
+        "tests/test_海龟入场过滤合同.py": "c07fae2dc56f79b26d5278280ec66289e8dcec786d289e53ab131eeddabb9456",
+        "src/inv_trend/application/多品种验收.py": "e6394feb796e7f3e34edafb165cba89de631dd68c419f867312f2f5519d0327e",
+        "tests/test_多品种成本与多空门禁.py": "7affb47f8f992bd20f3397b5a3f0b3c4d4b99c1071e1ac02524c1f3521e4612e"
+      }
+    },
+    "baseline_portability": {
+      "issue": "dataset_version 包含 provider_metadata_hash，而 CsvBarsProvider 记录调用方绝对路径；换克隆位置会漂移。before 树的 3 个契约失败即此原因，不是流水线回归。",
+      "observed": {
+        "absolute_E": "696ff93be7dbfe5355271868",
+        "relative_token": "9bd1c054d5f071bb620d9f58",
+        "absolute_C": "277b905222651cc45fdc80ff"
+      },
+      "fix": "测试侧 _PinnedLocationCsvBarsProvider 固定 location=tests/fixtures/pipeline_bars_d1.csv；在 9e280c2 干净树与当前树分别采集，完整观测 JSON 逐字段相等。",
+      "repinned_dataset_version": "9bd1c054d5f071bb620d9f58",
+      "product_code_changed": false
+    }
+  },
+  "field_check": [
+    {
+      "doc": "PIPELINE_STAGES",
+      "code": "契约_v1.py 固定为 acquire, transform, persist, read"
+    },
+    {
+      "doc": "DatasetKey.symbol/timeframe",
+      "code": "契约_v1.DatasetKey"
+    },
+    {
+      "doc": "PipelineContext 六个字段",
+      "code": "kind, key, start, end, run_id, retries=3"
+    },
+    {
+      "doc": "AcquireOutcome / TransformOutcome / PublicationOutcome",
+      "code": "字段名与契约_v1.py 一致"
+    },
+    {
+      "doc": "DataReadPort.read 关键字参数",
+      "code": "version, start, end, adjusted, completed_only, allow_research, allow_legacy, min_quality_score"
+    },
+    {
+      "doc": "register_pipeline / get_pipeline / kind=bars",
+      "code": "注册表_v1.py，导入时注册 bars"
+    }
+  ],
+  "review": {
+    "passes": 4,
+    "pass_1_behavior": {
+      "method": "对照方案核对阶段边界，并跑契约测试与增量发布合同",
+      "findings": [
+        "status 上残留了搬移时留下的 @staticmethod，调用时会少一个参数。已去掉。",
+        "流水线里的品种解析只抛 KeyError，保留品种不再抛 InstrumentNotImplementedError。已改回 InstrumentRegistry.resolve。",
+        "tests/test_增量发布合同.py 在构造之后替换 _merge_current。委托改成调用时再取这个方法，原测试通过。"
+      ],
+      "result": "K 线基准 JSON 与当前实现一致；增量发布合同通过"
+    },
+    "pass_3_adversarial": {
+      "method": "篡改基准版本号；新增阶段边界测试；同一 CSV 绝对路径重放 P1 与当前树",
+      "findings": [
+        "把基准 dataset_version 末位改为 9 后，test_chain_identity_reproduces 失败并指出漂移。文件已按原文写回。",
+        "test_transform_does_not_write_normalized_or_curated 通过：transform 之前没有 normalized/curated，persist 之后才有。",
+        "同一 fixture 路径下，P1 与当前实现的 dataset_version、raw_snapshot_id、frame_hash、列名和 dtype 相同。目录对比的差异来自样本绝对路径和随机 run_id。"
+      ],
+      "result": "基准不是恒真；阶段边界有测试；搬移前后内容身份一致"
+    },
+    "pass_2_boundaries_and_deliverables": {
+      "method": "核对 transform 不写 normalized/quarantine、persist 才写；复核 data-pipeline 产物目录；再跑架构边界、ruff F 和全量回归",
+      "findings": [
+        "write_normalized 与 quarantine 写盘在 BarsCore.persist，不在 transform。acquire 仍负责 raw 落盘。",
+        "data-pipeline 第一次把制品写进了子目录。已改为直接写入 --out，并重新跑通。",
+        "默认 --surface all 不包含 data-pipeline，避免旧的前后对比多跑一条旧树没有的链路。"
+      ],
+      "result": "全量 1439 passed / 6 failed / 7 warnings（该次早于第 12 个阶段边界测试入库；最终全量为 1440/6）；失败集合与既有监控回放一致"
+    },
+    "pass_4_audit": {
+      "method": "复核 4 条流水线提交、双树 junit、契约/架构/golden master、基准路径依赖与文档一致性",
+      "findings": [
+        "pinned 基准绑定 fixture 绝对路径，before 树 3 个契约失败由此产生",
+        "before 树实际路径未记录，唯一注册 worktree 不是本次 before 树",
+        "回执与文档存在计数/导出一致性偏差；api.py 残留 3 个死函数",
+        "scripts/遗留模块引用审计.py 的文档命令缺少 modules 参数"
+      ],
+      "fixes": [
+        "测试侧固定 provider location，9e280c2 与当前实现完整观测逐字段相等，重钉基准",
+        "回执补 before 树 head/WIP 哈希；文档计数与导出清单统一",
+        "删除 api.py 死函数与重复赋值",
+        "修正规划文档复跑命令"
+      ],
+      "result": "契约 12 passed；架构边界 12 passed；golden master 1 passed；待全量回归复核"
+    }
+  },
+  "deliverables": [
+    "src/inv_trend/data/pipeline/：契约、注册表、编排、K 线四阶段",
+    "src/inv_trend/data/api.py：HistoricalDataService 委托流水线",
+    "tests/fixtures/pipeline_bars_d1.csv",
+    "tests/数据流水线基准_v1.json",
+    "tests/test_数据流水线契约_v1.py",
+    "scripts/结构对比_产物_v1.py 的 data-pipeline surface",
+    "docs/数据管理流水线规范_v1.md",
+    "docs/模块依赖契约_v1.md 第 6.1 节",
+    "README.md「代码结构与维护」中的规范链接",
+    "docs/数据流水线标准化验收_20261020.json",
+    "tests/test_数据流水线契约_v1.py：稳定 provider location（不随克隆路径变化）",
+    "tests/数据流水线基准_v1.json：重钉为 9bd1c054d5f071bb620d9f58"
+  ],
+  "data_protection": "未修改原行情、研究库或私有配置。data-pipeline 试跑写在 .tmp/data-pipeline-surface，测试写在临时目录。"
+}

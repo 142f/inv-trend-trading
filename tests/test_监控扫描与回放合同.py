@@ -115,6 +115,17 @@ def test_replay_preserves_all_six_states_and_backtest_intents(market, tmp_path):
     assert all('before' in snapshot['state_context'] for snapshot in result.decisions)
 
 
+def test_replay_reports_bar_progress(market, tmp_path):
+    repository, version = market
+    monitor = scanner(repository, tmp_path / 'replay.sqlite3', purpose='replay')
+    calls = []
+    result = HistoricalReplay(monitor).run(
+        'BTC', 'D1', version, compare_backtest=True,
+        progress=lambda index, total: calls.append((index, total)))
+    assert [index for index, _count in calls] == list(range(1, len(result.decisions) + 1))
+    assert all(count == len(result.decisions) for _index, count in calls)
+
+
 def test_replay_pins_repository_version_and_retries_return_original_snapshots(market, tmp_path, monkeypatch):
     repository, version = market
     monitor = scanner(repository, tmp_path / 'replay.sqlite3', purpose='replay')
@@ -181,11 +192,12 @@ def test_reference_account_roundtrip_preserves_position_history_and_timestamps()
     when = pd.Timestamp('2024-01-02T00:00Z')
     position = Position('BTC', 1, 'slow', [PositionUnit(2., 10., 1., when)], 10., 8.)
     state = PortfolioState({'BTC': position}, {'BTC': False},
-                           {'BTC': SkippedFastTrade(-1, 10., 1., 12.)})
+                           {'BTC': SkippedFastTrade(-1, 10., 1., 12.)}, 123456.0)
     account = ReferenceAccount('observed', 100000., state, {'BTC': 'position-1'}, 'observation-1', when)
     restored = ReferenceAccount.from_dict(account.to_dict())
     assert restored.to_dict() == account.to_dict() and restored.signature == account.signature
     assert restored.portfolio.positions['BTC'].first_entry_time == when
+    assert restored.portfolio.equity_peak == 123456.0
 
 
 def test_real_h4_repository_replay_matches_backtest_and_saved_decisions(service, tmp_path):

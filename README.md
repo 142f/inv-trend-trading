@@ -19,8 +19,8 @@
 ## 代码结构与维护
 
 每日扫描统一通过 `application/daily/workflow.py` 的分阶段流程执行，
-`DailyMarketScanService` 保留原有构造参数和返回类型。行情采集与发布由 `data/api.py`
-编排；成分股的历史快照读写归属 `data/成分股快照.py`，只读目录审计归属
+`DailyMarketScanService` 保留原有构造参数和返回类型。行情采集与发布仍以 `data/api.py`
+的 `HistoricalDataService` 为对外入口，具体编排在 `data/pipeline/`；成分股的历史快照读写归属 `data/成分股快照.py`，只读目录审计归属
 `data/目录核验.py`。文件哈希统一使用 `data/integrity.py`，持久化原子写入使用
 `data/文件操作.py`；数值转换复用 `core/math_utils.py` 的 `finite_float`，UTC 时间转换复用
 `core/时间.py`。映射与行筛选复用 `core/serializers.py` 的 `as_mapping` / `mapping_rows`，

@@ -5,7 +5,7 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 import fnmatch
 import gzip
-from inv_trend.data.integrity import sha256_bytes as digest
+from inv_trend.infra.integrity import sha256_bytes as digest
 import io
 import json
 import os
@@ -15,10 +15,11 @@ import sqlite3
 import tempfile
 import zlib
 
-from inv_trend.data.models import parse_utc_datetime, to_rfc3339_utc
-from inv_trend.data.目录故障 import catalog_access
+from inv_trend.infra.backend import V3_AUTHORITY_PATH
+from inv_trend.infra.时间 import parse_utc_datetime, to_rfc3339_utc
+from inv_trend.infra.目录故障 import catalog_access
 
-DB_RELATIVE = Path('metadata') / '研究目录_v3.sqlite3'
+DB_RELATIVE = V3_AUTHORITY_PATH
 STAGES = ('raw', 'processed', 'features/indicators', 'signals', 'backtests', 'reports', 'metadata')
 
 

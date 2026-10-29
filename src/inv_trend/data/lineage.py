@@ -9,7 +9,7 @@ from typing import Any
 
 import pandas as pd
 
-from .integrity import sha256_file
+from inv_trend.infra.integrity import sha256_file
 from .models import DataCertificationError, DataLineageError
 from .storage import DataLake
 

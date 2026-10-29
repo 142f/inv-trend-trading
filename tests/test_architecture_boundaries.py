@@ -223,7 +223,7 @@ def test_source_has_one_canonical_package_namespace() -> None:
     repository = Path(__file__).parents[1]
     source = repository / "src" / "inv_trend"
     assert {
-        "domain", "core", "data", "application", "adapters", "integrations",
+        "domain", "core", "data", "infra", "application", "adapters", "integrations",
         "observability", "cli",
     } <= {
         path.name for path in source.iterdir() if path.is_dir()
@@ -240,6 +240,26 @@ def test_source_has_one_canonical_package_namespace() -> None:
             "turtle_multi_asset",
         )
     )
+
+
+def test_okx_order_port_is_declared_research_only_without_runtime_callers() -> None:
+    """The guarded OKX client exists, but no runtime package may import it yet.
+
+    Wiring it into an execution module is a deliberate product decision; until
+    then this contract keeps the "has an order client but nothing calls it"
+    state explicit instead of silently drifting.
+    """
+
+    source_root = Path(__file__).parents[1] / "src" / "inv_trend"
+    allowed = {source_root / "integrations" / "okx.py",
+               source_root / "integrations" / "__init__.py"}
+    callers = {
+        source.relative_to(source_root).as_posix()
+        for source in source_root.rglob("*.py")
+        if source not in allowed
+        and "inv_trend.integrations.okx" in _imported_modules(source)
+    }
+    assert callers == set()
 
 
 def _is_banned(name: str, banned: set[str]) -> bool:
@@ -280,6 +300,7 @@ DECLARED_PACKAGE_EDGES: frozenset[tuple[str, str]] = frozenset({
     ("adapters", "core"),
     ("adapters", "data"),
     ("adapters", "domain"),
+    ("adapters", "infra"),
     ("adapters", "observability"),
     ("adapters", "ports"),
     ("application", "adapters"),
@@ -287,6 +308,7 @@ DECLARED_PACKAGE_EDGES: frozenset[tuple[str, str]] = frozenset({
     ("application", "core"),
     ("application", "data"),
     ("application", "domain"),
+    ("application", "infra"),
     ("application", "ports"),
     ("application", "storage"),
     ("cli", "adapters"),
@@ -294,31 +316,29 @@ DECLARED_PACKAGE_EDGES: frozenset[tuple[str, str]] = frozenset({
     ("cli", "config"),
     ("cli", "core"),
     ("cli", "data"),
+    ("cli", "infra"),
     ("cli", "monitoring"),
     ("cli", "notifications"),
     ("cli", "observability"),
     ("cli", "storage"),
     ("data", "core"),
+    ("data", "infra"),
     ("data", "storage"),
     ("integrations", "adapters"),
     ("monitoring", "adapters"),
     ("monitoring", "core"),
     ("monitoring", "data"),
+    ("monitoring", "infra"),
     ("monitoring", "observability"),
     ("notifications", "monitoring"),
     ("notifications", "observability"),
     ("observability", "core"),
     ("ports", "core"),
-    ("storage", "adapters"),
-    ("storage", "application"),
     ("storage", "core"),
-    ("storage", "data"),
+    ("storage", "infra"),
 })
 
-KNOWN_PACKAGE_CYCLES: frozenset[frozenset[str]] = frozenset({
-    frozenset({"application", "storage"}),
-    frozenset({"data", "storage"}),
-})
+KNOWN_PACKAGE_CYCLES: frozenset[frozenset[str]] = frozenset()
 
 
 def _imported_modules(source: Path) -> list[str]:

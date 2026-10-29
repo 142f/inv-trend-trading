@@ -3,9 +3,9 @@
 本模块只定义**契约**（阶段常量、DTO、端口协议、``PipelineSpec``），不含任何行情算法，
 也不依赖 ``inv_trend.data.api``（避免与 facade 形成循环导入）。
 
-P1 过渡说明：四个 DTO 中分析性字段（``normalized`` / ``clean`` / ``merged`` /
-``conflicts`` 等）在 P1 阶段整体委托旧实现，暂为 ``None``；P2 把
-``_fetch`` / ``_ingest_result`` 真正拆分后逐字段填充，字段名与顺序不再变化。
+P2 之后：四阶段由 ``行情阶段_v1.py`` 的 ``BarsCore`` 实现，分析性字段
+（``normalized`` / ``clean`` / ``merged`` / ``conflicts`` 等）已逐字段填充；
+本模块仍只定义契约，不含任何行情算法。
 """
 
 from __future__ import annotations

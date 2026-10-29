@@ -6,6 +6,10 @@
 基准来源：``tests/数据流水线基准_v1.json``，由改前实现（commit 见其中
 ``captured_at_commit``）在**两套独立 lake** 上双跑确认确定性后固化。
 
+``provider_metadata.location`` 会进入 ``dataset_version``。真实 CSV provider 记录的是
+调用方传入的绝对路径，若直接固化会让基准依赖克隆位置。本测试把 location 固定为仓库内
+相对标识后再比对；产品 provider 行为不变。
+
 等价口径（与基准采集脚本完全一致）：
 - 固化内容寻址身份（``dataset_version`` / ``raw_snapshot_id``）；
 - 固化 curated 内容的**语义** ``frame_hash``，不固化 Parquet 文件字节 sha256
@@ -23,7 +27,7 @@ import pandas as pd
 import pytest
 
 from inv_trend.data.api import HistoricalDataService
-from inv_trend.data.integrity import strategy_frame_hash
+from inv_trend.infra.integrity import strategy_frame_hash
 from inv_trend.data.providers import CsvBarsProvider
 
 REPO = Path(__file__).resolve().parents[1]
@@ -41,6 +45,21 @@ VOLATILE = frozenset({
 })
 
 
+_STABLE_PROVIDER_LOCATION = "tests/fixtures/pipeline_bars_d1.csv"
+
+
+class _PinnedLocationCsvBarsProvider(CsvBarsProvider):
+    """把 ``provider_metadata.location`` 固定为仓库内相对标识。
+
+    只用于测试：让 pinned 基准不随克隆路径变化；产品 provider 行为不变。
+    """
+
+    def fetch(self, request):
+        result = super().fetch(request)
+        result.metadata = {**result.metadata, "location": _STABLE_PROVIDER_LOCATION}
+        return result
+
+
 def _prune(value):
     if isinstance(value, dict):
         return {k: _prune(v) for k, v in value.items() if k not in VOLATILE}
@@ -53,7 +72,7 @@ def _observe(lake: Path) -> dict:
     """用当前实现重放同一条链路，返回与基准同形的观测值。"""
 
     service = HistoricalDataService(
-        lake, providers={"licensed_csv": CsvBarsProvider(FIXTURE)}
+        lake, providers={"licensed_csv": _PinnedLocationCsvBarsProvider(FIXTURE)}
     )
     base = service.instruments["BTC"]
     service.instruments["BTC"] = base.__class__(
@@ -126,6 +145,7 @@ def observed(tmp_path_factory) -> dict:
 def test_baseline_fixture_is_present_and_pinned(baseline: dict) -> None:
     assert FIXTURE.is_file(), f"missing pinned fixture: {FIXTURE}"
     assert baseline["fixture"]["path"] == "tests/fixtures/pipeline_bars_d1.csv"
+    assert baseline["fixture"]["provider_location"] == _STABLE_PROVIDER_LOCATION
     assert baseline["fixture"]["rows"] == 200
     assert baseline["dataset_version"]
     assert len(baseline["dataset_version"]) == 24
@@ -247,10 +267,9 @@ def test_registry_rejects_unknown_and_duplicate_kind() -> None:
 
 def _service(lake: Path):
     from inv_trend.data.api import HistoricalDataService
-    from inv_trend.data.providers import CsvBarsProvider
 
     service = HistoricalDataService(
-        lake, providers={"licensed_csv": CsvBarsProvider(FIXTURE)}
+        lake, providers={"licensed_csv": _PinnedLocationCsvBarsProvider(FIXTURE)}
     )
     base = service.instruments["BTC"]
     service.instruments["BTC"] = base.__class__(
@@ -275,7 +294,7 @@ def test_pipeline_ingest_matches_legacy_service(tmp_path: Path) -> None:
     """P1 转发 shim：pipeline.ingest 与 service.ingest 必须产出同一身份与内容。"""
 
     from inv_trend.data import DatasetKey
-    from inv_trend.data.integrity import strategy_frame_hash
+    from inv_trend.infra.integrity import strategy_frame_hash
 
     frame = pd.read_csv(FIXTURE)
     start = pd.Timestamp(frame["timestamp"].iloc[0]).to_pydatetime()

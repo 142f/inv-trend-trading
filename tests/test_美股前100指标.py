@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 from importlib.machinery import SourceFileLoader
+import json
 from pathlib import Path
 
 import pandas as pd
@@ -210,6 +211,16 @@ def test_snapshot_exposes_the_full_display_indicator_set():
         assert key in row
     assert set(row["channel"]) == {"high_20", "low_20", "high_55", "low_55"}
     assert row["channel"]["high_20"] is not None
+
+
+def test_universe_is_loaded_from_the_registered_file():
+    assert board.UNIVERSE_PATH.is_file()
+    payload = json.loads(board.UNIVERSE_PATH.read_text(encoding="utf-8"))
+    assert payload["id"] == board.UNIVERSE_ID
+    assert payload["count"] == len(payload["members"]) == 163
+    assert payload["exclusions"] == [{"symbol": "SPCX", "qqq_rank": 11,
+                                      "reason": "not registered in assets.yaml"}]
+    assert board.universe_members() == payload["members"]
 
 
 def test_page_carries_meta_header_and_prefix_search_contract():

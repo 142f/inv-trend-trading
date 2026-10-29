@@ -11,8 +11,8 @@ import pytest
 from inv_trend.core.identity import stable_id
 from inv_trend.core.math_utils import finite_float
 from inv_trend.core.signals import SignalEvent, is_execution_notification_event
-from inv_trend.data.integrity import sha256_file, stable_hash
-from inv_trend.data.文件操作 import atomic_write
+from inv_trend.infra.integrity import sha256_file, stable_hash
+from inv_trend.infra.文件操作 import atomic_write
 from inv_trend.core.时间 import utc_datetime, utc_timestamp
 
 
@@ -104,7 +104,7 @@ def test_execution_notification_predicate_accepts_only_confirmed_entries() -> No
 
 
 def test_failed_atomic_replace_preserves_previous_artifact_and_cleans_stage(tmp_path, monkeypatch):
-    from inv_trend.data import 文件操作
+    from inv_trend.infra import 文件操作
 
     path = tmp_path / "snapshot.json"
     path.write_bytes(b"previous")
@@ -120,7 +120,7 @@ def test_failed_atomic_replace_preserves_previous_artifact_and_cleans_stage(tmp_
 
 
 def test_immutable_write_rechecks_target_created_during_staging(tmp_path, monkeypatch):
-    from inv_trend.data import 文件操作
+    from inv_trend.infra import 文件操作
 
     path = tmp_path / "immutable.json"
     original = 文件操作.os.fsync

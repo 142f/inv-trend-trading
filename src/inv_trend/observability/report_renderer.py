@@ -56,19 +56,22 @@ def render_daily_dashboard(snapshot: Mapping[str, Any]) -> str:
     payload = json.dumps(snapshot, ensure_ascii=False, allow_nan=False, default=str)
     payload = payload.replace("</", "<\\/")
     title = f"趋势策略每日分析报告 {snapshot.get('report_date', '')}".strip()
+    rows = [row for row in snapshot.get("symbols", []) if isinstance(row, Mapping)]
+    meta_html = _daily_meta(snapshot, rows)
     return f"""<!doctype html>
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{_html_text(title)}</title>
-<style>{_CSS}</style>
+<style>{_CSS}{_META_CSS}</style>
 </head>
 <body>
 <header class="topbar">
   <div><div class="eyebrow">INV TREND · 中文金融分析日报</div><h1>{_html_text(title)}</h1></div>
   <label class="selector-wrap" for="symbolSelect">分析标的 <select id="symbolSelect"></select></label>
 </header>
+<dl class="meta">{meta_html}</dl>
 <main>
   <section id="identity" class="identity" aria-label="标的和数据身份"></section>
   <section id="dataStatusPanel" class="panel data-panel" aria-label="数据状态与就绪性"></section>
@@ -145,6 +148,43 @@ def _html_text(value: Any) -> str:
         .replace("<", "&lt;")
         .replace(">", "&gt;")
         .replace('"', "&quot;")
+    )
+
+
+_META_CSS = (
+    ".meta{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));"
+    "gap:10px 18px;background:#fff;border:1px solid #e3e9f1;border-radius:10px;"
+    "padding:14px 18px;margin:16px 0}.meta div{min-width:0}.meta dt{font-size:11px;"
+    "color:#687a92}.meta dd{margin:0;font-family:Consolas,monospace;font-size:12px;"
+    "overflow-wrap:anywhere}"
+)
+
+
+def _daily_meta(snapshot: Mapping[str, Any], rows: list[Mapping[str, Any]]) -> str:
+    """Render only the identity fields the snapshot actually carries."""
+
+    def unique(values) -> list[str]:
+        return sorted({str(value) for value in values if value})
+
+    providers = unique(
+        (row.get("data_update_result") or {}).get("provider") for row in rows
+    )
+    versions = unique(
+        (row.get("data_update_result") or {}).get("dataset_version")
+        or (row.get("report_bundle") or {}).get("data_version")
+        for row in rows
+    )
+    frames = unique(row.get("timeframe") for row in rows) or ["D1"]
+    fields = (
+        ("报告日期", snapshot.get("report_date") or "—"),
+        ("周期", ",".join(frames)),
+        ("标的数", len(rows)),
+        ("数据来源", ",".join(providers) or "—"),
+        ("数据集版本", ",".join(versions) or "—"),
+    )
+    return "".join(
+        f"<div><dt>{_html_text(label)}</dt><dd>{_html_text(str(value))}</dd></div>"
+        for label, value in fields
     )
 
 

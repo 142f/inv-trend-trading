@@ -261,7 +261,7 @@ def test_durable_job_is_not_stolen_when_owner_is_alive_or_unknown(tmp_path, monk
 def test_kernel_exit_releases_target_lock_and_recovers_unfinished_job(tmp_path):
     if os.name != 'nt':
         pytest.skip('Windows kernel lock contract')
-    from inv_trend.data.locking import FileLock
+    from inv_trend.infra.locking import FileLock
     db = tmp_path / 'live.sqlite3'
     root = tmp_path / 'data'
     lockpath = root / '.monitoring_locks' / 'target.lock'
@@ -269,7 +269,7 @@ def test_kernel_exit_releases_target_lock_and_recovers_unfinished_job(tmp_path):
 import ctypes, sys
 import pandas as pd
 from pathlib import Path
-from inv_trend.data.locking import FileLock
+from inv_trend.infra.locking import FileLock
 from inv_trend.monitoring.事件存储 import EventStore
 from inv_trend.monitoring.执行记录 import RuntimeLedger
 ledger = RuntimeLedger(EventStore(sys.argv[1]), sys.argv[2])

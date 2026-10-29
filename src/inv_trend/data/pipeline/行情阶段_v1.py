@@ -28,7 +28,7 @@ from uuid import uuid4
 
 import pandas as pd
 
-from ..integrity import sha256_file, stable_hash, strategy_frame_hash
+from inv_trend.infra.integrity import sha256_file, stable_hash, strategy_frame_hash
 from ..registry import InstrumentRegistry
 from ..lineage import load_current_lineage, load_versioned_lineage
 from ..models import (
@@ -589,7 +589,6 @@ class BarsCore:
         outside_window_revisions = list(transformed.outside_window_revisions)
         status = transformed.status
         publishable = transformed.publishable
-        dataset_version = transformed.dataset_version
 
         normalized_paths = self.lake.write_normalized(clean, instrument.asset_class, instrument.instrument_id, timeframe)
         if not normalized.quarantine.empty:

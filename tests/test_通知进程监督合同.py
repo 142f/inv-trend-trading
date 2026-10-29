@@ -152,7 +152,7 @@ while not Path(sys.argv[-1]).exists():
 def test_native_notification_hang_restarts_and_recovers_expired_lease(tmp_path,monkeypatch):
     from tests.test_通知渠道合同 import receiver
     from inv_trend.notifications.渠道 import WebhookNotifier
-    from inv_trend.data.locking import _owner_process_state
+    from inv_trend.infra.locking import _owner_process_state
     cfg = replace(config(tmp_path),heartbeat_timeout_seconds=1,
         supervision={'startup_timeout_seconds':8,'hard_scan_timeout_seconds':2,
             'graceful_stop_seconds':.1,'restart_delay_seconds':.05,'max_restarts':2,'restart_window_seconds':60})
@@ -268,7 +268,7 @@ def test_idle_notification_poll_longer_than_heartbeat_does_not_force_restart(tmp
 
 def test_scope_insert_failure_rolls_back_start_record_and_stops_child(tmp_path):
     import sqlite3
-    from inv_trend.data.locking import _owner_process_state
+    from inv_trend.infra.locking import _owner_process_state
     cfg = config(tmp_path)
     with ProcessSupervisor(cfg,webhook_env='TEST_NOTIFICATION_ENDPOINT',notification_channel_id=CHANNEL,
             command=(sys.executable,'-c','import time;time.sleep(120)')) as supervisor:

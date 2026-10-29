@@ -5,7 +5,7 @@ import json
 import pytest
 
 from inv_trend.data.api import HistoricalDataService
-from inv_trend.data.integrity import sha256_file
+from inv_trend.infra.integrity import sha256_file
 from inv_trend.data.models import DataLineageError
 from inv_trend.data.storage import open_data_lake
 from inv_trend.storage.结构化存储_v3 import UnifiedStore
@@ -236,7 +236,7 @@ def test_lock_liveness_query_does_not_terminate_owner(tmp_path):
     import subprocess
     import sys
     import os
-    from inv_trend.data.locking import _owner_process_state
+    from inv_trend.infra.locking import _owner_process_state
     child = subprocess.Popen([sys.executable, '-c', 'import sys; sys.stdin.read()'], stdin=subprocess.PIPE)
     try:
         assert _owner_process_state({'pid': os.getpid()}) is True
@@ -304,12 +304,12 @@ def test_repair_does_not_accept_corrupt_lineage(service):
 def test_real_process_lock_prevents_reentry_and_releases_after_exit(tmp_path):
     import subprocess
     import sys
-    from inv_trend.data.locking import FileLock
+    from inv_trend.infra.locking import FileLock
     lock = tmp_path / 'process.lock'
     script = '''
 import sys
 from pathlib import Path
-from inv_trend.data.locking import FileLock
+from inv_trend.infra.locking import FileLock
 with FileLock(Path(sys.argv[1])):
     print('locked', flush=True)
     sys.stdin.read()
