@@ -3,7 +3,7 @@
 本文件在流水线子包引入之前即生效：它把「改动前的行为」变成可执行断言，
 之后 P2 的逐行搬移只要造成任何语义漂移，这里就会立刻失败。
 
-基准来源：``tests/数据流水线基准_v1.json``，由改前实现（commit 见其中
+基准来源：``tests/fixtures/数据流水线基准_v1.json``，由改前实现（commit 见其中
 ``captured_at_commit``）在**两套独立 lake** 上双跑确认确定性后固化。
 
 ``provider_metadata.location`` 会进入 ``dataset_version``。真实 CSV provider 记录的是
@@ -31,7 +31,7 @@ from inv_trend.infra.integrity import strategy_frame_hash
 from inv_trend.data.providers import CsvBarsProvider
 
 REPO = Path(__file__).resolve().parents[1]
-BASELINE = REPO / "tests" / "数据流水线基准_v1.json"
+BASELINE = REPO / "tests" / "fixtures" / "数据流水线基准_v1.json"
 FIXTURE = REPO / "tests" / "fixtures" / "pipeline_bars_d1.csv"
 
 # 与采集脚本保持逐项一致：墙钟、随机身份、文件字节哈希都不参与等价判定。

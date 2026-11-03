@@ -1,0 +1,1384 @@
+{
+  "schema_version": 1,
+  "title": "结构重构（P0–P6）修改前后产物一致性对比",
+  "generated_on": "2026-10-20",
+  "scope": {
+    "range": "离线可复现入口（core-dataset / daily-publish / golden-master / immutable probe）",
+    "criterion": "按白名单 N1–N7 归一化后严格相等；数值与内容寻址哈希一律不归一化",
+    "excluded": "research-stages verify（可能写回 data/metadata/研究目录_v3.sqlite3）"
+  },
+  "trees": {
+    "before": {
+      "worktree": "E:\\Project\\inv-trend-trading\\.tmp\\compare\\before-tree",
+      "commit": "3a091229a1a699a2b1f207de68ed7c154b3d7d7a",
+      "wip_synced": true,
+      "wip_files": [
+        "src/inv_trend/adapters/multi_asset/backtest/runner.py",
+        "src/inv_trend/adapters/multi_asset/models/domain.py",
+        "src/inv_trend/adapters/multi_asset/strategy/engine.py",
+        "tests/test_海龟入场过滤合同.py",
+        "src/inv_trend/application/多品种验收.py",
+        "tests/test_多品种成本与多空门禁.py",
+        "artifacts/"
+      ]
+    },
+    "after": {
+      "worktree": "e:\\Project\\inv-trend-trading",
+      "commit": "2e893510cbe8c18dad111f9653aaa49c43cfdb92",
+      "wip_synced": true
+    },
+    "inputs": {
+      "processed_dir": "E:\\Project\\inv-trend-trading\\processed_data",
+      "note": "两树共用同一只读输入；processed_data 与 data 未入库，改前工作树中不存在"
+    }
+  },
+  "refactor_commits": [
+    "a694a0b P0 固化契约",
+    "5f0fe35 P1 ports 接口层，消除 adapters→application",
+    "0ab05cd P2 澄清 adapters→observability 为合法下行依赖",
+    "dcb2147 P3 消除 observability→application",
+    "aa038d5 P4 消除 core→storage",
+    "04af83a P5 消除 application↔storage",
+    "2e89351 P6 收尾交付"
+  ],
+  "normalization_whitelist": {
+    "N1": "worktree / 产物根 / 输入根前缀 -> «OUT» / «TREE» / «IN»（按路径长度降序施加）",
+    "N2": "RFC3339/ISO 时间戳 -> «TS»",
+    "N3": "整串 ISO 日期 -> «DATE»",
+    "N4": "易变键名（generated_at/created_at/updated_at/evaluated_at/now/timestamp）+ 时间取值 -> «VOLATILE»",
+    "N5": "Windows 绝对路径字符串 -> «PATH»",
+    "N6": "UUID / .tmp-<hex> 随机目录名 -> «ID»",
+    "N7": "树级溯源键（tree_commit/python_module_count）-> «PROVENANCE»",
+    "not_normalized": [
+      "全部数值指标",
+      "内容寻址哈希（decision_id/input_key/result_hash/…）",
+      "事件/订单/交易记录",
+      "列序、dtype、行数、行序"
+    ]
+  },
+  "product_comparison": {
+    "report": ".tmp/compare/对比结果.json",
+    "report_sha256": "5af6245b1d1a2170894ccd08111ddc577a5d79c85a70312032d5a9701227cda6",
+    "file_counts": {
+      "before": 106,
+      "after": 106
+    },
+    "summary": {
+      "equal": 93,
+      "volatile_only": 13,
+      "value": 0,
+      "structural": 0
+    },
+    "exit_code": 0,
+    "only_before": [],
+    "only_after": [],
+    "by_surface": {
+      "core-dataset(entry)": {
+        "files": 3,
+        "equal": 1,
+        "volatile_only": 2,
+        "value": 0
+      },
+      "daily-publish": {
+        "files": 48,
+        "equal": 42,
+        "volatile_only": 6,
+        "value": 0
+      },
+      "golden-master": {
+        "files": 1,
+        "equal": 1,
+        "volatile_only": 0,
+        "value": 0
+      },
+      "immutable-json-probe": {
+        "files": 2,
+        "equal": 2,
+        "volatile_only": 0,
+        "value": 0
+      },
+      "harness-manifest": {
+        "files": 1,
+        "equal": 0,
+        "volatile_only": 1,
+        "value": 0
+      },
+      "core-dataset": {
+        "files": 32,
+        "equal": 30,
+        "volatile_only": 2,
+        "value": 0
+      },
+      "core-dataset(report)": {
+        "files": 19,
+        "equal": 17,
+        "volatile_only": 2,
+        "value": 0
+      }
+    },
+    "kinds": {
+      "json": 38,
+      "text": 9,
+      "csv": 59
+    }
+  },
+  "normalization_evidence": {
+    "source": ".tmp/compare/证据_review1.txt",
+    "per_file": [
+      {
+        "rel": "cli_argv.json",
+        "surface": "core-dataset(entry)",
+        "kind": "json",
+        "raw_equal": false,
+        "category": "volatile_only",
+        "first_diff": null
+      },
+      {
+        "rel": "cli_stderr.txt",
+        "surface": "core-dataset(entry)",
+        "kind": "text",
+        "raw_equal": true,
+        "category": "equal",
+        "first_diff": null
+      },
+      {
+        "rel": "cli_stdout.txt",
+        "surface": "core-dataset(entry)",
+        "kind": "text",
+        "raw_equal": false,
+        "category": "volatile_only",
+        "first_diff": null
+      },
+      {
+        "rel": "daily/2026-08-20.html",
+        "surface": "daily-publish",
+        "kind": "text",
+        "raw_equal": true,
+        "category": "equal",
+        "first_diff": null
+      },
+      {
+        "rel": "daily/2026-08-20.json",
+        "surface": "daily-publish",
+        "kind": "json",
+        "raw_equal": true,
+        "category": "equal",
+        "first_diff": null
+      },
+      {
+        "rel": "daily/latest/BTC/complete_analysis_result.json",
+        "surface": "daily-publish",
+        "kind": "json",
+        "raw_equal": true,
+        "category": "equal",
+        "first_diff": null
+      },
+      {
+        "rel": "daily/latest/BTC/trend_analysis_report.html",
+        "surface": "daily-publish",
+        "kind": "text",
+        "raw_equal": true,
+        "category": "equal",
+        "first_diff": null
+      },
+      {
+        "rel": "daily/latest/BTC/结果索引.json",
+        "surface": "daily-publish",
+        "kind": "json",
+        "raw_equal": false,
+        "category": "volatile_only",
+        "first_diff": null
+      },
+      {
+        "rel": "daily/runs/2026-08-20/artifact-retry-1/BTC/01_canonical/BTC_D1_2026-08-20_artifact-retry-1_完整分析_v5.json",
+        "surface": "daily-publish",
+        "kind": "json",
+        "raw_equal": true,
+        "category": "equal",
+        "first_diff": null
+      },
+      {
+        "rel": "daily/runs/2026-08-20/artifact-retry-1/BTC/01_canonical/BTC_D1_2026-08-20_artifact-retry-1_数据更新_v5.json",
+        "surface": "daily-publish",
+        "kind": "json",
+        "raw_equal": true,
+        "category": "equal",
+        "first_diff": null
+      },
+      {
+        "rel": "daily/runs/2026-08-20/artifact-retry-1/BTC/01_canonical/BTC_D1_2026-08-20_artifact-retry-1_策略筛选_v5.json",
+        "surface": "daily-publish",
+        "kind": "json",
+        "raw_equal": true,
+        "category": "equal",
+        "first_diff": null
+      },
+      {
+        "rel": "daily/runs/2026-08-20/artifact-retry-1/BTC/01_canonical/BTC_D1_2026-08-20_artifact-retry-1_趋势决策_v5.json",
+        "surface": "daily-publish",
+        "kind": "json",
+        "raw_equal": true,
+        "category": "equal",
+        "first_diff": null
+      },
+      {
+        "rel": "daily/runs/2026-08-20/artifact-retry-1/BTC/01_canonical/complete_analysis_result.json",
+        "surface": "daily-publish",
+        "kind": "json",
+        "raw_equal": true,
+        "category": "equal",
+        "first_diff": null
+      },
+      {
+        "rel": "daily/runs/2026-08-20/artifact-retry-1/BTC/01_canonical/data_update_result.json",
+        "surface": "daily-publish",
+        "kind": "json",
+        "raw_equal": true,
+        "category": "equal",
+        "first_diff": null
+      },
+      {
+        "rel": "daily/runs/2026-08-20/artifact-retry-1/BTC/01_canonical/strategy_screening_result.json",
+        "surface": "daily-publish",
+        "kind": "json",
+        "raw_equal": true,
+        "category": "equal",
+        "first_diff": null
+      },
+      {
+        "rel": "daily/runs/2026-08-20/artifact-retry-1/BTC/01_canonical/trend_decision_result.json",
+        "surface": "daily-publish",
+        "kind": "json",
+        "raw_equal": true,
+        "category": "equal",
+        "first_diff": null
+      },
+      {
+        "rel": "daily/runs/2026-08-20/artifact-retry-1/BTC/02_report/BTC_D1_2026-08-20_artifact-retry-1_趋势分析报告_v5.html",
+        "surface": "daily-publish",
+        "kind": "text",
+        "raw_equal": true,
+        "category": "equal",
+        "first_diff": null
+      },
+      {
+        "rel": "daily/runs/2026-08-20/artifact-retry-1/BTC/02_report/trend_analysis_report.html",
+        "surface": "daily-publish",
+        "kind": "text",
+        "raw_equal": true,
+        "category": "equal",
+        "first_diff": null
+      },
+      {
+        "rel": "daily/runs/2026-08-20/artifact-retry-1/BTC/03_exports/BTC_D1_2026-08-20_artifact-retry-1_信号_v5.csv",
+        "surface": "daily-publish",
+        "kind": "csv",
+        "raw_equal": true,
+        "category": "equal",
+        "first_diff": null
+      },
+      {
+        "rel": "daily/runs/2026-08-20/artifact-retry-1/BTC/03_exports/BTC_D1_2026-08-20_artifact-retry-1_异常_v5.csv",
+        "surface": "daily-publish",
+        "kind": "csv",
+        "raw_equal": true,
+        "category": "equal",
+        "first_diff": null
+      },
+      {
+        "rel": "daily/runs/2026-08-20/artifact-retry-1/BTC/03_exports/BTC_D1_2026-08-20_artifact-retry-1_异常阶段_v5.csv",
+        "surface": "daily-publish",
+        "kind": "csv",
+        "raw_equal": true,
+        "category": "equal",
+        "first_diff": null
+      },
+      {
+        "rel": "daily/runs/2026-08-20/artifact-retry-1/BTC/03_exports/BTC_D1_2026-08-20_artifact-retry-1_指标信号生命周期_v5.csv",
+        "surface": "daily-publish",
+        "kind": "csv",
+        "raw_equal": true,
+        "category": "equal",
+        "first_diff": null
+      },
+      {
+        "rel": "daily/runs/2026-08-20/artifact-retry-1/BTC/03_exports/BTC_D1_2026-08-20_artifact-retry-1_指标当前状态_v5.csv",
+        "surface": "daily-publish",
+        "kind": "csv",
+        "raw_equal": true,
+        "category": "equal",
+        "first_diff": null
+      },
+      {
+        "rel": "daily/runs/2026-08-20/artifact-retry-1/BTC/03_exports/BTC_D1_2026-08-20_artifact-retry-1_最终决策证据链_v5.csv",
+        "surface": "daily-publish",
+        "kind": "csv",
+        "raw_equal": true,
+        "category": "equal",
+        "first_diff": null
+      },
+      {
+        "rel": "daily/runs/2026-08-20/artifact-retry-1/BTC/03_exports/BTC_D1_2026-08-20_artifact-retry-1_海龟观察_v5.csv",
+        "surface": "daily-publish",
+        "kind": "csv",
+        "raw_equal": true,
+        "category": "equal",
+        "first_diff": null
+      },
+      {
+        "rel": "daily/runs/2026-08-20/artifact-retry-1/BTC/03_exports/BTC_D1_2026-08-20_artifact-retry-1_状态变更_v5.csv",
+        "surface": "daily-publish",
+        "kind": "csv",
+        "raw_equal": true,
+        "category": "equal",
+        "first_diff": null
+      },
+      {
+        "rel": "daily/runs/2026-08-20/artifact-retry-1/BTC/03_exports/BTC_D1_2026-08-20_artifact-retry-1_策略条件_v5.csv",
+        "surface": "daily-publish",
+        "kind": "csv",
+        "raw_equal": true,
+        "category": "equal",
+        "first_diff": null
+      },
+      {
+        "rel": "daily/runs/2026-08-20/artifact-retry-1/BTC/03_exports/anomalies.csv",
+        "surface": "daily-publish",
+        "kind": "csv",
+        "raw_equal": true,
+        "category": "equal",
+        "first_diff": null
+      },
+      {
+        "rel": "daily/runs/2026-08-20/artifact-retry-1/BTC/03_exports/anomaly_episodes.csv",
+        "surface": "daily-publish",
+        "kind": "csv",
+        "raw_equal": true,
+        "category": "equal",
+        "first_diff": null
+      },
+      {
+        "rel": "daily/runs/2026-08-20/artifact-retry-1/BTC/03_exports/signals.csv",
+        "surface": "daily-publish",
+        "kind": "csv",
+        "raw_equal": true,
+        "category": "equal",
+        "first_diff": null
+      },
+      {
+        "rel": "daily/runs/2026-08-20/artifact-retry-1/BTC/03_exports/state_transitions.csv",
+        "surface": "daily-publish",
+        "kind": "csv",
+        "raw_equal": true,
+        "category": "equal",
+        "first_diff": null
+      },
+      {
+        "rel": "daily/runs/2026-08-20/artifact-retry-1/BTC/03_exports/strategy_conditions.csv",
+        "surface": "daily-publish",
+        "kind": "csv",
+        "raw_equal": true,
+        "category": "equal",
+        "first_diff": null
+      },
+      {
+        "rel": "daily/runs/2026-08-20/artifact-retry-1/BTC/03_exports/turtle_observations.csv",
+        "surface": "daily-publish",
+        "kind": "csv",
+        "raw_equal": true,
+        "category": "equal",
+        "first_diff": null
+      },
+      {
+        "rel": "daily/runs/2026-08-20/artifact-retry-1/BTC/03_exports/指标信号生命周期_v5.csv",
+        "surface": "daily-publish",
+        "kind": "csv",
+        "raw_equal": true,
+        "category": "equal",
+        "first_diff": null
+      },
+      {
+        "rel": "daily/runs/2026-08-20/artifact-retry-1/BTC/03_exports/指标当前状态_v5.csv",
+        "surface": "daily-publish",
+        "kind": "csv",
+        "raw_equal": true,
+        "category": "equal",
+        "first_diff": null
+      },
+      {
+        "rel": "daily/runs/2026-08-20/artifact-retry-1/BTC/03_exports/最终决策证据链_v5.csv",
+        "surface": "daily-publish",
+        "kind": "csv",
+        "raw_equal": true,
+        "category": "equal",
+        "first_diff": null
+      },
+      {
+        "rel": "daily/runs/2026-08-20/artifact-retry-1/BTC/04_audit/BTC_D1_2026-08-20_artifact-retry-1_制品校验_v5.json",
+        "surface": "daily-publish",
+        "kind": "json",
+        "raw_equal": false,
+        "category": "volatile_only",
+        "first_diff": null,
+        "derived_digest_of": [
+          "daily/runs/2026-08-20/artifact-retry-1/BTC/04_audit/BTC_D1_2026-08-20_artifact-retry-1_运行清单_v5.json"
+        ],
+        "note": "派生摘要差异：被摘要制品本身仅含白名单易变字段差异"
+      },
+      {
+        "rel": "daily/runs/2026-08-20/artifact-retry-1/BTC/04_audit/BTC_D1_2026-08-20_artifact-retry-1_数据血缘_v5.json",
+        "surface": "daily-publish",
+        "kind": "json",
+        "raw_equal": true,
+        "category": "equal",
+        "first_diff": null
+      },
+      {
+        "rel": "daily/runs/2026-08-20/artifact-retry-1/BTC/04_audit/BTC_D1_2026-08-20_artifact-retry-1_运行清单_v5.json",
+        "surface": "daily-publish",
+        "kind": "json",
+        "raw_equal": false,
+        "category": "volatile_only",
+        "first_diff": null
+      },
+      {
+        "rel": "daily/runs/2026-08-20/artifact-retry-1/BTC/04_audit/BTC_D1_2026-08-20_artifact-retry-1_配置快照_v5.json",
+        "surface": "daily-publish",
+        "kind": "json",
+        "raw_equal": true,
+        "category": "equal",
+        "first_diff": null
+      },
+      {
+        "rel": "daily/runs/2026-08-20/artifact-retry-1/BTC/04_audit/artifact_hashes.json",
+        "surface": "daily-publish",
+        "kind": "json",
+        "raw_equal": false,
+        "category": "volatile_only",
+        "first_diff": null,
+        "derived_digest_of": [
+          "daily/runs/2026-08-20/artifact-retry-1/BTC/04_audit/BTC_D1_2026-08-20_artifact-retry-1_运行清单_v5.json"
+        ],
+        "note": "派生摘要差异：被摘要制品本身仅含白名单易变字段差异"
+      },
+      {
+        "rel": "daily/runs/2026-08-20/artifact-retry-1/BTC/04_audit/configuration_snapshot.json",
+        "surface": "daily-publish",
+        "kind": "json",
+        "raw_equal": true,
+        "category": "equal",
+        "first_diff": null
+      },
+      {
+        "rel": "daily/runs/2026-08-20/artifact-retry-1/BTC/04_audit/data_lineage.json",
+        "surface": "daily-publish",
+        "kind": "json",
+        "raw_equal": true,
+        "category": "equal",
+        "first_diff": null
+      },
+      {
+        "rel": "daily/runs/2026-08-20/artifact-retry-1/BTC/04_audit/run_manifest.json",
+        "surface": "daily-publish",
+        "kind": "json",
+        "raw_equal": false,
+        "category": "volatile_only",
+        "first_diff": null
+      },
+      {
+        "rel": "daily/runs/2026-08-20/artifact-retry-1/BTC/结果索引.json",
+        "surface": "daily-publish",
+        "kind": "json",
+        "raw_equal": true,
+        "category": "equal",
+        "first_diff": null
+      },
+      {
+        "rel": "daily/runs/2026-08-20/artifact-retry-1/批次索引.json",
+        "surface": "daily-publish",
+        "kind": "json",
+        "raw_equal": true,
+        "category": "equal",
+        "first_diff": null
+      },
+      {
+        "rel": "daily/汇总结果/2026-08-20/artifact-retry-1/全标的_多周期_2026-08-20_artifact-retry-1_汇总报告_v5.html",
+        "surface": "daily-publish",
+        "kind": "text",
+        "raw_equal": true,
+        "category": "equal",
+        "first_diff": null
+      },
+      {
+        "rel": "daily/汇总结果/2026-08-20/artifact-retry-1/全标的_多周期_2026-08-20_artifact-retry-1_汇总报告_v5.json",
+        "surface": "daily-publish",
+        "kind": "json",
+        "raw_equal": true,
+        "category": "equal",
+        "first_diff": null
+      },
+      {
+        "rel": "daily/输出索引.json",
+        "surface": "daily-publish",
+        "kind": "json",
+        "raw_equal": true,
+        "category": "equal",
+        "first_diff": null
+      },
+      {
+        "rel": "daily_publication.json",
+        "surface": "daily-publish",
+        "kind": "json",
+        "raw_equal": false,
+        "category": "volatile_only",
+        "first_diff": null
+      },
+      {
+        "rel": "daily_readback.json",
+        "surface": "daily-publish",
+        "kind": "json",
+        "raw_equal": true,
+        "category": "equal",
+        "first_diff": null
+      },
+      {
+        "rel": "golden_snapshot.json",
+        "surface": "golden-master",
+        "kind": "json",
+        "raw_equal": true,
+        "category": "equal",
+        "first_diff": null
+      },
+      {
+        "rel": "immutable_json_probe.json",
+        "surface": "immutable-json-probe",
+        "kind": "json",
+        "raw_equal": true,
+        "category": "equal",
+        "first_diff": null
+      },
+      {
+        "rel": "manifest.json",
+        "surface": "harness-manifest",
+        "kind": "json",
+        "raw_equal": false,
+        "category": "volatile_only",
+        "first_diff": null
+      },
+      {
+        "rel": "probe.json",
+        "surface": "immutable-json-probe",
+        "kind": "json",
+        "raw_equal": true,
+        "category": "equal",
+        "first_diff": null
+      },
+      {
+        "rel": "processed/backtest_ready/metal_tech_core/metal_tech_core_d1_backtest_ready.csv",
+        "surface": "core-dataset",
+        "kind": "csv",
+        "raw_equal": true,
+        "category": "equal",
+        "first_diff": null
+      },
+      {
+        "rel": "processed/cleaned/metal_tech_core/aapl_d1_cleaned.csv",
+        "surface": "core-dataset",
+        "kind": "csv",
+        "raw_equal": true,
+        "category": "equal",
+        "first_diff": null
+      },
+      {
+        "rel": "processed/cleaned/metal_tech_core/amd_d1_cleaned.csv",
+        "surface": "core-dataset",
+        "kind": "csv",
+        "raw_equal": true,
+        "category": "equal",
+        "first_diff": null
+      },
+      {
+        "rel": "processed/cleaned/metal_tech_core/amzn_d1_cleaned.csv",
+        "surface": "core-dataset",
+        "kind": "csv",
+        "raw_equal": true,
+        "category": "equal",
+        "first_diff": null
+      },
+      {
+        "rel": "processed/cleaned/metal_tech_core/avgo_d1_cleaned.csv",
+        "surface": "core-dataset",
+        "kind": "csv",
+        "raw_equal": true,
+        "category": "equal",
+        "first_diff": null
+      },
+      {
+        "rel": "processed/cleaned/metal_tech_core/btcusdc_d1_cleaned.csv",
+        "surface": "core-dataset",
+        "kind": "csv",
+        "raw_equal": true,
+        "category": "equal",
+        "first_diff": null
+      },
+      {
+        "rel": "processed/cleaned/metal_tech_core/btcusdt_binance_d1_cleaned.csv",
+        "surface": "core-dataset",
+        "kind": "csv",
+        "raw_equal": true,
+        "category": "equal",
+        "first_diff": null
+      },
+      {
+        "rel": "processed/cleaned/metal_tech_core/ethusdt_binance_d1_cleaned.csv",
+        "surface": "core-dataset",
+        "kind": "csv",
+        "raw_equal": true,
+        "category": "equal",
+        "first_diff": null
+      },
+      {
+        "rel": "processed/cleaned/metal_tech_core/googl_d1_cleaned.csv",
+        "surface": "core-dataset",
+        "kind": "csv",
+        "raw_equal": true,
+        "category": "equal",
+        "first_diff": null
+      },
+      {
+        "rel": "processed/cleaned/metal_tech_core/meta_d1_cleaned.csv",
+        "surface": "core-dataset",
+        "kind": "csv",
+        "raw_equal": true,
+        "category": "equal",
+        "first_diff": null
+      },
+      {
+        "rel": "processed/cleaned/metal_tech_core/msft_d1_cleaned.csv",
+        "surface": "core-dataset",
+        "kind": "csv",
+        "raw_equal": true,
+        "category": "equal",
+        "first_diff": null
+      },
+      {
+        "rel": "processed/cleaned/metal_tech_core/mu_d1_cleaned.csv",
+        "surface": "core-dataset",
+        "kind": "csv",
+        "raw_equal": true,
+        "category": "equal",
+        "first_diff": null
+      },
+      {
+        "rel": "processed/cleaned/metal_tech_core/nflx_d1_cleaned.csv",
+        "surface": "core-dataset",
+        "kind": "csv",
+        "raw_equal": true,
+        "category": "equal",
+        "first_diff": null
+      },
+      {
+        "rel": "processed/cleaned/metal_tech_core/nvda_d1_cleaned.csv",
+        "surface": "core-dataset",
+        "kind": "csv",
+        "raw_equal": true,
+        "category": "equal",
+        "first_diff": null
+      },
+      {
+        "rel": "processed/cleaned/metal_tech_core/orcl_d1_cleaned.csv",
+        "surface": "core-dataset",
+        "kind": "csv",
+        "raw_equal": true,
+        "category": "equal",
+        "first_diff": null
+      },
+      {
+        "rel": "processed/cleaned/metal_tech_core/pltr_d1_cleaned.csv",
+        "surface": "core-dataset",
+        "kind": "csv",
+        "raw_equal": true,
+        "category": "equal",
+        "first_diff": null
+      },
+      {
+        "rel": "processed/cleaned/metal_tech_core/qqq_d1_cleaned.csv",
+        "surface": "core-dataset",
+        "kind": "csv",
+        "raw_equal": true,
+        "category": "equal",
+        "first_diff": null
+      },
+      {
+        "rel": "processed/cleaned/metal_tech_core/sndk_d1_cleaned.csv",
+        "surface": "core-dataset",
+        "kind": "csv",
+        "raw_equal": true,
+        "category": "equal",
+        "first_diff": null
+      },
+      {
+        "rel": "processed/cleaned/metal_tech_core/spy_d1_cleaned.csv",
+        "surface": "core-dataset",
+        "kind": "csv",
+        "raw_equal": true,
+        "category": "equal",
+        "first_diff": null
+      },
+      {
+        "rel": "processed/cleaned/metal_tech_core/tsla_d1_cleaned.csv",
+        "surface": "core-dataset",
+        "kind": "csv",
+        "raw_equal": true,
+        "category": "equal",
+        "first_diff": null
+      },
+      {
+        "rel": "processed/cleaned/metal_tech_core/tsm_d1_cleaned.csv",
+        "surface": "core-dataset",
+        "kind": "csv",
+        "raw_equal": true,
+        "category": "equal",
+        "first_diff": null
+      },
+      {
+        "rel": "processed/cleaned/metal_tech_core/xagusd_dukas_d1_cleaned.csv",
+        "surface": "core-dataset",
+        "kind": "csv",
+        "raw_equal": true,
+        "category": "equal",
+        "first_diff": null
+      },
+      {
+        "rel": "processed/cleaned/metal_tech_core/xauusd_dukas_d1_cleaned.csv",
+        "surface": "core-dataset",
+        "kind": "csv",
+        "raw_equal": true,
+        "category": "equal",
+        "first_diff": null
+      },
+      {
+        "rel": "processed/cleaned/metal_tech_core/xauusdc_d1_cleaned.csv",
+        "surface": "core-dataset",
+        "kind": "csv",
+        "raw_equal": true,
+        "category": "equal",
+        "first_diff": null
+      },
+      {
+        "rel": "processed/cleaned/metal_tech_core/xly_d1_cleaned.csv",
+        "surface": "core-dataset",
+        "kind": "csv",
+        "raw_equal": true,
+        "category": "equal",
+        "first_diff": null
+      },
+      {
+        "rel": "processed/logs/metal_tech_core_quality_audit.csv",
+        "surface": "core-dataset",
+        "kind": "csv",
+        "raw_equal": true,
+        "category": "equal",
+        "first_diff": null
+      },
+      {
+        "rel": "processed/merged/metal_tech_core/metal_tech_core_d1_merged.csv",
+        "surface": "core-dataset",
+        "kind": "csv",
+        "raw_equal": true,
+        "category": "equal",
+        "first_diff": null
+      },
+      {
+        "rel": "processed/metadata/metal_tech_core_build_summary.json",
+        "surface": "core-dataset",
+        "kind": "json",
+        "raw_equal": true,
+        "category": "equal",
+        "first_diff": null
+      },
+      {
+        "rel": "processed/metadata/metal_tech_core_field_dictionary.json",
+        "surface": "core-dataset",
+        "kind": "json",
+        "raw_equal": true,
+        "category": "equal",
+        "first_diff": null
+      },
+      {
+        "rel": "processed/metadata/metal_tech_core_selected_sources.csv",
+        "surface": "core-dataset",
+        "kind": "csv",
+        "raw_equal": false,
+        "category": "volatile_only",
+        "first_diff": null
+      },
+      {
+        "rel": "processed/metadata/metal_tech_core_source_inventory.csv",
+        "surface": "core-dataset",
+        "kind": "csv",
+        "raw_equal": true,
+        "category": "equal",
+        "first_diff": null
+      },
+      {
+        "rel": "processed/metadata/metal_tech_core_universe.csv",
+        "surface": "core-dataset",
+        "kind": "csv",
+        "raw_equal": false,
+        "category": "volatile_only",
+        "first_diff": null
+      },
+      {
+        "rel": "reports/metal_tech_core/baseline/equity_curve.csv",
+        "surface": "core-dataset(report)",
+        "kind": "csv",
+        "raw_equal": true,
+        "category": "equal",
+        "first_diff": null
+      },
+      {
+        "rel": "reports/metal_tech_core/baseline/metrics.json",
+        "surface": "core-dataset(report)",
+        "kind": "json",
+        "raw_equal": true,
+        "category": "equal",
+        "first_diff": null
+      },
+      {
+        "rel": "reports/metal_tech_core/baseline/orders.csv",
+        "surface": "core-dataset(report)",
+        "kind": "csv",
+        "raw_equal": true,
+        "category": "equal",
+        "first_diff": null
+      },
+      {
+        "rel": "reports/metal_tech_core/baseline/report.html",
+        "surface": "core-dataset(report)",
+        "kind": "text",
+        "raw_equal": false,
+        "category": "volatile_only",
+        "first_diff": null
+      },
+      {
+        "rel": "reports/metal_tech_core/baseline/trade_details.csv",
+        "surface": "core-dataset(report)",
+        "kind": "csv",
+        "raw_equal": true,
+        "category": "equal",
+        "first_diff": null
+      },
+      {
+        "rel": "reports/metal_tech_core/baseline/trades.csv",
+        "surface": "core-dataset(report)",
+        "kind": "csv",
+        "raw_equal": true,
+        "category": "equal",
+        "first_diff": null
+      },
+      {
+        "rel": "reports/metal_tech_core/baseline_metrics.json",
+        "surface": "core-dataset(report)",
+        "kind": "json",
+        "raw_equal": true,
+        "category": "equal",
+        "first_diff": null
+      },
+      {
+        "rel": "reports/metal_tech_core/buy_sell_signals.csv",
+        "surface": "core-dataset(report)",
+        "kind": "csv",
+        "raw_equal": true,
+        "category": "equal",
+        "first_diff": null
+      },
+      {
+        "rel": "reports/metal_tech_core/comparison.json",
+        "surface": "core-dataset(report)",
+        "kind": "json",
+        "raw_equal": true,
+        "category": "equal",
+        "first_diff": null
+      },
+      {
+        "rel": "reports/metal_tech_core/daily_equity_curve.csv",
+        "surface": "core-dataset(report)",
+        "kind": "csv",
+        "raw_equal": true,
+        "category": "equal",
+        "first_diff": null
+      },
+      {
+        "rel": "reports/metal_tech_core/rebuilt/equity_curve.csv",
+        "surface": "core-dataset(report)",
+        "kind": "csv",
+        "raw_equal": true,
+        "category": "equal",
+        "first_diff": null
+      },
+      {
+        "rel": "reports/metal_tech_core/rebuilt/metrics.json",
+        "surface": "core-dataset(report)",
+        "kind": "json",
+        "raw_equal": true,
+        "category": "equal",
+        "first_diff": null
+      },
+      {
+        "rel": "reports/metal_tech_core/rebuilt/orders.csv",
+        "surface": "core-dataset(report)",
+        "kind": "csv",
+        "raw_equal": true,
+        "category": "equal",
+        "first_diff": null
+      },
+      {
+        "rel": "reports/metal_tech_core/rebuilt/report.html",
+        "surface": "core-dataset(report)",
+        "kind": "text",
+        "raw_equal": false,
+        "category": "volatile_only",
+        "first_diff": null
+      },
+      {
+        "rel": "reports/metal_tech_core/rebuilt/trade_details.csv",
+        "surface": "core-dataset(report)",
+        "kind": "csv",
+        "raw_equal": true,
+        "category": "equal",
+        "first_diff": null
+      },
+      {
+        "rel": "reports/metal_tech_core/rebuilt/trades.csv",
+        "surface": "core-dataset(report)",
+        "kind": "csv",
+        "raw_equal": true,
+        "category": "equal",
+        "first_diff": null
+      },
+      {
+        "rel": "reports/metal_tech_core/rebuilt_metrics.json",
+        "surface": "core-dataset(report)",
+        "kind": "json",
+        "raw_equal": true,
+        "category": "equal",
+        "first_diff": null
+      },
+      {
+        "rel": "reports/metal_tech_core/report.json",
+        "surface": "core-dataset(report)",
+        "kind": "json",
+        "raw_equal": true,
+        "category": "equal",
+        "first_diff": null
+      },
+      {
+        "rel": "reports/metal_tech_core/symbol_contribution.csv",
+        "surface": "core-dataset(report)",
+        "kind": "csv",
+        "raw_equal": true,
+        "category": "equal",
+        "first_diff": null
+      }
+    ],
+    "volatile_instances": [
+      "- 键 'argv': 'E:\\\\Project\\\\inv-trend-trading\\\\.tmp\\\\compare\\\\before\\\\processed' -> 'E:\\\\Project\\\\inv-trend-trading\\\\.tmp\\\\compare\\\\after\\\\processed'",
+      "- 键 'argv': 'E:\\\\Project\\\\inv-trend-trading\\\\.tmp\\\\compare\\\\before\\\\reports' -> 'E:\\\\Project\\\\inv-trend-trading\\\\.tmp\\\\compare\\\\after\\\\reports'",
+      "- 键 'archived_result': 'E:\\\\Project\\\\inv-trend-trading\\\\.tmp\\\\compare\\\\before\\\\daily\\\\runs\\\\2026-08-20\\\\artifact-retry-1\\\\BTC\\\\01_canonical\\\\compl' -> 'E:\\\\Project\\\\inv-trend-trading\\\\.tmp\\\\compare\\\\after\\\\daily\\\\runs\\\\2026-08-20\\\\artifact-retry-1\\\\BTC\\\\01_canonical\\\\comple'",
+      "- 键 '04_audit/BTC_D1_2026-08-20_artifact-retry-1_运行清单_v5.json': 'sha256:8a15a471347beeeb9d568cbd10865c30524c1132959194f2eff953db75da363a' -> 'sha256:3a329e4e4dd710245e03600edf3c5171929de89b17bf87f322778763db9b1e6b'",
+      "- 键 'signal_log_root': 'E:\\\\Project\\\\inv-trend-trading\\\\.tmp\\\\compare\\\\before\\\\signals' -> 'E:\\\\Project\\\\inv-trend-trading\\\\.tmp\\\\compare\\\\after\\\\signals'",
+      "- 键 '04_audit/BTC_D1_2026-08-20_artifact-retry-1_运行清单_v5.json': 'sha256:8a15a471347beeeb9d568cbd10865c30524c1132959194f2eff953db75da363a' -> 'sha256:3a329e4e4dd710245e03600edf3c5171929de89b17bf87f322778763db9b1e6b'",
+      "- 键 'signal_log_root': 'E:\\\\Project\\\\inv-trend-trading\\\\.tmp\\\\compare\\\\before\\\\signals' -> 'E:\\\\Project\\\\inv-trend-trading\\\\.tmp\\\\compare\\\\after\\\\signals'",
+      "- 键 'compatibility_html': 'E:\\\\Project\\\\inv-trend-trading\\\\.tmp\\\\compare\\\\before\\\\daily\\\\2026-08-20.html' -> 'E:\\\\Project\\\\inv-trend-trading\\\\.tmp\\\\compare\\\\after\\\\daily\\\\2026-08-20.html'",
+      "- 键 'compatibility_json': 'E:\\\\Project\\\\inv-trend-trading\\\\.tmp\\\\compare\\\\before\\\\daily\\\\2026-08-20.json' -> 'E:\\\\Project\\\\inv-trend-trading\\\\.tmp\\\\compare\\\\after\\\\daily\\\\2026-08-20.json'",
+      "- 键 'BTC': 'E:\\\\Project\\\\inv-trend-trading\\\\.tmp\\\\compare\\\\before\\\\daily\\\\runs\\\\2026-08-20\\\\artifact-retry-1\\\\BTC\\\\01_canonical\\\\compl' -> 'E:\\\\Project\\\\inv-trend-trading\\\\.tmp\\\\compare\\\\after\\\\daily\\\\runs\\\\2026-08-20\\\\artifact-retry-1\\\\BTC\\\\01_canonical\\\\comple'",
+      "- 键 'run_directory': 'E:\\\\Project\\\\inv-trend-trading\\\\.tmp\\\\compare\\\\before\\\\daily\\\\runs\\\\2026-08-20\\\\artifact-retry-1' -> 'E:\\\\Project\\\\inv-trend-trading\\\\.tmp\\\\compare\\\\after\\\\daily\\\\runs\\\\2026-08-20\\\\artifact-retry-1'",
+      "- 键 'python_module_count': '268' -> '269'",
+      "- 键 'tree_commit': '3a091229a1a699a2b1f207de68ed7c154b3d7d7a' -> '2e893510cbe8c18dad111f9653aaa49c43cfdb92'"
+    ],
+    "strict_normalized_equal_files": 104,
+    "hardcheck_summary": "数值/摘要叶子不完全一致的文件: 3",
+    "hardcheck_files": [
+      "- daily/runs/2026-08-20/artifact-retry-1/BTC/04_audit/artifact_hashes.json  数值一致=True  摘要一致=False",
+      "- daily/runs/2026-08-20/artifact-retry-1/BTC/04_audit/BTC_D1_2026-08-20_artifact-retry-1_制品校验_v5.json  数值一致=True  摘要一致=False",
+      "- manifest.json  数值一致=False  摘要一致=True"
+    ]
+  },
+  "derived_digest_attribution": {
+    "files": [
+      "daily/runs/2026-08-20/artifact-retry-1/BTC/04_audit/BTC_D1_2026-08-20_artifact-retry-1_制品校验_v5.json",
+      "daily/runs/2026-08-20/artifact-retry-1/BTC/04_audit/artifact_hashes.json"
+    ],
+    "rule": "仅当差异叶子全部为 sha256 摘要且所指制品已判 volatile_only 时改判；否则保持 value",
+    "self_test_guard": "自检反例『派生摘要指向真实差异（不得洗白）』必须判为 value（已通过）"
+  },
+  "self_test": {
+    "source": ".tmp/compare/自检_stdout.txt",
+    "lines": [
+      "﻿[自检][OK] 基线（仅路径字段指向各自产物根）归一化后严格相等",
+      "[自检][OK] json 数值被篡改 -> value",
+      "[自检][OK] csv 数值被篡改 -> value",
+      "[自检][OK] csv 行数被篡改 -> value",
+      "[自检][OK] html 文本被篡改 -> value",
+      "[自检][OK] parquet 数值被篡改 -> value",
+      "[自检][OK] 未知二进制被篡改 -> value",
+      "[自检][OK] 文件缺失 -> structural",
+      "[自检][OK] 仅改 generated_at -> volatile_only",
+      "[自检][OK] 仅改时间戳取值（非易变键） -> volatile_only",
+      "[自检][OK] 仅改裸日期取值 -> volatile_only",
+      "[自检][OK] 派生摘要指向真实差异（不得洗白） -> value",
+      "[自检][PASS] 基线 + 11 个反例全部按预期判定"
+    ],
+    "passed": true
+  },
+  "adversarial_review": {
+    "source": ".tmp/compare/证据_review3.txt",
+    "cases": [
+      {
+        "case": "未注入差异的克隆体",
+        "expected": "exit 0",
+        "observed": "exit 0",
+        "passed": true
+      },
+      {
+        "case": "篡改数值指标 sharpe_like",
+        "expected": "该文件 value 且 exit 2",
+        "observed": "reports/metal_tech_core/rebuilt_metrics.json -> value；exit 2",
+        "passed": true
+      },
+      {
+        "case": "只改 generated_at",
+        "expected": "该文件 volatile_only 且 exit 0",
+        "observed": "reports/metal_tech_core/baseline/report.html -> volatile_only；exit 0",
+        "passed": true
+      }
+    ]
+  },
+  "review_findings": [
+    {
+      "review": 1,
+      "lens": "等价性口径（白名单只覆盖易变/溯源字段）",
+      "verdict": "通过",
+      "detail": "13 个 volatile_only 文件中 11 个归一化后严格相等；2 个为派生摘要归因。硬校验：106 个文件中仅 manifest.json 的 python_module_count 数值不同（N7 溯源），artifact_hashes.json 与 制品校验_v5.json 仅摘要叶子不同（归因证明）。HTML 首个原始差异即为嵌入载荷的 generated_at。"
+    },
+    {
+      "review": 2,
+      "lens": "覆盖面口径（改动文件 -> surface 零遗漏）",
+      "verdict": "通过",
+      "detail": "27 个改动路径全部映射；两处删除（observability/backtest_html.py、storage/制品.py 的 daily_publish/backtest_publish）在改前树经全库检索确认零调用方；被删的 immutable_json 由探针双址覆盖。"
+    },
+    {
+      "review": 3,
+      "lens": "反向/对抗口径",
+      "verdict": "通过",
+      "detail": "真实产物树上数值篡改被判 value(exit 2)、纯 generated_at 差异被判 volatile_only(exit 0)；合成自检 11 个反例含『文件缺失->structural』与『派生摘要指向真实差异不得洗白->value』。"
+    },
+    {
+      "review": 4,
+      "lens": "S8 回归口径自检（新增，确保门禁非恒真）",
+      "verdict": "通过",
+      "detail": "不声明归因时 junit 门禁 exit 2（未归因差异被拒），声明归因后 exit 0；证明 S8 判定不是放宽后的恒真。"
+    }
+  ],
+  "junit_comparison": {
+    "before": {
+      "tests": 1431,
+      "passed": 1424,
+      "failures": 7,
+      "errors": 0,
+      "skipped": 0
+    },
+    "after": {
+      "tests": 1434,
+      "passed": 1427,
+      "failures": 7,
+      "errors": 0,
+      "skipped": 0
+    },
+    "before_failure_set": [
+      {
+        "test": "tests.test_永续审计工作流::test_missing_data_produces_e0_not_fabricated_windows",
+        "outcome": "failed",
+        "type": "ValueError: path is on mount 'E:', start on mount 'C:'"
+      },
+      {
+        "test": "tests.test_监控扫描与回放合同::test_real_h4_repository_replay_matches_backtest_and_saved_decisions[duckdb]",
+        "outcome": "failed",
+        "type": "inv_trend.data.models.DataLineageError: recorded Repository or reference inputs no longer match"
+      },
+      {
+        "test": "tests.test_监控扫描与回放合同::test_real_h4_repository_replay_matches_backtest_and_saved_decisions[sqlite]",
+        "outcome": "failed",
+        "type": "inv_trend.data.models.DataLineageError: recorded Repository or reference inputs no longer match"
+      },
+      {
+        "test": "tests.test_监控扫描与回放合同::test_real_h4_repository_replay_matches_backtest_and_saved_decisions[v3]",
+        "outcome": "failed",
+        "type": "inv_trend.data.models.DataLineageError: recorded Repository or reference inputs no longer match"
+      },
+      {
+        "test": "tests.test_监控扫描与回放合同::test_saved_decisions_reproduce_without_current_state_or_new_writes[duckdb]",
+        "outcome": "failed",
+        "type": "inv_trend.data.models.DataLineageError: recorded Repository or reference inputs no longer match"
+      },
+      {
+        "test": "tests.test_监控扫描与回放合同::test_saved_decisions_reproduce_without_current_state_or_new_writes[sqlite]",
+        "outcome": "failed",
+        "type": "inv_trend.data.models.DataLineageError: recorded Repository or reference inputs no longer match"
+      },
+      {
+        "test": "tests.test_监控扫描与回放合同::test_saved_decisions_reproduce_without_current_state_or_new_writes[v3]",
+        "outcome": "failed",
+        "type": "inv_trend.data.models.DataLineageError: recorded Repository or reference inputs no longer match"
+      }
+    ],
+    "after_failure_set": [
+      {
+        "test": "tests.test_永续审计工作流::test_missing_data_produces_e0_not_fabricated_windows",
+        "outcome": "failed",
+        "type": "AssertionError: assert 48 == 24"
+      },
+      {
+        "test": "tests.test_监控扫描与回放合同::test_real_h4_repository_replay_matches_backtest_and_saved_decisions[duckdb]",
+        "outcome": "failed",
+        "type": "inv_trend.data.models.DataLineageError: recorded Repository or reference inputs no longer match"
+      },
+      {
+        "test": "tests.test_监控扫描与回放合同::test_real_h4_repository_replay_matches_backtest_and_saved_decisions[sqlite]",
+        "outcome": "failed",
+        "type": "inv_trend.data.models.DataLineageError: recorded Repository or reference inputs no longer match"
+      },
+      {
+        "test": "tests.test_监控扫描与回放合同::test_real_h4_repository_replay_matches_backtest_and_saved_decisions[v3]",
+        "outcome": "failed",
+        "type": "inv_trend.data.models.DataLineageError: recorded Repository or reference inputs no longer match"
+      },
+      {
+        "test": "tests.test_监控扫描与回放合同::test_saved_decisions_reproduce_without_current_state_or_new_writes[duckdb]",
+        "outcome": "failed",
+        "type": "inv_trend.data.models.DataLineageError: recorded Repository or reference inputs no longer match"
+      },
+      {
+        "test": "tests.test_监控扫描与回放合同::test_saved_decisions_reproduce_without_current_state_or_new_writes[sqlite]",
+        "outcome": "failed",
+        "type": "inv_trend.data.models.DataLineageError: recorded Repository or reference inputs no longer match"
+      },
+      {
+        "test": "tests.test_监控扫描与回放合同::test_saved_decisions_reproduce_without_current_state_or_new_writes[v3]",
+        "outcome": "failed",
+        "type": "inv_trend.data.models.DataLineageError: recorded Repository or reference inputs no longer match"
+      }
+    ],
+    "failed_test_id_set_identical": true,
+    "failure_detail_identical": false,
+    "failure_type_differences": [
+      {
+        "test": "tests.test_永续审计工作流::test_missing_data_produces_e0_not_fabricated_windows",
+        "before": {
+          "test": "tests.test_永续审计工作流::test_missing_data_produces_e0_not_fabricated_windows",
+          "outcome": "failed",
+          "type": "ValueError: path is on mount 'E:', start on mount 'C:'"
+        },
+        "after": {
+          "test": "tests.test_永续审计工作流::test_missing_data_produces_e0_not_fabricated_windows",
+          "outcome": "failed",
+          "type": "AssertionError: assert 48 == 24"
+        }
+      }
+    ],
+    "attributed_failure_type_differences": [
+      {
+        "test": "tests.test_永续审计工作流::test_missing_data_produces_e0_not_fabricated_windows",
+        "before": {
+          "test": "tests.test_永续审计工作流::test_missing_data_produces_e0_not_fabricated_windows",
+          "outcome": "failed",
+          "type": "ValueError: path is on mount 'E:', start on mount 'C:'"
+        },
+        "after": {
+          "test": "tests.test_永续审计工作流::test_missing_data_produces_e0_not_fabricated_windows",
+          "outcome": "failed",
+          "type": "AssertionError: assert 48 == 24"
+        }
+      }
+    ],
+    "unattributed_failure_type_differences": [],
+    "common_case_count": 1430,
+    "only_before_cases": [
+      "tests.test_architecture_boundaries::test_adapter_reverse_dependencies_are_an_explicit_transition_allowlist"
+    ],
+    "only_after_cases": [
+      "tests.test_architecture_boundaries::test_adapters_do_not_depend_on_the_application_package",
+      "tests.test_architecture_boundaries::test_only_the_declared_package_cycles_remain",
+      "tests.test_architecture_boundaries::test_package_dependency_graph_matches_the_declared_contract",
+      "tests.test_architecture_boundaries::test_ports_only_depend_on_pure_layers"
+    ],
+    "common_outcome_changes": [],
+    "common_regressions": [],
+    "only_after_failures": [],
+    "exit_code": 0
+  },
+  "coverage_mapping": [
+    {
+      "path": ".trae/documents/项目结构重构方案_v1.md",
+      "surface": "无（文档）",
+      "basis": "仅方案文本，无运行时面"
+    },
+    {
+      "path": "README.md",
+      "surface": "无（文档）",
+      "basis": "说明性文本"
+    },
+    {
+      "path": "docs/模块依赖契约_v1.md",
+      "surface": "无（文档）",
+      "basis": "依赖契约文档"
+    },
+    {
+      "path": "docs/结构重构验收_20261020.json",
+      "surface": "无（文档）",
+      "basis": "P6 回执"
+    },
+    {
+      "path": "src/inv_trend/adapters/multi_asset/data/__init__.py",
+      "surface": "core-dataset",
+      "basis": "包导出面；由 core-dataset surface 的 processed/ 产物覆盖"
+    },
+    {
+      "path": "src/inv_trend/adapters/multi_asset/data/core_dataset.py",
+      "surface": "core-dataset",
+      "basis": "prepare_metal_tech_core_dataset 直接产出 processed/ 全部 CSV/JSON"
+    },
+    {
+      "path": "src/inv_trend/application/backtest/__init__.py",
+      "surface": "core-dataset",
+      "basis": "回测执行面导出；由 reports/ 覆盖"
+    },
+    {
+      "path": "src/inv_trend/application/backtest/core_dataset_runner.py",
+      "surface": "core-dataset(entry)+core-dataset(report)",
+      "basis": "CLI 真实入口 + baseline/rebuilt 报告与 report.json"
+    },
+    {
+      "path": "src/inv_trend/cli/data.py",
+      "surface": "core-dataset(entry)",
+      "basis": "通过 python -m inv_trend.cli.data 真实调用（非 import 直调）"
+    },
+    {
+      "path": "src/inv_trend/adapters/daily/artifact_publisher.py",
+      "surface": "daily-publish",
+      "basis": "writer.publish 产出 daily/ 全树"
+    },
+    {
+      "path": "src/inv_trend/adapters/daily/composition.py",
+      "surface": "daily-publish",
+      "basis": "create_daily_run_artifact_writer 组合根"
+    },
+    {
+      "path": "src/inv_trend/adapters/daily/data_lineage.py",
+      "surface": "daily-publish",
+      "basis": "04_audit/data_lineage.json 产物"
+    },
+    {
+      "path": "src/inv_trend/adapters/daily/stage_runtime_adapters.py",
+      "surface": "daily-publish",
+      "basis": "01_canonical 各阶段结果产物"
+    },
+    {
+      "path": "src/inv_trend/application/daily/artifact_publication.py",
+      "surface": "daily-publish",
+      "basis": "发布返回值结构（daily_publication.json）"
+    },
+    {
+      "path": "src/inv_trend/application/daily/ports.py",
+      "surface": "daily-publish",
+      "basis": "renderer 端口；由 02_report HTML 覆盖"
+    },
+    {
+      "path": "src/inv_trend/ports/__init__.py",
+      "surface": "daily-publish+core-dataset",
+      "basis": "新增接口层；被 adapters/daily 与 application 双方消费"
+    },
+    {
+      "path": "src/inv_trend/ports/daily.py",
+      "surface": "daily-publish",
+      "basis": "DailyArtifactPublication/DailyReportRendererPort 类型面"
+    },
+    {
+      "path": "src/inv_trend/observability/__init__.py",
+      "surface": "core-dataset(report)",
+      "basis": "移除的 write_backtest_report 转发器在 before 树仅被本文件引用（零调用方）"
+    },
+    {
+      "path": "src/inv_trend/observability/report_renderer.py",
+      "surface": "core-dataset(report)",
+      "basis": "baseline/rebuilt report.html"
+    },
+    {
+      "path": "src/inv_trend/observability/backtest_html.py",
+      "surface": "core-dataset(report)",
+      "basis": "已删除；before 树唯一引用者为其包 __init__，无 src/tests 调用方"
+    },
+    {
+      "path": "src/inv_trend/observability/report_model.py",
+      "surface": "core-dataset(report)",
+      "basis": "已删除；report_renderer 与 HTML 产物已覆盖其职责"
+    },
+    {
+      "path": "src/inv_trend/core/滚动协议.py",
+      "surface": "immutable-json-probe",
+      "basis": "immutable_json 搬走；before 树探针走 core.滚动协议，after 走 storage.基础"
+    },
+    {
+      "path": "src/inv_trend/storage/基础.py",
+      "surface": "immutable-json-probe+junit",
+      "basis": "immutable_json 新址；probe 的 returned/file sha256 与 tests/test_滚动可信度_v2.py"
+    },
+    {
+      "path": "src/inv_trend/storage/制品.py",
+      "surface": "daily-publish+junit",
+      "basis": "read_daily 由 daily 回读覆盖；已删 daily_publish/backtest_publish 在 before 树零调用方"
+    },
+    {
+      "path": "src/inv_trend/application/滚动验证.py",
+      "surface": "junit",
+      "basis": "唯一改动为 immutable_json 导入源；被 tests/test_滚动可信度_v2.py 与 test_结构化存储_v3.py 导入"
+    },
+    {
+      "path": "tests/test_architecture_boundaries.py",
+      "surface": "junit",
+      "basis": "P0 新增 3 个包级依赖断言（903 vs 900 个 test 定义）"
+    },
+    {
+      "path": "tests/test_滚动可信度_v2.py",
+      "surface": "junit",
+      "basis": "immutable_json 导入源更新；31 个 test 两态一致"
+    }
+  ],
+  "deviations_from_plan": [
+    "N7 新增树级溯源规则：manifest.json 的 tree_commit / python_module_count 必然不同，属代码树身份而非产物行为；不归一化它们则 exit 0 不可达。",
+    "派生摘要归因（不改写任何摘要值）：若某 JSON 的全部差异叶子均为 sha256 摘要，且所指制品本身已判为 volatile_only，则判为 volatile_only 并记录 derived_digest_of。自检反例『派生摘要指向真实差异』证明它不会洗白真实差异。",
+    "cli_argv.json 只记录解释器 basename，避免把 venv 绝对路径（环境属性）混入产物对比。",
+    "对比器 CLI 不支持附加前缀别名；S9-3 克隆树场景改以库方式调用 compare_trees 传入别名单。",
+    "S8 口径改为『失败用例 id 集合相同 + 共有用例零回归 + 仅 after 新增用例零失败』，并要求对失败错误类型的差异**显式点名归因**（--attributed-failure-type-diff），未点名的差异一律判 FAIL。原因见下条与 J1。",
+    "S8 通过数无法相等：P0 新增 3 个包级依赖断言用例（1434 vs 1431），这是重构产物而非回归；同时 P0 将 test_adapter_reverse_dependencies_are_an_explicit_transition_allowlist 替换为4 个更严格的新断言（adapters 白名单 8 -> 0），故仅 before 存在 1 个、仅 after 存在 4 个用例。",
+    "J1（环境态差异，非重构引入）：tests/test_永续审计工作流.py::test_missing_data_produces_e0_not_fabricated_windows 在两态均 FAIL，但异常类型不同。根因：SQLiteRegistry.__init__ 在存储具备 v3 catalog 时提前 return，跳过 os.path.relpath 绑定；改后树含未入库的 data/metadata/研究目录_v3.sqlite3 因此走到断言（读到共享 store 累积的 48 行），改前树为新 git worktree、无 data/ 因此落到 relpath 分支跨盘抛 ValueError。该测试文件未被 P0–P6 触碰；两态均为 FAIL，无 pass→fail 回归。为不污染受保护数据，未把该 v3 账本复制进改前树，而是显式点名归因。",
+    "本机环境缺陷（两态一致）：pytest 临时目录在 C: 而仓库在 E: 时，任何触发该 relpath 的路径都会抛跨盘异常。",
+    "regeneration 需要全新的 --out 目录：日更发布遵循不可变运行契约（同 run_id 重跑走恢复路径）。"
+  ],
+  "protected_artifacts": {
+    "untouched": [
+      "processed_data/",
+      "outputs/",
+      "两棵树的 src 与 tests（本轮只新增 scripts 与 docs）"
+    ],
+    "note": "data/metadata/研究目录_v3.sqlite3 只在改后树的全量回归中被既有测试按其原有行为写入；本轮未额外写入，且改前树未复制该账本。",
+    "artifacts_location": ".tmp/compare/{before,after}/ 与 .tmp/compare/*.json"
+  },
+  "verdict": {
+    "product_equivalence": "PASS（归一化后严格相等，exit 0）",
+    "regression_equivalence": "PASS（失败用例 id 集合相同、共有用例零回归、仅 after 新增用例零失败；1 处错误类型差异已显式归因）",
+    "adversarial_control": "PASS",
+    "conclusion": "P0–P6 结构重构未改变对外可观测行为与数值基线。"
+  }
+}

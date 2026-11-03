@@ -49,12 +49,19 @@ logs/
 # result trees are not release inputs.
 /research/**/outputs/
 
+# Local-only progress notes and generated acceptance snapshots
+/artifacts/WORK_PROGRESS.md
+/artifacts/refactor-acceptance-s1-s5/
+/artifacts/数据管理流水线任务看板_v1.html
+
 # Temporary delivery and local test directories
 .tmp/
 test-temp/
 /.test-temp-*/
-deliverables/
-outputs/
+deliverables/*
+!deliverables/README.md
+outputs/*
+!outputs/README.md
 # docs/
 # tests/
 # Keep source, tests, documentation, examples, and research scripts tracked.
