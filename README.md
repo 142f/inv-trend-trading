@@ -44,8 +44,8 @@ K 线的获取、转换、保存和读取走 `data/pipeline/` 标准四阶段；
 
 Windows 验证入口为 `scripts/run_tests.ps1 -q`；静态未使用代码检查使用
 `python -m ruff check src scripts research tests --select F`。
-本轮变更清单、性能测量与最终回归回执见 [结构重构验收](docs/结构重构验收_20261006.json)；
-本轮模块解耦回执见 [结构解耦验收](docs/结构重构验收_20261020.json)。
+本轮变更清单、性能测量与最终回归回执见 [结构重构验收](artifacts/history/docs/结构重构验收_20261006.json)；
+本轮模块解耦回执见 [结构解耦验收](artifacts/history/docs/结构重构验收_20261020.json)。
 
 ## 运行
 
@@ -65,8 +65,8 @@ research-stages --data data report --study-id 本地滚动验证_v4 --output 本
 ## 文档与职责
 
 - [阶段输入输出规范](docs/阶段输入输出规范_v1.md)：全部字段、接口、版本、状态、事务、时间推进、独立执行与限制。
-- [重构验收报告](docs/重构验收报告_v1.md)：真实测试、参数实验、收益/风险、评分、失败清单和未完成事项。
-- [修改说明](docs/修改说明_v1.md)：逐文件修改、原因、兼容性及删除清单。
+- [重构验收报告](artifacts/history/docs/重构验收报告_v1.md)：真实测试、参数实验、收益/风险、评分、失败清单和未完成事项。
+- [修改说明](artifacts/history/docs/修改说明_v1.md)：逐文件修改、原因、兼容性及删除清单。
 - [数据库定义](docs/阶段数据库定义_v1.sql)：原库内14张增量表的实际DDL。
 - [研究方法依据](docs/研究方法依据_v1.md)：原始研究来源及与本轮实现的差异。
 
@@ -82,6 +82,8 @@ python scripts/目录治理_v1.py --root . --manifest 本地清理清单_v1.json
 python scripts/目录治理_v1.py --root . --manifest 本地清理清单_v1.json --apply
 python scripts/性能核验_v1.py --data data --output 本地性能核验_v1.json
 ```
+
+目录职责、迁移门禁与缓存清理范围见 [仓库目录治理](docs/仓库目录治理_v1.md)。
 
 清理默认不删除；apply核验每个已审阅路径和哈希。仅清理缓存、build副本和egg-info，不删除行情、数据库、仍被引用的processed_data、兼容转发模块或.env。发行包不带.env；在本机保留现有私有配置，不应从他人环境覆盖。
 

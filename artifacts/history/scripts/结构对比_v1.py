@@ -33,7 +33,7 @@ from pathlib import Path
 
 # N4：JSON 键名命中易变集合，且值形如时间戳/日期时，值替换为固定 token。
 VOLATILE_KEYS = frozenset(
-    {"generated_at", "created_at", "updated_at", "evaluated_at", "now", "timestamp"}
+    {"generated_at", "created_at", "updated_at", "evaluated_at", "ingested_at", "now", "timestamp"}
 )
 
 # N7：树级溯源字段。它们描述的是**代码树**而不是产物行为，必然不同；
@@ -107,7 +107,7 @@ def _norm_json(value, reps: list[tuple[str, str]], key: str | None = None):
 # ---------------------------------------------------------------------------
 
 
-_DIGEST_RE = re.compile(r"sha256:[0-9a-f]{64}")
+_DIGEST_RE = re.compile(r"(?:sha256:)?[0-9a-f]{64}")
 
 
 def _leaf_diffs(
@@ -183,6 +183,15 @@ def _first_text_diff(left: str, right: str) -> str | None:
 # ---------------------------------------------------------------------------
 
 
+def _without_wall_clock(frame):
+    """ingested_at 是写入时刻，不参与制品语义对比。"""
+
+    columns = [name for name in ("ingested_at",) if name in getattr(frame, "columns", [])]
+    if not columns:
+        return frame
+    return frame.drop(columns=columns)
+
+
 def _frames_equal(left, right) -> tuple[bool, str]:
     import pandas as pd
 
@@ -213,12 +222,21 @@ def _compare_one(
         left_frame = pd.read_parquet(left_path)
         right_frame = pd.read_parquet(right_path)
         equal, detail = _frames_equal(left_frame, right_frame)
+        category = "equal" if equal else "value"
+        if not equal:
+            clock_equal, _clock_detail = _frames_equal(
+                _without_wall_clock(left_frame), _without_wall_clock(right_frame)
+            )
+            if clock_equal:
+                equal = True
+                detail = ""
+                category = "volatile_only"
         return {
             "rel": rel,
             "kind": "parquet",
             "raw_equal": raw_equal,
             "normalized_equal": equal,
-            "category": "equal" if equal else "value",
+            "category": category,
             "first_diff": None if equal else detail,
         }
 
@@ -238,14 +256,21 @@ def _compare_one(
         }
         if not equal:
             diffs = _leaf_diffs(left_norm, right_norm)
-            digest_keys = [
-                key
-                for (_parent, key, before_value, after_value) in diffs
-                if isinstance(before_value, str)
-                and isinstance(after_value, str)
-                and _DIGEST_RE.fullmatch(before_value)
-                and _DIGEST_RE.fullmatch(after_value)
-            ]
+            digest_keys = []
+            for _parent, key, before_value, after_value in diffs:
+                if not (
+                    isinstance(before_value, str)
+                    and isinstance(after_value, str)
+                    and _DIGEST_RE.fullmatch(before_value)
+                    and _DIGEST_RE.fullmatch(after_value)
+                ):
+                    continue
+                if key == "curated_sha256" and isinstance(left_value, dict):
+                    digest_keys.append(str(left_value.get("curated_path") or key))
+                elif key == "quality_report_sha256" and isinstance(left_value, dict):
+                    digest_keys.append(str(left_value.get("quality_report_path") or key))
+                else:
+                    digest_keys.append(key)
             # 只有「全部差异叶子都是摘要」时才允许走派生摘要归因，见 compare_trees 的闭包校验。
             row["digest_only"] = bool(diffs) and len(digest_keys) == len(diffs)
             row["digest_keys"] = digest_keys
