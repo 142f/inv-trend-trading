@@ -19,6 +19,13 @@ def is_link(path):
         return False
 
 
+EXCLUDED_ROOTS = {'.git', '.venv'}
+
+
+def in_scope(relative: Path):
+    return not (relative.parts and relative.parts[0] in EXCLUDED_ROOTS)
+
+
 def reason(relative: Path):
     if relative.suffix == '.pyc' or '__pycache__' in relative.parts:
         return 'Python cache; reproducible'
@@ -44,7 +51,7 @@ def inventory(root):
     files = []
     for path in sorted(root.rglob('*')):
         relative = path.relative_to(root)
-        if is_link(path) or any(is_link(p) for p in path.parents if p != root and root in p.parents) or not path.is_file() or reason(relative) is None:
+        if not in_scope(relative) or is_link(path) or any(is_link(p) for p in path.parents if p != root and root in p.parents) or not path.is_file() or reason(relative) is None:
             continue
         files.append({'path': relative.as_posix(), 'sha256': sha(path),
                       'bytes': path.stat().st_size, 'reason': reason(relative)})
@@ -58,7 +65,7 @@ def apply(root, plan):
     for item in plan['files']:
         relative = Path(item['path'])
         target = root / relative
-        if relative.is_absolute() or '..' in relative.parts or reason(relative) is None:
+        if relative.is_absolute() or '..' in relative.parts or reason(relative) is None or not in_scope(relative):
             raise ValueError('清单包含非授权路径: ' + str(relative))
         if not target.resolve().is_relative_to(root) or is_link(target) or any(
                 is_link(p) for p in target.parents if p != root and root in p.parents):
