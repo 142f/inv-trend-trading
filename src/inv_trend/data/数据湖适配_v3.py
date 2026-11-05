@@ -21,10 +21,12 @@ class DatabaseDataLake(DataLake):
         if startup_check:
             self.check_current_consistency(verify_lineage=False)
 
-    def _current_identities(self):
-        with self._connect() as db:
-            return {(row[0], row[1]) for row in db.execute(
-                "SELECT symbol,timeframe FROM current_versions UNION SELECT symbol,timeframe FROM dataset_heads WHERE channel='curated'")}
+    def _current_identities(self, *, db=None):
+        if db is None:
+            with self._connect() as connection:
+                return self._current_identities(db=connection)
+        return {(row[0], row[1]) for row in db.execute(
+            "SELECT symbol,timeframe FROM current_versions UNION SELECT symbol,timeframe FROM dataset_heads WHERE channel='curated'")}
 
     def _connect(self):
         return self.store.connect()
