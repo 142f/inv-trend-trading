@@ -17,7 +17,7 @@ from .models import (
 )
 from inv_trend.infra.integrity import sha256_file
 from .lineage import _load_current_lineage, _load_update_lineage, load_current_lineage
-from .processing import FRAME_DELTAS, RULE_VERSION, NormalizationResult, assess_quality
+from .processing import FRAME_DELTAS, RULE_VERSION, assess_quality, audit_published_frame
 from .providers import BarsProvider, HoldingsCsvProvider, QqqHoldingsCsvProvider
 from .registry import InstrumentRegistry
 from .review import ReviewApprovalCoordinator
@@ -320,19 +320,29 @@ class HistoricalDataService:
         instrument = self.instrument(symbol)
         version = str(current["version"])
         publication_run_id = str(current["run_id"])
+        # Re-derive the counters from the published frame instead of asserting
+        # zeros, then fail closed: rebuilding lineage must never upgrade an
+        # unqualified dataset to CURATED just to make a pointer resolvable.
         quality = assess_quality(
-            NormalizationResult(frame, pd.DataFrame(), [], 0, 0, 0, 0),
+            audit_published_frame(frame),
             instrument, timeframe,
             provider=str(frame["data_source"].iloc[-1]) if "data_source" in frame else "",
             requested_start=frame["timestamp"].min().to_pydatetime(),
             requested_end=(frame["timestamp"].max() + pd.Timedelta(FRAME_DELTAS[timeframe])).to_pydatetime(),
         )
-        quality.quality_status = "CURATED"
+        if quality.quality_status != "CURATED" or not quality.backtest_suitable:
+            raise DataQualityError(
+                f"cannot certify {symbol}/{timeframe} v{version}: "
+                f"status={quality.quality_status} score={quality.quality_score} "
+                f"missing={quality.missing_count} duplicate={quality.duplicate_count} "
+                f"ohlc_anomaly={quality.ohlc_anomaly_count}; re-ingest the dataset instead"
+            )
         quality_path = self.lake.write_json(
             quality.to_dict() | {
                 "run_id": publication_run_id, "publication_run_id": publication_run_id,
                 "dataset_version": version, "parent_dataset_version": None,
                 "instrument_id": instrument.instrument_id,
+                "certification_source": "repair_current_lineage",
             },
             Path("quality_reports") / f"{version}.dataset.json",
         )

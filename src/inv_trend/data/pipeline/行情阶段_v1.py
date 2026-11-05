@@ -49,6 +49,7 @@ from ..processing import (
     RULE_VERSION,
     NormalizationResult,
     assess_quality,
+    audit_published_frame,
     normalize_bars,
     resample_ohlcv_session,
 )
@@ -481,9 +482,15 @@ class BarsCore:
         combined, conflicts, rejected_incoming = merge(
             instrument.symbol, timeframe, clean, existing=existing_curated,
         )
-        full_result = NormalizationResult(combined, pd.DataFrame(), normalized.audit, 0, 0,
-                                          int(combined.get("quality_flags", pd.Series(dtype=str)).astype(str).str.contains("extreme_jump_review").sum()),
-                                          len(conflicts))
+        # Carry the counters produced while cleaning this run instead of asserting
+        # zero: hard-coded zeros made every report score >= 85 and marked every
+        # dataset backtest-suitable even when duplicates or bad OHLCV were dropped.
+        full_result = NormalizationResult(
+            combined, normalized.quarantine, normalized.audit,
+            normalized.duplicate_count, normalized.ohlc_anomaly_count,
+            int(combined.get("quality_flags", pd.Series(dtype=str)).astype(str).str.contains("extreme_jump_review").sum()),
+            len(conflicts),
+        )
         quality = assess_quality(full_result, instrument, timeframe, provider=result.source,
                                  requested_start=start, requested_end=end)
         quality.provider_available_start = str(result.metadata.get("provider_available_start", ""))
@@ -606,10 +613,15 @@ class BarsCore:
                 asset_class=instrument.asset_class, timeframe=timeframe, version=dataset_version,
                 run_id=request_id, activate=False,
             )
+            # The dataset-level report is what certification reads later, so the
+            # expected window must come from what was requested, never from the
+            # data that actually arrived: using the actual head makes every
+            # truncated dataset certify itself.
+            dataset_window_start = min(pd.Timestamp(start), curated_view["timestamp"].min())
             dataset_quality = assess_quality(
-                NormalizationResult(curated_view, pd.DataFrame(), [], 0, 0, 0, 0),
+                audit_published_frame(curated_view),
                 instrument, timeframe, provider=result.source,
-                requested_start=curated_view["timestamp"].min().to_pydatetime(),
+                requested_start=dataset_window_start.to_pydatetime(),
                 requested_end=(curated_view["timestamp"].max() + pd.Timedelta(FRAME_DELTAS[timeframe])).to_pydatetime(),
             )
             dataset_quality.provider_available_start = str(
@@ -622,6 +634,7 @@ class BarsCore:
                 "dataset_version": dataset_version,
                 "parent_dataset_version": parent_dataset_version,
                 "instrument_id": instrument.instrument_id,
+                "certification_source": "publish_curated",
             }
             quality_relative = Path("quality_reports") / f"{dataset_version}.json"
             quality_path = self.lake.write_json(dataset_quality_payload, quality_relative)

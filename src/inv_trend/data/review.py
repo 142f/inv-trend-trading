@@ -29,7 +29,7 @@ from .models import (
     path_text,
     utc_now,
 )
-from .processing import RULE_VERSION, FRAME_DELTAS, NormalizationResult, assess_quality
+from .processing import RULE_VERSION, FRAME_DELTAS, assess_quality, audit_published_frame
 from .storage import DataLake
 
 
@@ -406,8 +406,10 @@ class ReviewApprovalCoordinator:
         frame = candidate.approved_frame.copy()
         frame["quality_status"] = "CURATED"
         timestamps = pd.to_datetime(frame['timestamp'], utc=True)
+        # Recount from the approved frame: asserting zero duplicates/anomalies made
+        # this gate pass unconditionally for any frame a human approved.
         approved_quality = assess_quality(
-            NormalizationResult(frame, pd.DataFrame(), [], 0, 0, 0, 0), candidate.instrument,
+            audit_published_frame(frame), candidate.instrument,
             candidate.timeframe, provider=str(candidate.manifest.get('data_source') or 'review'),
             requested_start=timestamps.min().to_pydatetime(),
             requested_end=(timestamps.max() + pd.Timedelta(FRAME_DELTAS[candidate.timeframe])).to_pydatetime(),

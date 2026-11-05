@@ -24,6 +24,56 @@ class NormalizationResult:
     conflicting_duplicate_count: int = 0
 
 
+def _ohlc_violation_mask(frame: pd.DataFrame) -> pd.Series:
+    """Bars violating the shared OHLCV sanity rules (bounds, positivity, volume).
+
+    Extracted so that cleaning and the post-publication audit use exactly the
+    same predicate; divergent copies made the quality counters unverifiable.
+    """
+
+    return (
+        (frame["high"] < frame[["open", "close"]].max(axis=1))
+        | (frame["low"] > frame[["open", "close"]].min(axis=1))
+        | (frame["high"] < frame["low"])
+        | (frame[["open", "high", "low", "close"]] <= 0).any(axis=1)
+        | (frame["volume"].notna() & (frame["volume"] < 0))
+    )
+
+
+def audit_published_frame(frame: pd.DataFrame) -> NormalizationResult:
+    """Recompute honest quality counters for an already published frame.
+
+    ``normalize_bars`` counts anomalies while it removes them, so a frame that
+    was published earlier carries retained rows only.  Rebuilding lineage must
+    not assert zero duplicates/anomalies: the same predicates are re-applied so
+    the resulting report can actually fail.
+    """
+
+    work = frame.copy()
+    for column in ("timestamp", "open", "high", "low", "close", "volume"):
+        if column in work:
+            if column == "timestamp":
+                work[column] = pd.to_datetime(work[column], utc=True, errors="coerce")
+            else:
+                work[column] = pd.to_numeric(work[column], errors="coerce")
+    missing_prices = work[["open", "high", "low", "close"]].isna().any(axis=1)
+    violations = _ohlc_violation_mask(work) | missing_prices
+    quarantine = work.loc[violations].copy()
+    if not quarantine.empty:
+        quarantine["quarantine_reason"] = "invalid_ohlc_or_volume"
+    duplicates = int(work["timestamp"].duplicated(keep="first").sum()) if "timestamp" in work else 0
+    jumps = int((work["close"].pct_change().abs() >= 0.30).sum())
+    return NormalizationResult(
+        work,
+        quarantine,
+        quarantine.assign(audit_action="quarantined"),
+        duplicates,
+        int(violations.sum()),
+        jumps,
+        0,
+    )
+
+
 def normalize_bars(
     raw: pd.DataFrame,
     instrument: InstrumentConfig,
@@ -63,13 +113,7 @@ def normalize_bars(
     reasons[frame['timestamp'].notna() & frame['bar_end'].isna()] += 'invalid_session_bar;'
     numeric_invalid = frame[list(required - {"timestamp"})].isna().any(axis=1)
     reasons[numeric_invalid] += "non_numeric_price;"
-    ohlc_invalid = (
-        (frame["high"] < frame[["open", "close"]].max(axis=1))
-        | (frame["low"] > frame[["open", "close"]].min(axis=1))
-        | (frame["high"] < frame["low"])
-        | (frame[["open", "high", "low", "close"]] <= 0).any(axis=1)
-        | (frame["volume"].notna() & (frame["volume"] < 0))
-    )
+    ohlc_invalid = _ohlc_violation_mask(frame)
     reasons[ohlc_invalid] += "invalid_ohlc_or_volume;"
     if instrument.earliest_valid_date:
         earliest = pd.Timestamp(instrument.earliest_valid_date, tz="UTC")
