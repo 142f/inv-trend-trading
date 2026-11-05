@@ -79,6 +79,16 @@ class SignalCommitService:
             raise TypeError(
                 "DailyStateRepositoryPort.commit_daily_run is required for the modular workflow"
             )
+        # Keep the operational run row outside the business transaction.  If
+        # validation or the atomic commit fails, the transaction below rolls
+        # back every cursor/signal/outbox change, but the run itself remains
+        # observable as INTERRUPTED instead of disappearing without a trace.
+        ensure_run = getattr(repository, "ensure_run", None)
+        if not callable(ensure_run):
+            raise TypeError(
+                "DailyStateRepositoryPort.ensure_run is required for the modular workflow"
+            )
+        ensure_run(workspace.run_id, started_at)
         records: list[dict[str, Any]] = []
         commits: list[dict[str, Any]] = []
         try:
@@ -370,6 +380,11 @@ class SignalCommitService:
         row["run_status"] = data_gate_status(
             data, mapping(row.get("update")), research_mode=research_mode
         )
+        if screening.screening_status == "FAILED" and not research_mode:
+            # The data gate alone would report "updated" for a symbol whose
+            # screening stage could not run; the run contract models that as a
+            # failed symbol so the exit code and the summary agree.
+            row["run_status"] = "failed"
         return row, persistence
 
 

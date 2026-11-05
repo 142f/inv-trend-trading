@@ -67,6 +67,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--chart-bars", type=int, default=180)
     parser.add_argument("--no-html", action="store_true")
     parser.add_argument(
+        "--strict",
+        action="store_true",
+        help=("Abort the whole run on the first unusable symbol; by default it is "
+              "recorded as unavailable and the remaining symbols still run"),
+    )
+    parser.add_argument(
         "--open-report", action="store_true",
         help="Open the generated local HTML report after completion",
     )
@@ -219,6 +225,7 @@ def _run_staged_main(argv: Sequence[str]) -> int:
             backfill_signals=args.backfill_signals,
             chart_bars=args.chart_bars,
             render_html=not args.no_html,
+            strict=bool(getattr(args, "strict", False)),
         )
     except KeyboardInterrupt:
         print("Daily scan interrupted by user (Ctrl+C).", file=sys.stderr)

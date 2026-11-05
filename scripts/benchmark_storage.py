@@ -79,7 +79,7 @@ def _v3_open_benchmark() -> dict[str, object]:
         return {
             "open_ms_median": round(statistics.median(samples), 3),
             "open_ms_max": round(max(samples), 3),
-            "note": "each open runs the schema migration check and 3 INSERT OR IGNORE statements",
+            "note": "each open runs the schema migration chain check; writes only when incomplete",
         }
 
 

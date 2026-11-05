@@ -108,8 +108,13 @@ class DailyWorkflow:
         backfill_signals: bool = False,
         chart_bars: int = 180,
         render_html: bool = True,
+        strict: bool = False,
     ) -> DailyMarketScanResult:
-        """Run all explicit stages in the canonical order."""
+        """Run all explicit stages in the canonical order.
+
+        ``strict`` aborts the whole run on the first unusable symbol instead of
+        persisting it as unavailable and continuing with the rest of the universe.
+        """
 
         started_at = _aware_utc(self._runtime.now())
         self._stage_tracker = StageExecutionTracker()
@@ -133,7 +138,7 @@ class DailyWorkflow:
         )
         self._run_bound_stage(
             "strategy-screen", run_id, report_date,
-            lambda: self.strategy_screen(run_id=run_id, report_date=report_date),
+            lambda: self.strategy_screen(run_id=run_id, report_date=report_date, strict=strict),
         )
         self._run_bound_stage(
             "trend-decide", run_id, report_date,
@@ -269,13 +274,20 @@ class DailyWorkflow:
             workspace.write_stage(asset.symbol, "data_update", stage.result.to_dict())
         return workspace.summary(stage="data-update", symbols=[asset.symbol for asset in selected])
 
-    def strategy_screen(self, *, run_id: str, report_date: str) -> dict[str, Any]:
-        """Read pinned D1 data and produce strategy evidence without state writes."""
+    def strategy_screen(self, *, run_id: str, report_date: str, strict: bool = False) -> dict[str, Any]:
+        """Read pinned D1 data and produce strategy evidence without state writes.
+
+        One unusable symbol must not stop the rest of the universe: the failure is
+        persisted as an unavailable screening stage (so the formal gate reports it)
+        and the loop continues.  ``strict`` restores all-or-nothing behaviour for
+        callers that prefer to abort on the first bad symbol.
+        """
 
         workspace = self._workspace(report_date, run_id)
         context = workspace.read_context()
         symbols = _context_symbols(context)
         wrote_stage = False
+        failures: list[dict[str, str]] = []
         for symbol in symbols:
             asset = self._asset(symbol)
             data_payload = workspace.read_stage(symbol, "data_update")
@@ -315,46 +327,79 @@ class DailyWorkflow:
                 wrote_stage = True
                 continue
 
-            bars = self._load_pinned_bars(asset, data_result)
-            completed = normalize_completed_daily_bars(bars)
-            if completed.empty:
-                raise RuntimeError(f"no completed D1 bars remain for {symbol}")
-            strategy_version = str(options.get("strategy_version", CORRECTED_STRATEGY_VERSION))
-            cursor_before = self._runtime.state_repository.load_cursor(
-                data_result.instrument_id, "D1", strategy_version
-            )
-            load_anchor = getattr(self._runtime.state_repository, "load_session_anchor", None)
-            existing_anchor = (
-                load_anchor(data_result.instrument_id, "D1") if callable(load_anchor) else None
-            )
-            session_anchor = existing_anchor or completed.index[0].isoformat()
-            positions = _replay_positions(
-                completed,
-                cursor_before=cursor_before,
-                backfill=bool(options.get("backfill_signals", False)),
-            )
-            stage = screening_service.screen(
-                data_result,
-                asset,
-                bars=completed,
-                # A screen stage must be read-only.  The commit stage records
-                # the same anchor in SQLite once it has passed all validation.
-                session_anchor=session_anchor,
-                replay_positions=positions,
-                execution_context=self._runtime.execution_context,
-            )
-            runtime = self._screening_runtime(
-                asset=asset,
-                data_result=data_result,
-                stage=stage,
-                positions=positions,
-                cursor_before=cursor_before,
-                context=context,
-                session_anchor=str(session_anchor),
-            )
+            try:
+                bars = self._load_pinned_bars(asset, data_result)
+                completed = normalize_completed_daily_bars(bars)
+                if completed.empty:
+                    raise RuntimeError(f"no completed D1 bars remain for {symbol}")
+                strategy_version = str(options.get("strategy_version", CORRECTED_STRATEGY_VERSION))
+                cursor_before = self._runtime.state_repository.load_cursor(
+                    data_result.instrument_id, "D1", strategy_version
+                )
+                load_anchor = getattr(self._runtime.state_repository, "load_session_anchor", None)
+                existing_anchor = (
+                    load_anchor(data_result.instrument_id, "D1") if callable(load_anchor) else None
+                )
+                session_anchor = existing_anchor or completed.index[0].isoformat()
+                positions = _replay_positions(
+                    completed,
+                    cursor_before=cursor_before,
+                    backfill=bool(options.get("backfill_signals", False)),
+                )
+                stage = screening_service.screen(
+                    data_result,
+                    asset,
+                    bars=completed,
+                    # A screen stage must be read-only.  The commit stage records
+                    # the same anchor in SQLite once it has passed all validation.
+                    session_anchor=session_anchor,
+                    replay_positions=positions,
+                    execution_context=self._runtime.execution_context,
+                )
+                runtime = self._screening_runtime(
+                    asset=asset,
+                    data_result=data_result,
+                    stage=stage,
+                    positions=positions,
+                    cursor_before=cursor_before,
+                    context=context,
+                    session_anchor=str(session_anchor),
+                )
+            except Exception as exc:  # one unusable symbol must not stop the universe
+                if strict:
+                    raise
+                failures.append(
+                    {"symbol": symbol, "error_type": type(exc).__name__, "reason": str(exc)}
+                )
+                unavailable = screening_service.unavailable(
+                    data_result,
+                    reason=f"{type(exc).__name__}: {exc}",
+                )
+                self._write_screening_stage(
+                    workspace,
+                    symbol,
+                    unavailable.result,
+                    {
+                        "analysis": {},
+                        "positions": [],
+                        "replay_analyses": {},
+                        "report_bundle_seed": {},
+                        "commit_context": commit_context_payload(
+                            context,
+                            symbol=symbol,
+                            metadata=_mapping(
+                                _mapping(context.get("symbol_metadata")).get(symbol)
+                            ),
+                        ),
+                    },
+                )
+                wrote_stage = True
+                continue
             self._write_screening_stage(workspace, symbol, stage.result, runtime)
             wrote_stage = True
         summary = workspace.summary(stage="strategy-screen", symbols=symbols)
+        if failures:
+            summary["failures"] = failures
         if not wrote_stage:
             summary["idempotent"] = True
         return summary

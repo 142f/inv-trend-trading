@@ -4,7 +4,7 @@ import json
 import numpy as np
 import pandas as pd
 
-from inv_trend.application.daily_analysis import (
+from inv_trend.application.daily.report_projection import (
     PreparedDailyAnalysis,
     analyze_prepared_daily_analysis,
     build_breakout_assessments,

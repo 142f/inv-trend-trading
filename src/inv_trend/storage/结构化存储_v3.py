@@ -98,13 +98,19 @@ class UnifiedStore:
         for version, checksum in rows.items():
             if checksum != expected[version]:
                 raise StoreError(f'Schema 迁移校验和不一致: version={version}')
-        for version in sorted(expected):
-            db.execute('INSERT OR IGNORE INTO store_migrations VALUES(?,?,?)',
-                       (version, expected[version], utcnow()))
+        missing = [version for version in sorted(expected) if version not in rows]
+        if missing:
+            # Only write when the chain is incomplete: a read-only consumer used to
+            # take a write transaction on every open just to re-assert known rows.
+            for version in missing:
+                db.execute('INSERT INTO store_migrations VALUES(?,?,?)',
+                           (version, expected[version], utcnow()))
         versions = [row[0] for row in db.execute(
             'SELECT version FROM store_migrations ORDER BY version'
         )]
-        if versions != [1, 2, 3]:
+        # Compare against the declared markers so adding a milestone does not
+        # require editing this second, easy-to-miss list.
+        if versions != sorted(expected):
             raise StoreError(f'Schema 迁移链不连续: {versions}')
 
     @contextmanager

@@ -1,9 +1,13 @@
-"""Application compatibility projections for pure D1 analysis.
+"""Application-level D1 report projections.
 
-Feature preparation, indicator evaluation, rules, anomalies, and transitions
-live in inv_trend.core.strategy.daily.analysis. This module retains the
-application-level report projection functions and the established import path
-for downstream callers.
+Pure feature preparation, indicator evaluation, rules, anomalies and state
+transitions live in inv_trend.core.strategy.daily.analysis.  This module owns
+the application report projections (breakout assessments, market assessment,
+instrument report bundle, turtle observations, anomaly episodes, chart series)
+and re-exports the pure analysis entry points for callers that expect them.
+
+Relocated here from inv_trend.application.daily_analysis so the staged daily
+package owns all of its evidence construction.
 """
 
 from __future__ import annotations
@@ -25,7 +29,7 @@ from inv_trend.core.strategy.daily.analysis import (
     state_transitions,
 )
 
-from .daily_models import (
+from ..daily_models import (
     AnomalyEpisode,
     BreakoutAssessment,
     DEFAULT_CHANGE_LOG,

@@ -187,7 +187,7 @@ def test_coverage_uses_the_same_bar_snapshot_for_status_and_lineage(monkeypatch)
 
 
 def test_chart_payload_preserves_missing_values_timezones_and_input():
-    from inv_trend.application.daily_analysis import _series_payload
+    from inv_trend.application.daily.report_projection import _series_payload
 
     frame = pd.DataFrame(
         {"close": ["1.25", pd.NA, float("inf")], "volume": [1, 2, 3]},
