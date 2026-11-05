@@ -229,15 +229,6 @@ def _legacy_instrument(symbol: str) -> InstrumentConfig:
                             timezone="UTC", session="24x7", primary_source="legacy_csv")
 
 
-def _group_consecutive(stamps: pd.DatetimeIndex, delta: pd.Timedelta) -> list[list[pd.Timestamp]]:
-    groups: list[list[pd.Timestamp]] = []
-    for stamp in stamps:
-        if groups and stamp - groups[-1][-1] == delta:
-            groups[-1].append(stamp)
-        else:
-            groups.append([stamp])
-    return groups
-
 
 # ---------------------------------------------------------------------------
 # 核心实现（供四个阶段共享）

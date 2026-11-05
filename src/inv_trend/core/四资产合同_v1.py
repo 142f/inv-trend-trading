@@ -62,13 +62,6 @@ class ContractSpec:
             raise ValueError("unsupported margin model; no silent derivative emulation")
 
 
-def unverified_contract(symbol, instrument):
-    return ContractSpec(instrument["instrument_id"], instrument["asset_class"],
-                        instrument["market"], instrument["instrument_type"],
-                        None, None, None, None, instrument["quote_currency"],
-                        None, None, None, None, None, None, None, None,
-                        "historical-unverified-v1", None)
-
 
 def research_contract(symbol):
     """Synthetic fully funded units, explicitly NOT the venue's CFD or spot spec."""

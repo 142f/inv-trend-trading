@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
 from decimal import Decimal
 import os
 from typing import Any, Iterable, Mapping
@@ -350,6 +349,3 @@ def _number_to_str(value: str | int | float | Decimal) -> str:
         return format(value, "f")
     return format(Decimal(str(value)), "f")
 
-
-def utc_now_ms() -> int:
-    return int(datetime.now(timezone.utc).timestamp() * 1000)
