@@ -17,10 +17,23 @@ from inv_trend.data.models import InstrumentConfig
 from inv_trend.data.processing import select_completed_bars
 from inv_trend.data.providers import YahooChartProvider
 from inv_trend.data.snapshot import resolve_snapshot_bars
+from inv_trend.application.market_panels import (
+    aggregate_market,
+    append_history,
+    derive_symbol_decision,
+)
+from inv_trend.application.strategy_config import load_resolved_run_config
 from inv_trend.observability.静态展示.快照看板 import render_snapshot_page as _page
+from inv_trend.observability.静态展示.方向总览 import render_direction_overview as _map_page
+from inv_trend.observability.静态展示.决策面板 import render_decision_desk as _desk_page
+from inv_trend.observability.静态展示.市场温度面板 import render_market_thermometer as _thermo_page
 
 ROOT = Path(__file__).resolve().parents[1]
 OUT_HTML = ROOT / "deliverables" / "美股前100指标看板.html"
+OUT_MAP_HTML = ROOT / "deliverables" / "美股前100方向偏度总览.html"
+OUT_DESK_HTML = ROOT / "deliverables" / "美股前100投资决策面板.html"
+OUT_THERMO_HTML = ROOT / "deliverables" / "美股前100市场温度面板.html"
+OUT_HISTORY = ROOT / "deliverables" / "市场温度历史.json"
 OUT_JSON = ROOT / "deliverables" / "美股前100指标数据.json"
 OUT_RECEIPT = ROOT / "deliverables" / "美股前100指标_回执.json"
 CACHE_ROOT = ROOT / ".tmp" / "yahoo-us-top100"
@@ -34,7 +47,7 @@ UNIVERSE_ID = "qqq_spy_top100_20261023"
 
 REQUEST = FeatureRequest(
     atr_period=14,
-    donchian_periods=(20, 55),
+    donchian_periods=(10, 20, 55),
     sma_lags=tuple((period, 0) for period in (5, 10, 20, 55, 120)),
     ema_periods=(10, 20, 55, 144, 169),
     macd_periods=(12, 26, 9),
@@ -248,6 +261,8 @@ def indicator_snapshot(symbol: str, prepared: pd.DataFrame, meta: dict, *, parti
         "volume": _num(row.get("volume")),
         "volume_sma_20": _num(row.get("volume_sma_20_lag_1")),
         "channel": {
+            "high_10": _num(row.get("channel_high_10")),
+            "low_10": _num(row.get("channel_low_10")),
             "high_20": _num(row.get("channel_high_20")),
             "low_20": _num(row.get("channel_low_20")),
             "high_55": _num(row.get("channel_high_55")),
@@ -265,6 +280,15 @@ def indicator_snapshot(symbol: str, prepared: pd.DataFrame, meta: dict, *, parti
             "ema20": [_num(item) for item in tail["ema_20"]],
             "ema55": [_num(item) for item in tail["ema_55"]],
         },
+        "timeline10": [
+            {
+                "date": str(pd.Timestamp(stamp).tz_convert("America/New_York").date()),
+                "close": _num(item.get("close")),
+                "histogram": _num(item.get("histogram")),
+                "adx": _num(item.get("adx")),
+            }
+            for stamp, item in prepared.tail(10).iterrows()
+        ],
     }
 
 
@@ -301,6 +325,7 @@ def build_receipt(
     bar_count: dict,
     raw_hash: str,
     research_only: bool = True,
+    decision_config: dict | None = None,
 ) -> dict:
     return {
         "schema_version": 2,
@@ -320,6 +345,7 @@ def build_receipt(
         "failed": failed,
         "incomplete": incomplete,
         "content_hash": content_hash,
+        "decision_config": decision_config or {},
     }
 
 
@@ -366,6 +392,18 @@ def _content_hash(rows: list[dict]) -> str:
     return hashlib.sha256(body.encode("utf-8")).hexdigest()
 
 
+def _history_records() -> list[dict]:
+    """Existing temperature history records; tolerate a corrupt file (page renders empty)."""
+
+    if not OUT_HISTORY.is_file():
+        return []
+    try:
+        payload = json.loads(OUT_HISTORY.read_text(encoding="utf-8"))
+        return list(payload.get("records") or [])
+    except (json.JSONDecodeError, OSError):
+        return []
+
+
 def _config_hash() -> str:
     return hashlib.sha256(ASSETS_PATH.read_bytes()).hexdigest()
 
@@ -379,7 +417,10 @@ def _git_commit() -> str:
         return "unknown"
 
 
-def compute_symbol(raw: pd.DataFrame, instrument: InstrumentConfig, source: str, now: datetime, meta: dict, *, completed_only: bool) -> tuple[dict, dict]:
+def compute_symbol(
+    raw: pd.DataFrame, instrument: InstrumentConfig, source: str, now: datetime, meta: dict, *,
+    completed_only: bool, decision_config: dict | None = None,
+) -> tuple[dict, dict]:
     used, counts = select_completed_bars(
         raw, instrument, "D1", source, now=now, completed_only=completed_only,
     )
@@ -389,6 +430,13 @@ def compute_symbol(raw: pd.DataFrame, instrument: InstrumentConfig, source: str,
     prepared = PreparedBars.build(features, REQUEST).frame
     partial = (not completed_only) and bool(counts["partial_rows"])
     row = indicator_snapshot(instrument.symbol, prepared, meta, partial=partial)
+    if decision_config:
+        decision = derive_symbol_decision(
+            features, prepared, decision_config["daily_checks"],
+            session_anchor=features.index[-1], equity=decision_config["equity"],
+            risk_pct=decision_config["risk_pct"], stop_n=decision_config["stop_n"],
+        )
+        row["decision"] = decision
     return row, counts
 
 
@@ -397,8 +445,22 @@ def main(argv: list[str] | None = None) -> dict:
     parser.add_argument("--as-of", default=None)
     parser.add_argument("--include-partial", action="store_true")
     parser.add_argument("--refresh", action="store_true")
+    parser.add_argument("--equity", type=float, default=None)
+    parser.add_argument("--risk-pct", type=float, default=None)
+    parser.add_argument("--proxy", default=None,
+                        help="显式代理（如 http://127.0.0.1:7897）。环境变量代理在部分运行环境会被强制覆盖，此选项在进程内直接生效。")
     args = parser.parse_args(argv)
+    if args.proxy:
+        from urllib.request import ProxyHandler, build_opener, install_opener
+        install_opener(build_opener(ProxyHandler({"http": args.proxy, "https": args.proxy})))
     completed_only = not args.include_partial
+    resolved = load_resolved_run_config()
+    decision_config = {
+        "equity": float(args.equity if args.equity is not None else resolved.risk["initial_equity"]),
+        "risk_pct": float(args.risk_pct if args.risk_pct is not None else 0.005),
+        "stop_n": float(resolved.rules["stop_n"]),
+        "daily_checks": resolved.daily_checks,
+    }
     window = resolve_window(datetime.now(timezone.utc), args.as_of, completed_only=completed_only)
     cutoff = window["completeness_now"]
     fetch_end = window["fetch_end"]
@@ -432,7 +494,7 @@ def main(argv: list[str] | None = None) -> dict:
             raw = clip_fetch(resolved.frame, fetch_end)
             row, counts = compute_symbol(
                 raw, instruments[symbol], provider.name, cutoff, meta,
-                completed_only=completed_only,
+                completed_only=completed_only, decision_config=decision_config,
             )
             rows.append(row)
             sources.append(resolved.source)
@@ -443,8 +505,19 @@ def main(argv: list[str] | None = None) -> dict:
             failed.append({"symbol": symbol, **meta, "error": str(exc)})
             print(f"{index}/{len(symbols)} FAIL {symbol} {exc}", flush=True)
     incomplete = [item for item in (incomplete_entry(row) for row in rows) if item]
+    generated_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    as_of = pd.Timestamp(cutoff).tz_convert("America/New_York").date().isoformat()
+    data_health = {
+        "rows": len(rows),
+        "failed": len(failed),
+        "failed_symbols": [item["symbol"] for item in failed],
+        "incomplete": len(incomplete),
+        "partial": 1 if window["partial_mode"] else 0,
+        "sources": sorted(set(sources)),
+    }
+    market = aggregate_market(rows, as_of=as_of, generated_at=generated_at, data_health=data_health)
     payload = {
-        "as_of": pd.Timestamp(cutoff).tz_convert("America/New_York").date().isoformat(),
+        "as_of": as_of,
         "data_cutoff": cutoff.isoformat().replace("+00:00", "Z"),
         "universe": "QQQ与SPY 2026-10-23 权重前100，按代码去重，未按公司合并。SPCX 不在名单内，名次保留源空缺。",
         "price_basis": PRICE_BASIS,
@@ -455,6 +528,7 @@ def main(argv: list[str] | None = None) -> dict:
         "rows": rows,
         "failed": failed,
         "incomplete": incomplete,
+        "market": market,
     }
     content_hash = _content_hash(rows)
     bar_count = {
@@ -469,7 +543,6 @@ def main(argv: list[str] | None = None) -> dict:
         "hash": hashlib.sha256(json.dumps(members, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest(),
         "count": len(members),
     }
-    generated_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     receipt = build_receipt(
         generated_at=generated_at,
         data_cutoff=payload["data_cutoff"],
@@ -491,17 +564,45 @@ def main(argv: list[str] | None = None) -> dict:
         content_hash=content_hash,
         bar_count=bar_count,
         raw_hash=raw_hash,
+        decision_config={
+            "equity": decision_config["equity"],
+            "risk_pct": decision_config["risk_pct"],
+            "stop_n": decision_config["stop_n"],
+        },
     )
-    OUT_JSON.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
-    OUT_RECEIPT.write_text(json.dumps(receipt, ensure_ascii=False, indent=2), encoding="utf-8")
-    OUT_HTML.write_text(_page(payload, {
+    page_meta = {
         "provider": provider.name,
         "data_cutoff": payload["data_cutoff"],
         "price_basis": PRICE_BASIS,
         "config_hash": receipt["config_hash"],
         "content_hash": content_hash,
         "script_git_commit": receipt["script_git_commit"],
+    }
+    OUT_JSON.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+    OUT_RECEIPT.write_text(json.dumps(receipt, ensure_ascii=False, indent=2), encoding="utf-8")
+    OUT_HTML.write_text(_page(payload, page_meta), encoding="utf-8")
+    OUT_MAP_HTML.write_text(_map_page(payload, page_meta), encoding="utf-8")
+    OUT_DESK_HTML.write_text(_desk_page(payload, {**page_meta,
+        "equity": decision_config["equity"],
+        "risk_pct": decision_config["risk_pct"],
+        "stop_n": decision_config["stop_n"],
     }), encoding="utf-8")
+    history_summary = None
+    if completed_only and not window["partial_mode"]:
+        history_summary = append_history(OUT_HISTORY, {
+            "as_of": market["as_of"],
+            "generated_at": market["generated_at"],
+            "rating_dist": market["rating_dist"],
+            "breakout_counts": market["breakout_counts"],
+            "volatility_counts": market["volatility_counts"],
+            "breadth": market["breadth"],
+            "median_adx": market["median_adx"],
+            "median_relative_volume": market["median_relative_volume"],
+            "temperature_score": market["temperature_score"],
+            "triggered_count": market["triggered_count"],
+            "near_count": market["near_count"],
+        })
+    OUT_THERMO_HTML.write_text(_thermo_page(payload, page_meta, _history_records()), encoding="utf-8")
     summary = {
         "rows": len(rows),
         "failed": len(failed),
@@ -514,6 +615,17 @@ def main(argv: list[str] | None = None) -> dict:
         "relative_volume_median": _median([row["relative_volume"] for row in rows]),
         "content_hash": content_hash,
         "raw_hash": raw_hash,
+        "decision_config": {
+            "equity": decision_config["equity"],
+            "risk_pct": decision_config["risk_pct"],
+            "stop_n": decision_config["stop_n"],
+        },
+        "market": {
+            "temperature_score": market["temperature_score"],
+            "triggered_count": market["triggered_count"],
+            "near_count": market["near_count"],
+        },
+        "history": history_summary,
     }
     print(json.dumps(summary, ensure_ascii=False), flush=True)
     return summary

@@ -209,8 +209,14 @@ def test_snapshot_exposes_the_full_display_indicator_set():
     assert row["warmup_ok"] is True
     for key in ("plus_di", "minus_di", "histogram", "macd_bar", "volume", "volume_sma_20", "atr"):
         assert key in row
-    assert set(row["channel"]) == {"high_20", "low_20", "high_55", "low_55"}
+    assert set(row["channel"]) == {
+        "high_10", "low_10", "high_20", "low_20", "high_55", "low_55",
+    }
     assert row["channel"]["high_20"] is not None
+    assert row["channel"]["high_10"] is not None
+    assert set(row["timeline10"][0]) == {"date", "close", "histogram", "adx"}
+    assert len(row["timeline10"]) == 10
+    assert row["timeline10"][-1]["date"] == row["as_of"]
 
 
 def test_universe_is_loaded_from_the_registered_file():

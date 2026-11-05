@@ -1,9 +1,12 @@
 {
   "schema_version": 1,
   "captured_at": "2026-11-05T12:50:00+08:00",
-  "branch": "refactor/logic-fixes",
+  "corrected_at": "2026-11-05T17:03:29+08:00",
+  "branch": "main",
   "base_commit": "b551ff8",
-  "head_commit": "2201975",
+  "head_commit": "6921a225ad52bbfe5d9fc22ec366cdcb381a62bd",
+  "head_commit_scope": "被验收的代码状态（6921a22），不是记录该字段的 docs 提交；沿用 28ae0ca 的语义解耦做法",
+  "snapshot_kind": "historical + 2026-11-05 本轮校正（defects/Q 状态、head、性能项）；未在 6921a22 之后重跑全量回归",
   "scope": "逻辑修复 + 结构收敛 + 无用代码清理 + 基于实测的性能优化",
   "tests": {
     "before": {
@@ -32,14 +35,45 @@
       "passed": 1537,
       "failed": 1,
       "duration_seconds": 647.15,
-      "warnings": 9
+      "warnings": 9,
+      "snapshot": true,
+      "captured_at": "2026-11-05T12:50:00+08:00",
+      "head_commit_at_capture": "9239319",
+      "note": "9239319 时刻的历史快照，不代表当前规模或现状；6921a22 之后未重跑全量回归"
     },
-    "final_failure": "pre-existing Playwright environment failure (identical in baseline)"
+    "final_failure": "pre-existing Playwright environment failure (identical in baseline); 后续本机补齐 Playwright 驱动 node 后像素回归 2 passed",
+    "full_regression_after_6921a22": "not_run",
+    "current_verification": {
+      "policy": "按用户选择只做定向测试 + 静态检查，不跑 12 分钟全量回归",
+      "captured_at": "2026-11-05T17:03:29+08:00",
+      "targeted": {
+        "command": ".venv/Scripts/python.exe -m pytest -q --tb=short -p no:randomly <17 个定向测试文件，详见 全量修复双评审_20261105.json tests.targeted.targeted_files>",
+        "result": "4 failed, 327 passed, 5 warnings in 210.77s"
+      },
+      "isolated_rerun": {
+        "command": ".venv/Scripts/python.exe -m pytest -q --tb=short -p no:randomly tests/test_数据封版合同.py --basetemp=E:/tmp/pytest-bt",
+        "result": "96 passed in 104.92s",
+        "conclusion": "4 个并发用例失败在隔离运行下全部通过，判定环境噪声，非业务回归"
+      },
+      "pixel_regression": "2 passed, 1 warning in 13.37s",
+      "architecture_boundaries": "13 passed in 3.02s",
+      "golden_master": "pass（包含在定向回归 327 passed 内）",
+      "no_all_green_claim": true
+    }
   },
   "static_checks": {
     "ruff_F": "pass",
     "architecture_boundaries": "13 passed",
-    "golden_master": "pass (included in full suite)"
+    "golden_master": "pass (included in full suite)",
+    "current_verification": {
+      "captured_at": "2026-11-05T17:03:29+08:00",
+      "ruff_F": {
+        "command": ".venv/Scripts/python.exe -m ruff check src tests scripts research --select F",
+        "result": "All checks passed!"
+      },
+      "architecture_boundaries": "13 passed",
+      "golden_master": "pass（定向回归内）"
+    }
   },
   "fixes": [
     {
@@ -126,6 +160,12 @@
     "application/滚动验证.py 的 assert 泄漏防线",
     "core/EMA趋势策略.py 自写 ATR/ADX 与 wilder_atr 口径差异"
   ],
+  "kept_pending_confirmation_snapshot": "9239319 时刻的 5 项待确认清单，保留作历史对照，不代表现状",
+  "kept_pending_confirmation_current": {
+    "Q7_three_public_apis": "已处理：dced7d1 用 tests/unit/test_对外能力合同.py（11 用例）锁定对外行为，不删除",
+    "EMA_ATR_ADX_gap": "已修复：731886f + 24200f1 改用 wilder_atr / directional_movement_index，见 Q6",
+    "remaining": "application/滚动验证.py 的 assert 泄漏防线仍保持原状（未纳入本轮授权范围）"
+  },
   "performance": {
     "storage": {
       "measurement": "scripts/benchmark_storage.py（合成 60 identities，同一台机器）",
@@ -163,44 +203,107 @@
       }
     },
     "deferred": [
-      "行情阶段 merge_current 逐行比对（子评审实测 1.31s/60k 行，需先复测再向量化）",
-      "state_transitions 逐根重算 O(n²)（子评审实测 300/600/1200 = 0.38/1.29/5.08s）",
-      "读路径 sha256 记忆化",
-      "回放前缀摘要增量计算"
+      "回放前缀摘要增量计算（本轮仍未实施，保留 deferred）"
+    ],
+    "resolved": [
+      {
+        "item": "行情阶段 merge_current 逐行比对",
+        "commit": "e1c3667",
+        "evidence": "哈希对齐 + 向量比较；tests/unit/test_合并冲突检测等价.py 以旧实现为 oracle，覆盖重复时间戳/NaT/未完成 bar/±inf/25 组随机重叠",
+        "measured": "60k 行全量合并 1926ms → 199ms（9.7×）"
+      },
+      {
+        "item": "state_transitions 逐根重算 O(n²)",
+        "commit": "e1c3667",
+        "evidence": "_state_at 不再重建增长前缀；tests/unit/test_状态快照前缀等价.py 逐根比对旧写法",
+        "measured": "600 根 1839ms → 750ms"
+      },
+      {
+        "item": "读路径 sha256 记忆化",
+        "commit": "afb690e + 7ff78eb",
+        "evidence": "(resolved path, size, mtime_ns, inode) 记忆化；tests/unit/test_完整性摘要记忆化_v1.py",
+        "measured": "20MB 摘要 22.2ms → 0.38ms（58×）"
+      }
     ]
   },
   "open_questions": [
-    "Q1 已实施",
-    "Q2 已执行只读审计（历史未重写）",
-    "Q3 repair 失败策略（当前失败闭合）",
-    "Q4 rolling_percentile 预热口径（保持原状，已文档标注）",
-    "Q5 TURTLE_PERIODS/共振判定（保持原状，已文档标注）",
-    "Q6 EMA 策略 ATR 口径（保持原状，已文档标注）",
-    "Q7 okx place_* API（保留，已文档标注）",
-    "Q8 已迁移并删除",
-    "Q10 README 历史数字（保持原状，已文档标注）"
+    "Q1 已实施：单标的失败隔离 + --strict（72a4789）",
+    "Q2 已执行只读审计（历史未重写，9ef0c7f / 只读审计_20261105.json）",
+    "Q3 repair 失败闭合已锁定回归用例（95a982b / f499e32）",
+    "Q4 rolling_percentile 预热口径：已修复（9bddc3c + 24200f1，用户授权『全部修复』）；默认预热改为完整窗口，scanner 显式传 min_periods",
+    "Q5 TURTLE_PERIODS/共振判定：已修复（9bddc3c + 24200f1）；按 config.turtle_systems 入场周期投票，共振补 turtle_55 不可用",
+    "Q6 EMA 策略 ATR/ADX 口径：已修复（731886f + 24200f1）；改用 wilder_atr / directional_movement_index",
+    "Q7 对外能力：已处理（dced7d1）；不删除，用 tests/unit/test_对外能力合同.py 锁定 OKX 下单/NotificationChannel/macd 行为",
+    "Q8 已迁移并删除（621dbf1，report_projection.py 取代 daily_analysis.py）",
+    "Q9 未提交 WIP：已落检查点 b551ff8 并随 refactor/logic-fixes 快进并入 main",
+    "Q10 README 历史数字：已处理（dced7d1）；顶部加『数字口径』注记，权威数字只认带 captured_at/head_commit/完整命令的验收 JSON"
   ],
+  "open_questions_note": "Q4–Q6 早前『保持原状/暂缓』的结论已作废旧口径；详见 correction_log 与 docs/策略口径与待确认事项_20261105.md",
   "round2": {
     "approved_actions": {
       "Q1": "已实施：strategy_screen 逐标的失败隔离 + FAILED 证据 + commit run_status=failed + CLI --strict；新增 2 用例，版本错配用例覆盖双模式",
       "Q2": "已执行只读 audit_universe（78 个 curated D1 标的，17.44s；2 OK / 76 RESEARCH_ONLY）；未重写任何历史 manifest 或 current 指针",
-      "Q4_to_Q6": "按要求暂缓，代码保持原状；事实与后续验证方式见 docs/策略口径与待确认事项_20261105.md",
+      "Q4_to_Q6": "已作废（旧口径）。用户后续明确授权『全部修复（推荐）』包含 Q4–Q6；9bddc3c/731886f 的源码改动曾被 bad3e0a 逐字节回退，24200f1 已撤销该回退并补回 4 个回归用例。以 HEAD 源码与 docs/策略口径与待确认事项_20261105.md『本轮状态（已修复）』为准",
       "Q8": "已实施：报告投影实现迁移到 application/daily/report_projection.py；1 个生产导入方 + 6 个测试导入方改路径；确认零引用后删除 application/daily_analysis.py"
     },
     "correction": "早前把 application/daily_analysis.py 记为死代码有误：application/daily/strategy_screening.py 从它导入 build_breakout_assessments/build_instrument_report_bundle。它是放错位置的生产代码，已迁移而非简单删除。",
     "p1_6_fix": "signal_commit 在业务事务外 ensure_run，失败时 interrupt_run 标记 INTERRUPTED；两处断言旧行为(无行)的测试已同步改为断言 INTERRUPTED",
-    "review": "每项改动按用户要求经过两轮复核（见 git diff 与专项测试）",
+    "review": "每项改动按用户要求经过两轮复核（见 git diff 与专项测试）；本轮 #1–#18 / Q1–Q10 共 28 项的逐项两行证据见 artifacts/history/docs/全量修复双评审_20261105.json matrix",
     "final_regression": "1537 passed / 1 failed（既有 Playwright 环境失败）/ 647.15s",
+    "final_regression_snapshot": true,
+    "final_regression_note": "9239319 时刻的历史快照；6921a22 之后未重跑全量回归，不得当作现状或『全部绿色』",
     "review_passes": [
       "review#1: 逐文件 git diff + 定向测试",
-      "review#2: 全仓 diff + 全量回归 + 迁移后零引用检查"
+      "review#2: 全仓 diff + 全量回归 + 迁移后零引用检查",
+      "本轮追加: 每项两行证据矩阵 + 定向回归 327 passed / 4 环境失败（隔离复跑 96 passed）+ ruff F 全通过"
     ],
-    "q4_q5_q6": "按用户指示保持基线 b551ff8；中途混入的口径改动已逐字节回退，仅文档标注",
+    "q4_q5_q6": "已作废（旧口径）。原『保持基线 b551ff8 / 逐字节回退 / 仅文档标注』只描述 9239319 时刻；24200f1 已重新落地 Q4/Q5/Q6，源码与 4 个用例全部回位，实测影响见 docs/策略口径与待确认事项_20261105.md",
     "additional_fixes": [
       "P1-6: commit 失败保留 INTERRUPTED 运行行",
       "P2-13 五项核心潜伏缺陷（步长吞档/检查点时钟/单标的风险/缓存写隔离/非法操作符）",
       "文件摘要 (path,size,mtime_ns) 记忆化",
-      "Q3: repair_current_lineage 失败闭合回归用例"
+      "Q3: repair_current_lineage 失败闭合回归用例",
+      "Q4/Q5/Q6 口径修复重新落地并补回 4 个回归用例（24200f1）",
+      "merge_current 向量化 + 2 个等价性 oracle + 可复现基准脚本（e1c3667）",
+      "Q7/Q10 对外能力合同测试与 README 数字口径（dced7d1）",
+      "stable_id 分隔符碰撞修复，历史 ID 不变（6921a22）"
     ]
-  }
+  },
+  "correction_log": [
+    {
+      "key": "head_commit",
+      "historical_value": "9239319",
+      "current_value": "6921a225ad52bbfe5d9fc22ec366cdcb381a62bd",
+      "reason": "32 个后续提交已落到 main，head 需指向被验收的代码状态",
+      "captured_at": "2026-11-05T17:03:29+08:00"
+    },
+    {
+      "key": "open_questions.Q4_to_Q6 / round2.q4_q5_q6",
+      "historical_value": "暂缓 / 保持基线 / 逐字节回退 / 仅文档标注",
+      "current_value": "已修复（用户授权『全部修复』，24200f1 撤销 bad3e0a 回退）",
+      "reason": "用户后续明确授权包含会改变历史回测数值的策略口径问题；旧结论与 HEAD 源码矛盾",
+      "captured_at": "2026-11-05T17:03:29+08:00"
+    },
+    {
+      "key": "open_questions.Q7 / Q10",
+      "historical_value": "保留 / 保持原状，仅文档标注",
+      "current_value": "已处理：合同测试锁定对外能力 + README 数字口径注记",
+      "reason": "dced7d1 把『零引用但可能对外』的能力用测试钉死，避免被当死代码误删",
+      "captured_at": "2026-11-05T17:03:29+08:00"
+    },
+    {
+      "key": "performance.deferred",
+      "historical_value": "4 项延期（合并逐行、state_transitions、sha256 记忆化、回放前缀摘要）",
+      "current_value": "前 3 项 resolved 并附提交与实测数字；仅『回放前缀摘要增量计算』仍 deferred",
+      "reason": "e1c3667 / afb690e / 7ff78eb 已实施并以等价性 oracle 与基准脚本验证",
+      "captured_at": "2026-11-05T17:03:29+08:00"
+    },
+    {
+      "key": "tests.final / round2.final_regression",
+      "historical_value": "1538 collected / 1537 passed / 1 failed / 647.15s",
+      "current_value": "保留为带 snapshot + captured_at 的历史快照；新增 tests.current_verification 记录本轮定向实测",
+      "reason": "6921a22 之后未重跑全量回归，不能把历史数字写成现状",
+      "captured_at": "2026-11-05T17:03:29+08:00"
+    }
+  ]
 }
