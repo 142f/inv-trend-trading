@@ -321,6 +321,63 @@ def test_strict_mode_aborts_on_the_first_unusable_symbol(
         )
 
 
+def test_failed_atomic_commit_leaves_an_interrupted_run_but_no_business_state(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A failed commit must be auditable without leaking cursors or signals."""
+
+    scanner, _ = _service(tmp_path)
+    workflow = DailyWorkflow(
+        data_root=tmp_path / "data",
+        output_dir=tmp_path / "out",
+        signal_log_dir=tmp_path / "logs",
+        assets=scanner.assets,
+        historical_service=scanner.historical_service,
+        now=lambda: datetime(2024, 4, 19, 12, tzinfo=UTC),
+    )
+    report_date, run_id = "2024-04-19", "failed-commit"
+    workflow.data_update(
+        run_id=run_id,
+        report_date=report_date,
+        symbols=("AAA",),
+        bootstrap_days=80,
+    )
+    workflow.strategy_screen(run_id=run_id, report_date=report_date)
+    workflow.trend_decide(run_id=run_id, report_date=report_date)
+
+    def fail_commit(self, **kwargs):
+        raise RuntimeError("atomic commit failed")
+
+    monkeypatch.setattr(SQLiteDailySignalRepository, "commit_daily_run", fail_commit)
+    with pytest.raises(RuntimeError, match="atomic commit failed"):
+        workflow.commit(run_id=run_id, report_date=report_date)
+
+    with sqlite3.connect(workflow.database_path) as connection:
+        run = connection.execute(
+            "SELECT status, error_count FROM daily_runs WHERE run_id=?", (run_id,)
+        ).fetchone()
+        assert run == ("INTERRUPTED", 1)
+        assert connection.execute("SELECT COUNT(*) FROM scan_cursors").fetchone()[0] == 0
+        assert connection.execute("SELECT COUNT(*) FROM signal_events").fetchone()[0] == 0
+        assert connection.execute("SELECT COUNT(*) FROM signal_outbox").fetchone()[0] == 0
+
+
+def test_ensure_run_persists_a_failed_commit_once(tmp_path: Path) -> None:
+    """P1-6 review: a failed commit must be visible and idempotent."""
+
+    db_path = tmp_path / "state" / "signals.sqlite3"
+    repository = SQLiteDailySignalRepository(db_path)
+    started = "2024-04-19T00:00:00+00:00"
+    assert repository.ensure_run("audit-run", started) is True
+    assert repository.ensure_run("audit-run", started) is False
+    repository.interrupt_run("audit-run", "2024-04-19T00:01:00+00:00")
+    with sqlite3.connect(db_path) as db:
+        row = db.execute(
+            "SELECT status, error_count FROM daily_runs WHERE run_id=?", ("audit-run",)
+        ).fetchone()
+    assert row == ("INTERRUPTED", 1)
+
+
 def test_staged_screen_reads_the_pinned_version_after_current_moves(tmp_path: Path) -> None:
     """A resumed screen must not silently switch to a newly activated D1 set."""
 
@@ -617,9 +674,11 @@ def test_staged_commit_rolls_back_a_late_sqlite_failure_for_every_symbol(
     assert repository.load_cursor("BBB.TEST.SPOT", "D1", "corrected-v2") is None
     assert repository.pending_notifications() == []
     with sqlite3.connect(workflow.database_path) as db:
+        # The operational run row stays observable as INTERRUPTED (P1-6 fix);
+        # only the business state inside the transaction is rolled back.
         assert db.execute(
-            "SELECT COUNT(*) FROM daily_runs WHERE run_id=?", (run_id,)
-        ).fetchone()[0] == 0
+            "SELECT status FROM daily_runs WHERE run_id=?", (run_id,)
+        ).fetchone() == ("INTERRUPTED",)
         assert db.execute(
             "SELECT COUNT(*) FROM daily_run_instruments WHERE run_id=?", (run_id,)
         ).fetchone()[0] == 0
@@ -660,8 +719,8 @@ def test_staged_commit_rejects_a_cursor_advanced_by_a_newer_run(tmp_path: Path) 
     assert repository.load_cursor("AAA.TEST.SPOT", "D1", "corrected-v2") == committed_cursor
     with sqlite3.connect(workflow.database_path) as db:
         assert db.execute(
-            "SELECT COUNT(*) FROM daily_runs WHERE run_id=?", (older_run,)
-        ).fetchone()[0] == 0
+            "SELECT status FROM daily_runs WHERE run_id=?", (older_run,)
+        ).fetchone() == ("INTERRUPTED",)
 
 
 def test_staged_commit_deserializes_decision_projection_without_signal_generator(
