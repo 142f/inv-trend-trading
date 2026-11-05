@@ -1,0 +1,98 @@
+{
+  "schema_version": 1,
+  "captured_at": "2026-11-05T11:45:00+08:00",
+  "captured_by": "refactor/logic-fixes 基线固化",
+  "git": {
+    "base_commit": "b551ff8",
+    "branch": "refactor/logic-fixes",
+    "note": "检查点提交包含重构前未提交工作（静态展示模块、文档与脚本调整）"
+  },
+  "environment": {
+    "python": "3.12.10",
+    "platform": "Windows",
+    "venv": ".venv"
+  },
+  "tests": {
+    "collected": 1488,
+    "passed": 1487,
+    "failed": 1,
+    "skipped": 0,
+    "warnings": 9,
+    "duration_seconds": 786.11,
+    "command": "python -m pytest -q --durations=25 -p no:randomly",
+    "failure": {
+      "test": "tests/test_美股前100指标_像素.py::test_board_pixels_match_baseline",
+      "reason": "Playwright 驱动子进程启动失败（环境限制，非代码缺陷）",
+      "error_type": "OSError/Windows 子进程创建失败"
+    },
+    "slowest": [
+      {
+        "test": "tests/test_daily_market_scan.py::test_refresh_failure_uses_fresh_current_but_returns_nonzero",
+        "seconds": 12.53
+      },
+      {
+        "test": "tests/test_进程监督合同.py::test_owned_native_hang_is_stopped_restarted_and_deduplicated[duckdb]",
+        "seconds": 11.68
+      },
+      {
+        "test": "tests/test_进程监督合同.py::test_owned_native_hang_is_stopped_restarted_and_deduplicated[v3]",
+        "seconds": 11.58
+      },
+      {
+        "test": "tests/test_进程监督合同.py::test_owned_native_hang_is_stopped_restarted_and_deduplicated[sqlite]",
+        "seconds": 10.9
+      }
+    ]
+  },
+  "static_checks": {
+    "ruff_F": "pass",
+    "command": "python -m ruff check src scripts research tests --select F"
+  },
+  "benchmarks": {
+    "script": "scripts/benchmark_refactor.py",
+    "runs_per_scenario": 7,
+    "bars": 720,
+    "feature_preparation": {
+      "seconds_median": 0.027207,
+      "peak_bytes_median": 209316
+    },
+    "detector_replay": {
+      "seconds_median": 0.545182,
+      "peak_bytes_median": 453521
+    },
+    "multi_asset_timeline": {
+      "seconds_median": 0.129794,
+      "peak_bytes_median": 577891
+    },
+    "caveat": "该脚本的 before 为手写对照实现，此处只采用 after（当前实现）作为改前基线"
+  },
+  "structure": {
+    "src_python_files": 287,
+    "src_lines": 45349,
+    "test_python_files": 108,
+    "largest_modules": [
+      {
+        "path": "src/inv_trend/data/storage.py",
+        "lines": 1254
+      },
+      {
+        "path": "src/inv_trend/adapters/multi_asset/backtest/runner.py",
+        "lines": 1197
+      },
+      {
+        "path": "src/inv_trend/adapters/daily/artifact_publisher.py",
+        "lines": 1057
+      },
+      {
+        "path": "src/inv_trend/data/pipeline/行情阶段_v1.py",
+        "lines": 1044
+      },
+      {
+        "path": "src/inv_trend/application/daily/workflow.py",
+        "lines": 1042
+      }
+    ],
+    "functions_over_60_lines": 128,
+    "duplicate_body_groups": 3
+  }
+}

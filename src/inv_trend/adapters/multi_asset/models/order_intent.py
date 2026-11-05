@@ -69,5 +69,3 @@ class ReservationBook:
             symbols[intent.order.symbol] = symbols.get(intent.order.symbol, 0.0) + risk
         return ReservationUsage(total, long, short, notional, symbols)
 
-    def total_usage(self) -> ReservationUsage:
-        return self.usage_excluding()

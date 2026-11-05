@@ -21,8 +21,3 @@ class InstrumentRegistry:
             raise InstrumentNotImplementedError(f"instrument is reserved for a future provider: {symbol}")
         return instrument
 
-    def symbol_for_instrument_id(self, instrument_id: str) -> str:
-        for symbol, instrument in self.instruments.items():
-            if instrument.instrument_id == instrument_id:
-                return symbol
-        raise KeyError(f"instrument_id is not registered: {instrument_id}")

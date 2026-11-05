@@ -132,13 +132,70 @@ def test_notification_delivery_reuses_outbox_and_recovery_semantics() -> None:
 
     result = delivery.deliver("run-1")
 
-    assert result == {"notified": 1, "errors": 0, "recovered": 1}
+    assert result == {"notified": 1, "errors": 0, "recovered": 1, "persist_errors": 0}
     assert notifier.signal_ids == [current.signal_id, recovered.signal_id]
     assert repository.notified == [
         (current.signal_id, "2026-08-20T02:00:00+00:00"),
         (recovered.signal_id, "2026-08-20T02:00:00+00:00"),
     ]
     assert repository.errors == []
+
+
+def test_recovery_delivery_failure_is_counted_as_an_error() -> None:
+    """A failed cross-run retry must not leave the run looking successful.
+
+    The recovery loop used to only record the outbox error, so the caller
+    ({notified, errors, recovered}) reported zero errors and the CLI exited 0
+    even though the notification was never delivered.
+    """
+
+    current = _event("BTC")
+    recovered = _event("ETH")
+
+    class _FlakyNotifier(_Notifier):
+        def notify(self, signal: SignalEvent) -> None:
+            if signal.signal_id == recovered.signal_id:
+                raise RuntimeError("webhook 503")
+            super().notify(signal)
+
+    repository = _Repository([current], [recovered])
+    delivery = NotificationDeliveryService(
+        repository,  # type: ignore[arg-type]
+        _FlakyNotifier(),
+        now=lambda: datetime(2026, 8, 20, 2, tzinfo=timezone.utc),
+    )
+
+    result = delivery.deliver("run-1")
+
+    assert result["notified"] == 1
+    assert result["recovered"] == 0
+    assert result["errors"] == 1
+    assert result["persist_errors"] == 0
+    assert repository.errors == [(recovered.signal_id, "webhook 503")]
+
+
+def test_unrecorded_notification_is_reported_instead_of_counted_as_sent() -> None:
+    """Notify succeeded but the outbox write failed: that is a pipeline error."""
+
+    current = _event("BTC")
+
+    class _UnwritableRepository(_Repository):
+        def mark_notified(self, signal_id: str, notified_at: str | None = None) -> None:
+            raise RuntimeError("database is locked")
+
+    repository = _UnwritableRepository([current], [])
+    delivery = NotificationDeliveryService(
+        repository,  # type: ignore[arg-type]
+        _Notifier(),
+        now=lambda: datetime(2026, 8, 20, 2, tzinfo=timezone.utc),
+    )
+
+    result = delivery.deliver("run-1")
+
+    assert result["notified"] == 0
+    assert result["errors"] == 1
+    assert result["persist_errors"] == 1
+    assert repository.errors and "notified but unrecorded" in repository.errors[0][1]
 
 
 def test_daily_ports_do_not_depend_on_concrete_adapters() -> None:

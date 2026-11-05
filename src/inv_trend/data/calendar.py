@@ -157,9 +157,20 @@ _SPECIAL_CLOSURES = frozenset({
 
 
 def nyse_holidays(year: int) -> set[date]:
-    """NYSE-observed closures for a calendar year (rules-based)."""
-    holidays = {
+    """NYSE-observed closures that actually fall inside the given year.
+
+    Observance moves a holiday to the nearest weekday, which can cross a year
+    boundary: when January 1 is a Saturday the exchange closes on the previous
+    December 31.  The candidate dates below therefore include the *next* New
+    Year, and the final filter keeps only dates inside the requested year.
+    Building the set from the holiday name's year used to leave the previous
+    December 31 out of the calendar, so a closed session was counted as a
+    missing provider bar and permanently quarantined otherwise valid data.
+    """
+
+    candidates = {
         _observed(date(year, 1, 1)),                       # New Year's Day
+        _observed(date(year + 1, 1, 1)),                   # observed back into year
         _nth_weekday(year, 1, 0, 3),                       # MLK Jr. Day
         _nth_weekday(year, 2, 0, 3),                       # Washington's Birthday
         _easter(year) - timedelta(days=2),                 # Good Friday
@@ -170,9 +181,9 @@ def nyse_holidays(year: int) -> set[date]:
         _observed(date(year, 12, 25)),                     # Christmas
     }
     if year >= 2022:
-        holidays.add(_observed(date(year, 6, 19)))         # Juneteenth
-    holidays.update(closure for closure in _SPECIAL_CLOSURES if closure.year == year)
-    return holidays
+        candidates.add(_observed(date(year, 6, 19)))       # Juneteenth
+    candidates.update(_SPECIAL_CLOSURES)
+    return {day for day in candidates if day.year == year}
 
 
 def is_nyse_trading_day(d: date | pd.Timestamp) -> bool:
