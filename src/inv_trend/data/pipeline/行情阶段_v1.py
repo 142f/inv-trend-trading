@@ -662,11 +662,12 @@ class BarsCore:
         elif status == "REVIEW_REQUIRED":
             # Review candidates preserve both sides of every conflict so a human
             # can approve either the published (base) or the incoming values.
+            # Read the published base once: each call re-reads the Parquet file,
+            # re-hashes it and globs the curated tree.
             candidate_dir = Path("reviews") / f"candidate={request_id}"
-            if not self._existing_curated(instrument, timeframe).empty:
-                self.lake.write_frame(
-                    self._existing_curated(instrument, timeframe), candidate_dir / "base.parquet"
-                )
+            base_frame = self._existing_curated(instrument, timeframe)
+            if not base_frame.empty:
+                self.lake.write_frame(base_frame, candidate_dir / "base.parquet")
             if not rejected_incoming.empty:
                 self.lake.write_frame(rejected_incoming, candidate_dir / "incoming.parquet")
             if conflicts:
@@ -682,7 +683,7 @@ class BarsCore:
                                   "timeframe": timeframe, "instrument_id": instrument.instrument_id,
                                   "dataset_version": dataset_version,
                                   "conflict_count": len(conflicts),
-                                  "base_rows": len(self._existing_curated(instrument, timeframe)),
+                                  "base_rows": len(base_frame),
                                   "incoming_rows": len(rejected_incoming),
                                   "file_hashes": {path_text(path, self.lake.root): sha256_file(path)
                                                   for path in candidate_files},
