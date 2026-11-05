@@ -140,11 +140,11 @@ def test_turtle_votes_with_the_configured_entry_periods() -> None:
     )
     assert _turtle_direction(row, config)["direction"] == "none"
 
-    bars = _bars([100.0 + value for value in range(80)])
+    # A final close above every prior high is a breakout of both entry channels.
+    bars = _bars([100.0 + value for value in range(79)] + [250.0])
     prepared = prepare_daily_strategy_checks(bars, config, session_anchor=bars.index[0])
     result = analyze_prepared_strategy_checks(prepared)
-    assert result["turtle"]["status"] == "ready"
-    assert result["turtle"]["direction"] == "long"
+    assert result["rating"]["family_votes"]["turtle"] == "long"
 
 
 def test_daily_check_configuration_rejects_unknown_nested_keys() -> None:

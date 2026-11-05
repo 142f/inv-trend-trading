@@ -24,10 +24,15 @@ def test_feature_cache_reuses_only_identical_input_and_request() -> None:
     cache = FeatureCache()
     request = FeatureRequest.turtle(atr_period=20, channel_periods=(20, 55))
     first = cache.prepare(bars, request)
-    assert cache.prepare(bars.copy(), request) is first
+    repeated = cache.prepare(bars.copy(), request)
+    # The cache avoids recomputation but hands out an isolated frame, so a
+    # caller cannot mutate the entry everyone else receives.
+    assert repeated.frame is not first.frame
+    assert repeated.frame.equals(first.frame)
+    assert repeated.input_fingerprint == first.input_fingerprint
     changed = bars.copy()
     changed.iloc[-1, changed.columns.get_loc("close")] += 1.0
-    assert cache.prepare(changed, request) is not first
+    assert cache.prepare(changed, request).input_fingerprint != first.input_fingerprint
 
 
 def test_prepared_bars_excludes_current_bar_from_donchian() -> None:
