@@ -42,6 +42,18 @@ def test_percentile_matches_independent_window_reference(lookback, minimum, kind
     )
 
 
+def test_percentile_default_warmup_is_the_full_lookback_window():
+    """A "120-day" percentile must not be computed from 30 observations."""
+
+    values = pd.Series(np.random.default_rng(11).normal(size=200).cumsum())
+    default = rolling_percentile(values, 120)
+    explicit = rolling_percentile(values, 120, min_periods=120)
+
+    pd.testing.assert_series_equal(default, explicit, check_exact=True)
+    assert default.iloc[:119].isna().all()
+    assert default.iloc[119:].notna().all()
+
+
 @pytest.mark.parametrize("dtype", ["float64", "float32", "Float64"])
 @pytest.mark.parametrize("size", [0, 1, 200])
 def test_true_range_preserves_dtype_missing_values_and_index(dtype, size):

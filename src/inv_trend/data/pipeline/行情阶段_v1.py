@@ -8,7 +8,7 @@
 - ``BarsCore.persist``                   ← ``_ingest_result`` 的落盘半
 - ``BarsCore.read``                      ← ``load_bars`` / ``load_bars_version`` / ``_strategy_visible_bars``
 - ``BarsCore.reprocess_raw``             ← ``reprocess_raw``
-- 纯函数 ``_bounded_range`` / ``_completed_bar_changes`` / ``_same_bar_value`` /
+- 纯函数 ``_bounded_range`` / ``_bar_change_mask`` / ``_same_bar_value`` /
   ``_validate_provider_identity`` / ``_fallback_eligible`` / ``_group_consecutive``
 
 搬移铁律：只改 import 与接收参数（``self.xxx`` → 显式注入），
@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Callable, Mapping
 from uuid import uuid4
 
+import numpy as np
 import pandas as pd
 
 from inv_trend.infra.integrity import sha256_file, stable_hash, strategy_frame_hash
@@ -88,62 +89,114 @@ def _bounded_range(instrument: InstrumentConfig, start: datetime, end: datetime)
     return start, end
 
 
-def _timestamp_positions(frame: pd.DataFrame) -> tuple[dict[object, int], int | None]:
-    """Last row of each timestamp. NaT is not equal to itself, so it is stored apart."""
+def _aligned_positions(existing: pd.DataFrame, incoming: pd.DataFrame) -> np.ndarray:
+    """``existing`` position of each incoming timestamp (``-1`` when absent).
 
-    positions: dict[object, int] = {}
-    missing: int | None = None
-    for position, timestamp in enumerate(frame["timestamp"].tolist()):
-        if pd.isna(timestamp):
-            missing = position
-        else:
-            positions[timestamp] = position
-    return positions, missing
+    Same definition as :func:`_timestamp_positions` + :func:`_locate_timestamp`
+    (last occurrence wins, ``NaT`` maps to the last missing row), computed with a
+    hash join instead of a per-row dictionary probe.
+    """
+
+    stamps = existing["timestamp"]
+    targets = incoming["timestamp"]
+    keep = (~stamps.duplicated(keep="last")) & stamps.notna()
+    mapped = np.full(len(targets), -1, dtype=np.int64)
+    real = ~targets.isna().to_numpy()
+    if keep.any() and real.any():
+        # ``keep`` selects the surviving row of each timestamp, but
+        # ``get_indexer`` counts inside the compacted index; the original row
+        # numbers have to be carried along explicitly.
+        rows = np.flatnonzero(keep.to_numpy())
+        if stamps.dtype == targets.dtype:
+            found = pd.Index(stamps.iloc[rows].to_numpy()).get_indexer(
+                pd.Index(targets[real].to_numpy())
+            )
+            mapped[real] = np.where(found >= 0, rows[np.maximum(found, 0)], -1)
+        else:  # exotic dtype mixes keep the exact scalar definition
+            positions = dict(zip(stamps.iloc[rows].tolist(), rows))
+            mapped[real] = [positions.get(value, -1) for value in targets[real].tolist()]
+    missing_rows = np.flatnonzero(stamps.isna().to_numpy())
+    if (~real).any() and missing_rows.size:
+        mapped[~real] = int(missing_rows[-1])
+    return mapped
 
 
-def _locate_timestamp(
-    timestamp: object, positions: dict[object, int], missing: int | None
-) -> int | None:
-    if pd.isna(timestamp):
-        return missing
-    return positions.get(timestamp)
+def _complete_flags(existing: pd.DataFrame, mapped: np.ndarray) -> np.ndarray:
+    """``existing.is_complete`` for each incoming row (``False`` when unmatched)."""
+
+    flags = np.zeros(len(mapped), dtype=bool)
+    if "is_complete" not in existing.columns:
+        return flags
+    values = existing["is_complete"].to_numpy()
+    matched = mapped >= 0
+    if matched.any():
+        flags[matched] = values[mapped[matched]].astype(bool)
+    return flags
 
 
-def _flag(frame: pd.DataFrame, column: str, position: int) -> bool:
-    if column not in frame.columns:
-        return False
-    return bool(frame[column].iloc[position])
+def _numeric_equal(left: np.ndarray, right: np.ndarray) -> np.ndarray:
+    """Vectorised form of the numeric branch of :func:`_same_bar_value`."""
+
+    lhs = left.astype("float64", copy=False)
+    rhs = right.astype("float64", copy=False)
+    with np.errstate(invalid="ignore"):
+        return (np.isnan(lhs) & np.isnan(rhs)) | (np.abs(lhs - rhs) <= 1e-12)
 
 
-def _completed_bar_changes(
+def _vectorisable(left: pd.Series, right: pd.Series) -> bool:
+    return all(
+        values.dtype.kind in "biuf" for values in (left.to_numpy(), right.to_numpy())
+    )
+
+
+def _bar_change_mask(
     existing: pd.DataFrame,
     incoming: pd.DataFrame,
     columns: list[str],
-    selected: pd.Series | None = None,
-):
-    """Pair incoming rows with the last existing row and list changed columns."""
+    mapped: np.ndarray,
+    complete: np.ndarray,
+) -> tuple[np.ndarray, dict[int, list[str]]]:
+    """Which matched, completed incoming rows actually revise a stored value.
 
-    positions, missing = _timestamp_positions(existing)
+    Numeric columns are compared in one vectorised pass; only rows that look
+    changed are re-checked with :func:`_same_bar_value`, so the reported field
+    list keeps the exact scalar semantics (and column order) while the common
+    "nothing was revised" case costs no Python loop at all.
+    """
+
+    changed = np.zeros(len(mapped), dtype=bool)
+    fields: dict[int, list[str]] = {}
+    rows = np.flatnonzero((mapped >= 0) & complete)
+    if rows.size == 0:
+        return changed, fields
+    existing_positions = mapped[rows]
+    different = np.zeros(rows.size, dtype=bool)
+    vectorised = True
+    for column in columns:
+        left, right = existing[column], incoming[column]
+        if not _vectorisable(left, right):
+            vectorised = False
+            break
+        different |= ~_numeric_equal(left.to_numpy()[existing_positions], right.to_numpy()[rows])
+    candidates = rows if not vectorised else rows[different]
+    if candidates.size == 0:
+        return changed, fields
     existing_values = {column: existing[column].tolist() for column in columns}
     incoming_values = {column: incoming[column].tolist() for column in columns}
-    timestamps = incoming["timestamp"].tolist()
-    chosen = selected.tolist() if selected is not None else None
-    for incoming_position, timestamp in enumerate(timestamps):
-        if chosen is not None and not chosen[incoming_position]:
-            continue
-        existing_position = _locate_timestamp(timestamp, positions, missing)
-        if existing_position is None or not _flag(existing, "is_complete", existing_position):
-            changed: list[str] = []
-        else:
-            changed = [
-                column
-                for column in columns
-                if not _same_bar_value(
-                    existing_values[column][existing_position],
-                    incoming_values[column][incoming_position],
-                )
-            ]
-        yield timestamp, existing_position, incoming_position, changed
+    for incoming_position in candidates.tolist():
+        existing_position = int(mapped[incoming_position])
+        revised = [
+            column
+            for column in columns
+            if not _same_bar_value(
+                existing_values[column][existing_position],
+                incoming_values[column][incoming_position],
+            )
+        ]
+        if revised:
+            changed[incoming_position] = True
+            fields[incoming_position] = revised
+    return changed, fields
 
 
 def _same_bar_value(left: object, right: object) -> bool:
@@ -356,13 +409,27 @@ class BarsCore:
         comparable = [column for column in ("open", "high", "low", "close", "adjusted_close", "volume")
                       if column in existing and column in incoming]
         revisions: list[dict[str, object]] = []
-        for timestamp, existing_position, incoming_position, changed in _completed_bar_changes(
-            existing, incoming, comparable, incoming["timestamp"] < cutoff
-        ):
-            if not _flag(incoming, "is_complete", incoming_position):
+        selected = incoming["timestamp"] < cutoff
+        mapped = _aligned_positions(existing, incoming)
+        complete = _complete_flags(existing, mapped)
+        changed, changed_fields = _bar_change_mask(
+            existing, incoming, comparable, mapped, complete
+        )
+        incoming_complete = (
+            incoming["is_complete"].to_numpy().astype(bool)
+            if "is_complete" in incoming.columns
+            else np.zeros(len(incoming), dtype=bool)
+        )
+        timestamps = incoming["timestamp"].tolist()
+        for incoming_position in np.flatnonzero(changed):
+            if not selected.iat[incoming_position] or not incoming_complete[incoming_position]:
                 continue
-            if changed:
-                revisions.append({"timestamp": timestamp.isoformat(), "changed_fields": changed})
+            revisions.append(
+                {
+                    "timestamp": timestamps[incoming_position].isoformat(),
+                    "changed_fields": changed_fields[incoming_position],
+                }
+            )
         return revisions
 
     def merge_current(
@@ -386,37 +453,49 @@ class BarsCore:
                 )
                 if column in existing and column in incoming
             ]
-            keep_incoming: list[bool] = []
-            rejected_positions: list[int] = []
-            for timestamp, existing_position, incoming_position, changed in _completed_bar_changes(
-                existing, incoming, value_columns
-            ):
-                if existing_position is None or not _flag(existing, "is_complete", existing_position):
-                    keep_incoming.append(True)
-                    continue
-                if not changed:
-                    keep_incoming.append(False)
-                    continue
-                old = existing.iloc[existing_position]
-                row = incoming.iloc[incoming_position]
+            keep_incoming = np.ones(len(incoming), dtype=bool)
+            mapped = _aligned_positions(existing, incoming)
+            complete = _complete_flags(existing, mapped)
+            changed, changed_fields = _bar_change_mask(
+                existing, incoming, value_columns, mapped, complete
+            )
+            # A completed bar that already exists always wins: the incoming row
+            # is dropped whether it merely repeats the stored value or revises it.
+            keep_incoming[(mapped >= 0) & complete] = False
+            rejected_positions = np.flatnonzero(changed)
+            existing_values = {
+                column: existing[column].tolist() for column in value_columns
+            }
+            incoming_values = {
+                column: incoming[column].tolist() for column in value_columns
+            }
+            timestamps = incoming["timestamp"].tolist()
+            for incoming_position in rejected_positions.tolist():
+                existing_position = int(mapped[incoming_position])
                 conflicts.append(
                     {
-                        "timestamp": timestamp.isoformat(),
+                        "timestamp": timestamps[incoming_position].isoformat(),
                         "existing_value": {
-                            column: None if pd.isna(old[column]) else old[column]
+                            column: (
+                                None
+                                if pd.isna(existing_values[column][existing_position])
+                                else existing_values[column][existing_position]
+                            )
                             for column in value_columns
                         },
                         "incoming_value": {
-                            column: None if pd.isna(row[column]) else row[column]
+                            column: (
+                                None
+                                if pd.isna(incoming_values[column][incoming_position])
+                                else incoming_values[column][incoming_position]
+                            )
                             for column in value_columns
                         },
-                        "changed_fields": changed,
+                        "changed_fields": changed_fields[incoming_position],
                     }
                 )
-                rejected_positions.append(incoming_position)
-                keep_incoming.append(False)
-            if rejected_positions:
-                rejected.extend(incoming.iloc[position] for position in rejected_positions)
+            if rejected_positions.size:
+                rejected.extend(incoming.iloc[position] for position in rejected_positions.tolist())
             incoming = incoming.loc[keep_incoming]
 
         non_empty = [frame for frame in (existing, incoming) if not frame.empty]

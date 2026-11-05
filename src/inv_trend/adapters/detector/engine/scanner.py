@@ -76,6 +76,10 @@ class TurtleScanner:
         out["volatility_percentile"] = rolling_percentile(
             out["atr_pct"],
             self.config.volatility_lookback,
+            # A "volatility_lookback-day" percentile needs that many
+            # observations, otherwise the scanner ranks today against a
+            # window a quarter of the advertised length.
+            min_periods=self.config.volatility_lookback,
         )
         out["volume_mean"] = (
             out["volume"].rolling(self.config.volume_lookback).mean().shift(1)

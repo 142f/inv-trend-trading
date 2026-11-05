@@ -448,6 +448,10 @@ def _resonance(
     unavailable = []
     if turtle_20["status"] != "ready":
         unavailable.append("turtle_20")
+    if turtle_55["status"] != "ready":
+        # Without this the 55-bar channel missing would still be reported as a
+        # full "all indicators agree" resonance built from two of three votes.
+        unavailable.append("turtle_55")
     if sma["status"] != "ready":
         unavailable.append("sma_10_20")
     if macd["status"] != "ready":

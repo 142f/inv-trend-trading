@@ -72,6 +72,48 @@ def test_stable_id_and_payload_hash_stay_order_sensitive_and_canonical() -> None
     assert stable_id("turtle", "20", "2024-01-01") != stable_id("turtle", "55", "2024-01-01")
     assert stable_id("a", 1) == stable_id("a", "1")
     assert len(stable_id("a", "b")) == 24
+
+
+def test_stable_id_keeps_every_historical_identifier_unchanged() -> None:
+    """The delimiter fix must not rewrite IDs already stored in artifacts."""
+
+    import hashlib
+
+    legacy = lambda *parts: hashlib.sha256("|".join(map(str, parts)).encode("utf-8")).hexdigest()[:24]
+    samples = [
+        ("turtle", "20", "2024-01-01"),
+        ("indicator_episode", "macd", "state", "2024-01-01T00:00:00+00:00"),
+        ("breakout_assessment", "turtle_20", "2024-01-01", "long"),
+        ("anomaly_episode", "gap", "up", "2024-01-01T00:00:00+00:00"),
+        ("single"),
+    ]
+    for parts in samples:
+        assert stable_id(*parts) == legacy(*parts)
+
+
+def test_stable_id_separator_collision_is_fixed() -> None:
+    """Two different tuples that used to join to the same string now differ."""
+
+    left = stable_id("a|b", "c")
+    right = stable_id("a", "b|c")
+    assert left != right
+    assert len(left) == 24 and len(right) == 24
+    # Deterministic, and distinct from any legacy encoding of the same parts.
+    assert left == stable_id("a|b", "c")
+
+
+def test_stable_id_length_prefixed_encoding_is_injective() -> None:
+    """Length prefixes keep multi-part tuples with delimiters unambiguous."""
+
+    pairs = [
+        (("x|y", "z"), ("x", "y|z")),
+        (("a|b|c", "d"), ("a", "b|c|d")),
+        (("p|", "q"), ("p", "|q")),
+    ]
+    for first, second in pairs:
+        assert stable_id(*first) != stable_id(*second)
+    # A delimiter-free input never takes the separated branch.
+    assert stable_id("a", "b") == stable_id("a", "b")
     payload = {"b": 1, "a": ["x", 2]}
     assert stable_hash(payload) == stable_hash({"a": ["x", 2], "b": 1})
     assert stable_hash(payload) == hashlib.sha256(

@@ -184,3 +184,23 @@ def test_prepared_indicators_are_causal_and_output_is_json_safe() -> None:
 
     payload = analyze_daily_signals(prefix)
     assert json.loads(json.dumps(payload, allow_nan=False)) == payload
+
+
+def test_resonance_is_unavailable_while_the_55_bar_channel_is_warming_up() -> None:
+    """Two ready families plus a warming 55-bar channel is not a full resonance."""
+
+    # Convex ramp: every family points long, but only 40 bars exist so the
+    # 55-bar Donchian channel cannot be ready yet.
+    closes = [100.0 + 0.1 * value * value for value in range(39)] + [300.0]
+    highs = [value + 1.0 for value in closes[:-1]] + [301.0]
+    lows = [value - 1.0 for value in closes[:-1]] + [299.0]
+    result = analyze_daily_signals(_bars(closes, highs=highs, lows=lows))
+
+    assert result["indicators"]["turtle_20"]["direction"] == "long"
+    assert result["indicators"]["sma_10_20"]["direction"] == "long"
+    assert result["indicators"]["macd_12_26_9"]["direction"] == "long"
+    assert result["indicators"]["turtle_55"]["status"] == "unavailable"
+
+    resonance = result["resonance"]
+    assert resonance["status"] == "unavailable"
+    assert resonance["unavailable_indicators"] == ["turtle_55"]
