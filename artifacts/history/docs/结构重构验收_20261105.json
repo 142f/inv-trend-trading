@@ -3,7 +3,7 @@
   "captured_at": "2026-11-05T12:50:00+08:00",
   "branch": "refactor/logic-fixes",
   "base_commit": "b551ff8",
-  "head_commit": "b91067a",
+  "head_commit": "2201975",
   "scope": "逻辑修复 + 结构收敛 + 无用代码清理 + 基于实测的性能优化",
   "tests": {
     "before": {
@@ -28,13 +28,13 @@
     },
     "command": "python -m pytest -q -p no:randomly",
     "final": {
-      "collected": 1505,
-      "passed": 1504,
+      "collected": 1538,
+      "passed": 1537,
       "failed": 1,
-      "duration_seconds": 652.57,
+      "duration_seconds": 647.15,
       "warnings": 9
     },
-    "final_failure": "pre-existing Playwright environment failure (unchanged; present in baseline)"
+    "final_failure": "pre-existing Playwright environment failure (identical in baseline)"
   },
   "static_checks": {
     "ruff_F": "pass",
@@ -190,10 +190,17 @@
     "correction": "早前把 application/daily_analysis.py 记为死代码有误：application/daily/strategy_screening.py 从它导入 build_breakout_assessments/build_instrument_report_bundle。它是放错位置的生产代码，已迁移而非简单删除。",
     "p1_6_fix": "signal_commit 在业务事务外 ensure_run，失败时 interrupt_run 标记 INTERRUPTED；两处断言旧行为(无行)的测试已同步改为断言 INTERRUPTED",
     "review": "每项改动按用户要求经过两轮复核（见 git diff 与专项测试）",
-    "final_regression": "1504 passed / 1 failed（既有 Playwright 环境失败）/ 652.57s，全量 1505 收集",
+    "final_regression": "1537 passed / 1 failed（既有 Playwright 环境失败）/ 647.15s",
     "review_passes": [
       "review#1: 逐文件 git diff + 定向测试",
       "review#2: 全仓 diff + 全量回归 + 迁移后零引用检查"
+    ],
+    "q4_q5_q6": "按用户指示保持基线 b551ff8；中途混入的口径改动已逐字节回退，仅文档标注",
+    "additional_fixes": [
+      "P1-6: commit 失败保留 INTERRUPTED 运行行",
+      "P2-13 五项核心潜伏缺陷（步长吞档/检查点时钟/单标的风险/缓存写隔离/非法操作符）",
+      "文件摘要 (path,size,mtime_ns) 记忆化",
+      "Q3: repair_current_lineage 失败闭合回归用例"
     ]
   }
 }

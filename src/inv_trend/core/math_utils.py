@@ -236,7 +236,7 @@ def rolling_percentile(
     the 100th percentile.
 
     The default warm-up is the full window.  A percentile labelled "120-day"
-    must be measured against 120 observations; the previous default of
+    must be measured against 120 observations; the older default of
     ``lookback // 4`` produced the same label from 30 samples, so two call sites
     that differed only in this argument were reporting incomparable numbers
     under one name.  Callers that really want a shorter warm-up must say so.

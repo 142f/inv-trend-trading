@@ -43,6 +43,35 @@ def service(tmp_path, request):
     return result
 
 
+def test_repair_current_lineage_never_certifies_unqualified_data(service, monkeypatch):
+    """Q3: rebuilding lineage must fail closed instead of writing CURATED."""
+
+    from inv_trend.data import api as api_module
+    from inv_trend.data.models import DataQualityError
+
+    pointer = dict(service.lake.current_version('BTC', 'D1'))
+    # A pre-separation pointer has no dataset manifest: that is exactly the case
+    # this repair path exists for.
+    pointer.pop('dataset_manifest_path', None)
+    monkeypatch.setattr(service.lake, 'current_version', lambda *a, **k: dict(pointer))
+
+    class _Rejected:
+        quality_status = 'RESEARCH_ONLY'
+        backtest_suitable = False
+        quality_score = 41.0
+        missing_count = 3
+        duplicate_count = 0
+        ohlc_anomaly_count = 0
+
+    writes = []
+    monkeypatch.setattr(api_module, 'assess_quality', lambda *a, **k: _Rejected())
+    monkeypatch.setattr(service.lake, 'write_json', lambda *a, **k: writes.append(a))
+    with pytest.raises(DataQualityError, match='cannot certify'):
+        service.repair_current_lineage('BTC', 'D1')
+
+    assert writes == []
+
+
 def change_report(service, mutate):
     pointer = service.lake.current_version('BTC', 'D1')
     manifest_path = service.lake._resolve_root_relative(pointer['dataset_manifest_path'])

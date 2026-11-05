@@ -46,13 +46,53 @@ def sha256_bytes(payload: bytes) -> str:
     return hashlib.sha256(payload).hexdigest()
 
 
-def sha256_file(path: str | Path) -> str:
+_HASH_MEMO: dict[tuple[str, int, int, int], str] = {}
+_HASH_MEMO_LIMIT = 4096
+
+
+def clear_hash_memo() -> None:
+    """Drop memoised file digests (tests and long-lived processes may call this)."""
+
+    _HASH_MEMO.clear()
+
+
+def sha256_file(path: str | Path, *, memoize: bool = True) -> str:
+    """Return the SHA-256 of ``path``.
+
+    Verification walks the same artifact several times per run (manifest,
+    lineage, audit, publication).  The digest is memoised on
+    ``(resolved path, size, mtime_ns, inode)``: a rewritten file always gets a
+    new key, so a cached value can never hide a change, and an unchanged file is
+    hashed once instead of once per check.
+    """
+
     path = path if isinstance(path, Path) else Path(path)
+    key: tuple[str, int, int, int] | None = None
+    if memoize:
+        try:
+            stat = path.stat()
+        except OSError:
+            stat = None
+        if stat is not None:
+            key = (
+                str(path.resolve()),
+                stat.st_size,
+                stat.st_mtime_ns,
+                int(getattr(stat, "st_ino", 0) or 0),
+            )
+            cached = _HASH_MEMO.get(key)
+            if cached is not None:
+                return cached
     digest = hashlib.sha256()
     with path.open("rb") as handle:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)
-    return digest.hexdigest()
+    value = digest.hexdigest()
+    if key is not None:
+        if len(_HASH_MEMO) >= _HASH_MEMO_LIMIT:
+            _HASH_MEMO.clear()
+        _HASH_MEMO[key] = value
+    return value
 
 
 def stable_hash(value: object) -> str:

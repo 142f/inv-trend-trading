@@ -265,15 +265,34 @@ def analyze_prepared_strategy_checks(
     return current
 
 
+def _row_count_through(frame: pd.DataFrame, timestamp: pd.Timestamp) -> int:
+    """Number of rows whose index is ``<= timestamp`` (causal prefix length).
+
+    The prepared frames are ascending by construction, so a binary search is
+    enough; the boolean-mask fallback keeps the definition exact for any frame
+    that is not monotonic (e.g. hand-built test frames).
+    """
+
+    index = frame.index
+    if index.is_monotonic_increasing:
+        return int(index.searchsorted(timestamp, side="right"))
+    return int((index <= timestamp).sum())
+
+
 def _state_at(prepared: PreparedDailyStrategyChecks, position: int) -> dict[str, Any]:
-    base = prepared.base.iloc[: position + 1]
-    row = base.iloc[-1]
-    timestamp = base.index[-1]
+    base = prepared.base
+    if position < 0:
+        position += len(base)
+    row = base.iloc[position]
+    timestamp = base.index[position]
+    completed_bars = position + 1
     sma = _sma_alignment(row, prepared.config)
-    ema = _ema_trend(row, prepared.config, len(base))
+    ema = _ema_trend(row, prepared.config, completed_bars)
     turtle = _turtle_direction(row, prepared.config)
     macd = {
-        label: _macd_state(frame.loc[frame.index <= timestamp], prepared.config)
+        label: _macd_state(
+            frame, prepared.config, stop=_row_count_through(frame, timestamp)
+        )
         for label, frame in prepared.macd_frames.items()
     }
     macd_summary = _macd_summary(macd)
@@ -361,10 +380,23 @@ def _turtle_direction(row: pd.Series, config: DailyChecksConfigLike) -> dict[str
     return {"status": "ready" if ready else "unavailable", "direction": direction}
 
 
-def _macd_state(frame: pd.DataFrame, config: DailyChecksConfigLike) -> dict[str, Any]:
+def _macd_state(
+    frame: pd.DataFrame,
+    config: DailyChecksConfigLike,
+    *,
+    stop: int | None = None,
+) -> dict[str, Any]:
+    """MACD state as of ``frame[:stop]``.
+
+    ``stop`` lets callers pass the causal prefix length instead of slicing the
+    frame, so evaluating every bar of a long history stays linear instead of
+    copying a growing prefix per bar.
+    """
+
     minimum = config.macd_slow + config.macd_signal - 1
     cross_minimum = minimum + 1
-    if len(frame) < minimum:
+    total = len(frame) if stop is None else max(0, min(int(stop), len(frame)))
+    if total < minimum:
         return {
             "status": "unavailable",
             "cross_status": "unavailable",
@@ -377,7 +409,7 @@ def _macd_state(frame: pd.DataFrame, config: DailyChecksConfigLike) -> dict[str,
             "event": None,
             "cross_direction": None,
         }
-    row = frame.iloc[-1]
+    row = frame.iloc[total - 1]
     dif, dea = _finite_float(row.get("dif")), _finite_float(row.get("dea"))
     if dif is None or dea is None:
         return {
@@ -392,7 +424,7 @@ def _macd_state(frame: pd.DataFrame, config: DailyChecksConfigLike) -> dict[str,
             "event": None,
             "cross_direction": None,
         }
-    previous = frame.iloc[-2] if len(frame) >= cross_minimum else None
+    previous = frame.iloc[total - 2] if total >= cross_minimum else None
     previous_dif = _finite_float(previous.get("dif")) if previous is not None else None
     previous_dea = _finite_float(previous.get("dea")) if previous is not None else None
     event = None
@@ -409,8 +441,8 @@ def _macd_state(frame: pd.DataFrame, config: DailyChecksConfigLike) -> dict[str,
     )
     return {
         "status": "ready",
-        "cross_status": "ready" if len(frame) >= cross_minimum else "unavailable",
-        "bar_end": frame.index[-1].isoformat(),
+        "cross_status": "ready" if total >= cross_minimum else "unavailable",
+        "bar_end": frame.index[total - 1].isoformat(),
         "dif": dif,
         "dea": dea,
         "histogram": _finite_float(row.get("histogram")),
