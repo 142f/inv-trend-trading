@@ -49,6 +49,7 @@ market-data = "inv_trend.cli.market_data:main"
 storage = "inv_trend.cli.存储治理_v1:main"
 research-stages = "inv_trend.cli.分阶段研究_v1:main"
 trend-monitor = "inv_trend.cli.监控运行:main"
+static-pages = "inv_trend.cli.静态展示:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
@@ -68,6 +69,14 @@ namespaces = false
 "inv_trend.adapters.detector.config" = ["strategy.yaml"]
 "inv_trend.adapters.detector.eligibility" = ["config/eligibility.yaml"]
 "inv_trend.adapters.multi_asset.config" = ["defaults.yaml"]
+"inv_trend.observability.静态展示" = [
+  "pages/*.html",
+  "pages/refactor-acceptance-s1-s5/*.html",
+  "pages/refactor-acceptance-s1-s5/assets/*.js",
+  "pages/refactor-acceptance-s1-s5/_shared/js/*.js",
+  "pages/refactor-acceptance-s1-s5/_shared/fonts/*.ttf",
+  "pages/refactor-acceptance-s1-s5/_shared/fonts/*.txt",
+]
 
 [tool.ruff]
 target-version = "py310"
