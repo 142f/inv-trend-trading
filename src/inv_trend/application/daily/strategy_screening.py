@@ -162,6 +162,25 @@ class StrategyScreeningService:
     # Explicit name for a stage's public operation.
     run = screen
 
+    def unavailable(
+        self,
+        data: DataUpdateResult,
+        *,
+        reason: str,
+        status: str = "FAILED",
+    ) -> StrategyScreeningStage:
+        """Record that screening could not produce evidence for one symbol.
+
+        Used by the stage orchestrator when a single symbol raises: the run keeps
+        going for every other symbol, this symbol is persisted as unavailable,
+        and the formal gate reports it as a failure instead of a silent success.
+        """
+
+        result = _not_run_screening(
+            data, self.configuration_hash, reason=reason, status=status
+        )
+        return StrategyScreeningStage(result, None, {}, {})
+
     def _evaluate_eligibility(
         self,
         candidates: tuple[Mapping[str, Any], ...],
@@ -290,7 +309,11 @@ class StrategyScreeningEvidenceBuilder:
 
 
 def _not_run_screening(
-    data: DataUpdateResult, configuration_hash: str, *, reason: str
+    data: DataUpdateResult,
+    configuration_hash: str,
+    *,
+    reason: str,
+    status: str = "NOT_RUN",
 ) -> StrategyScreeningResult:
     return StrategyScreeningResult(
         symbol=data.symbol,
@@ -300,7 +323,7 @@ def _not_run_screening(
         configuration_hash=configuration_hash,
         dataset_version=data.dataset_version,
         as_of=data.latest_complete_d1,
-        screening_status="NOT_RUN",
+        screening_status=status,
         reason=reason,
         observation_only=data.observation_only,
     )

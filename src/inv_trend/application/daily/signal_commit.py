@@ -370,6 +370,11 @@ class SignalCommitService:
         row["run_status"] = data_gate_status(
             data, mapping(row.get("update")), research_mode=research_mode
         )
+        if screening.screening_status == "FAILED" and not research_mode:
+            # The data gate alone would report "updated" for a symbol whose
+            # screening stage could not run; the run contract models that as a
+            # failed symbol so the exit code and the summary agree.
+            row["run_status"] = "failed"
         return row, persistence
 
 

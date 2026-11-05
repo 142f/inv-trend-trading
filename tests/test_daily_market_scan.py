@@ -245,6 +245,82 @@ def test_staged_daily_workflow_keeps_read_stages_side_effect_free(tmp_path: Path
     assert workflow.stage_executions[-1].recovered is False
 
 
+def _fail_one_symbol(monkeypatch: pytest.MonkeyPatch, symbol: str) -> None:
+    """Make the pinned-bar read fail for exactly one configured symbol."""
+
+    original = DailyWorkflow._load_pinned_bars
+
+    def _patched(self, asset, data_result):
+        if asset.symbol == symbol:
+            raise RuntimeError("pinned bars unreadable")
+        return original(self, asset, data_result)
+
+    monkeypatch.setattr(DailyWorkflow, "_load_pinned_bars", _patched)
+
+
+def test_screening_failure_is_isolated_to_one_symbol(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """One bad symbol must not stop the other symbols or look successful."""
+
+    scanner, _ = _service(tmp_path, symbols=("AAA", "BBB"))
+    workflow = DailyWorkflow(
+        data_root=tmp_path / "data",
+        output_dir=tmp_path / "out",
+        signal_log_dir=tmp_path / "logs",
+        assets=scanner.assets,
+        historical_service=scanner.historical_service,
+        now=lambda: datetime(2024, 4, 19, 12, tzinfo=UTC),
+    )
+    _fail_one_symbol(monkeypatch, "BBB")
+
+    result = workflow.run(
+        symbols=("AAA", "BBB"), bootstrap_days=80, render_html=False
+    )
+
+    rows = {row["symbol"]: row for row in result.snapshot["symbols"]}
+    assert set(rows) == {"AAA", "BBB"}
+    assert rows["AAA"]["run_status"] not in {"failed", "blocked", "stale"}
+    assert rows["BBB"]["run_status"] == "failed"
+    assert "BBB" in result.failed_symbols
+    assert result.exit_code == 1
+    # The broken symbol still has immutable evidence with an explicit reason.
+    staging = (
+        tmp_path / "out" / "runs" / "2024-04-19" / ".staging"
+        / result.snapshot["run_id"] / "BBB" / "01_canonical"
+    )
+    screening = json.loads(
+        (staging / "strategy_screening_result.json").read_text(encoding="utf-8")
+    )
+    assert screening["screening_status"] == "FAILED"
+    assert "pinned bars unreadable" in screening["reason"]
+
+
+def test_strict_mode_aborts_on_the_first_unusable_symbol(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """--strict restores all-or-nothing behaviour for callers that want it."""
+
+    scanner, _ = _service(tmp_path, symbols=("AAA", "BBB"))
+    workflow = DailyWorkflow(
+        data_root=tmp_path / "data",
+        output_dir=tmp_path / "out",
+        signal_log_dir=tmp_path / "logs",
+        assets=scanner.assets,
+        historical_service=scanner.historical_service,
+        now=lambda: datetime(2024, 4, 19, 12, tzinfo=UTC),
+    )
+    _fail_one_symbol(monkeypatch, "BBB")
+
+    with pytest.raises(RuntimeError, match="pinned bars unreadable"):
+        workflow.run(
+            symbols=("AAA", "BBB"),
+            bootstrap_days=80,
+            render_html=False,
+            strict=True,
+        )
+
+
 def test_staged_screen_reads_the_pinned_version_after_current_moves(tmp_path: Path) -> None:
     """A resumed screen must not silently switch to a newly activated D1 set."""
 
@@ -343,8 +419,12 @@ def test_staged_screen_rejects_a_port_that_returns_the_wrong_version(tmp_path: P
     wrong.attrs["dataset_version"] = "another-version"
 
     scanner.historical_service.load_bars_version = lambda *args, **kwargs: wrong.copy()
+    # Strict mode keeps the historical all-or-nothing rejection.
     with pytest.raises(ValueError, match="do not match staged dataset version"):
-        workflow.strategy_screen(run_id=run_id, report_date=report_date)
+        workflow.strategy_screen(run_id=run_id, report_date=report_date, strict=True)
+    # Default mode isolates the same defect instead of stopping the run.
+    summary = workflow.strategy_screen(run_id=run_id, report_date=report_date)
+    assert summary["failures"][0]["symbol"] == "AAA"
 
 
 def test_staged_research_mode_keeps_observation_evidence_without_state_mutation(

@@ -625,7 +625,6 @@ class BarsCore:
                 "dataset_version": dataset_version,
                 "parent_dataset_version": parent_dataset_version,
                 "instrument_id": instrument.instrument_id,
-                "certification_source": "publish_curated",
             }
             quality_relative = Path("quality_reports") / f"{dataset_version}.json"
             quality_path = self.lake.write_json(dataset_quality_payload, quality_relative)

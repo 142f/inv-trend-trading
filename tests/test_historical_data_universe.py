@@ -226,7 +226,9 @@ def test_exact_duplicate_rows_lower_the_published_quality_score(tmp_path: Path):
         (service.lake.root / "quality_reports" / f"{manifest.dataset_version}.json").read_text(encoding="utf-8")
     )
     assert dataset_report["duplicate_count"] == 0
-    assert dataset_report["certification_source"] == "publish_curated"
+    # The published payload shape is frozen by tests/test_数据流水线契约_v1.py;
+    # provenance stays in the dataset manifest instead of the quality document.
+    assert "certification_source" not in dataset_report
 
 
 def test_published_frame_audit_recomputes_counters_instead_of_asserting_zero():
