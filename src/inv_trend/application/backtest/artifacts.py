@@ -3,12 +3,11 @@
 from __future__ import annotations
 
 from inv_trend.infra.integrity import sha256_file
+from inv_trend.infra.文件操作 import atomic_copy, atomic_write
 
 import json
-import os
 from pathlib import Path
 import re
-import shutil
 from typing import Any, Mapping
 
 import pandas as pd
@@ -239,18 +238,20 @@ def _relative(path: Path, root: Path) -> str:
 
 
 def _write_json(path: Path, value: Any) -> None:
+    """Write one JSON artifact through the shared atomic primitive.
+
+    The previous local implementation used a fixed scratch name, so two
+    publishers could overwrite each other mid-write and leave .tmp debris.
+    """
+
     encoded = json.dumps(
         value, ensure_ascii=False, indent=2, allow_nan=False, default=str
     ) + "\n"
-    temporary = path.with_name(f".{path.name}.tmp")
-    temporary.write_text(encoded, encoding="utf-8")
-    os.replace(temporary, path)
+    atomic_write(path, encoded.encode("utf-8"))
 
 
 def _atomic_copy(source: Path, target: Path) -> None:
-    temporary = target.with_name(f".{target.name}.tmp")
-    shutil.copyfile(source, temporary)
-    os.replace(temporary, target)
+    atomic_copy(source, target)
 
 
 def _artifact_hashes(root: Path, exclude: set[str]) -> dict[str, str]:

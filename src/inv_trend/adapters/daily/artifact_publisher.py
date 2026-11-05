@@ -14,6 +14,7 @@ from uuid import uuid4
 
 from inv_trend.core.serializers import as_mapping as _mapping
 from inv_trend.core.serializers import mapping_rows as _rows
+from inv_trend.infra.文件操作 import atomic_copy, atomic_write
 from inv_trend.infra.integrity import sha256_file, stable_hash
 
 if TYPE_CHECKING:
@@ -528,14 +529,14 @@ class DailyRunArtifactWriter:
                         "published run is missing its required HTML report: "
                         f"{report_path}"
                     )
-                _atomic_copy(complete_path, latest / "complete_analysis_result.json")
-                _atomic_copy(report_path, latest / "trend_analysis_report.html")
+                atomic_copy(complete_path, latest / "complete_analysis_result.json")
+                atomic_copy(report_path, latest / "trend_analysis_report.html")
             else:
                 # ``latest`` is a convenience projection, not archival
                 # evidence.  Remove a stale report instead of pairing it with
                 # a newer JSON that was explicitly published without HTML.
                 _remove_file(latest / "trend_analysis_report.html")
-                _atomic_copy(complete_path, latest / "complete_analysis_result.json")
+                atomic_copy(complete_path, latest / "complete_analysis_result.json")
             _atomic_write_json(
                 latest / "结果索引.json",
                 {
@@ -1106,20 +1107,9 @@ def _write_text(path: Path, value: str) -> None:
 
 
 def _atomic_write_text(path: Path, value: str) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(f".{path.name}.tmp")
-    with temporary.open("w", encoding="utf-8", newline="") as handle:
-        handle.write(value)
-        handle.flush()
-        os.fsync(handle.fileno())
-    os.replace(temporary, path)
-
-
-def _atomic_copy(source: Path, destination: Path) -> None:
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    temporary = destination.with_name(f".{destination.name}.tmp")
-    shutil.copyfile(source, temporary)
-    os.replace(temporary, destination)
+    # Single shared implementation: a fixed scratch name made concurrent
+    # publishes read each other half-written file and left .tmp debris behind.
+    atomic_write(path, value.encode("utf-8"))
 
 
 def _copy_file(source: Path, destination: Path) -> None:

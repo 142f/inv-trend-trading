@@ -59,7 +59,10 @@ class ResultRepository:
             if source_bytes is not None and json.loads(source_bytes)!=metadata:
                 raise StoreError('原始回放元数据与导入内容不一致')
             self.store.put_document(meta_key,source_bytes if source_bytes is not None else record,kind='backtest_run',db=db)
-            study=db.execute('SELECT * FROM studies_v3 WHERE ? LIKE study_id || "/%" ORDER BY length(study_id) DESC LIMIT 1',(logical,)).fetchone()
+            # Prefix match on the literal string: LIKE would treat '_' and '%'
+            # inside a study id as wildcards and silently bind the run to the
+            # wrong study (and therefore the wrong lineage metadata).
+            study=db.execute('SELECT * FROM studies_v3 WHERE substr(?,1,length(study_id)+1)=study_id || \'/\' ORDER BY length(study_id) DESC LIMIT 1',(logical,)).fetchone()
             db.execute('INSERT OR IGNORE INTO result_parameters VALUES(?,?,?)',(parameter_hash,canonical(metadata.get('parameters',{})).decode(),utcnow()))
             db.execute('INSERT INTO result_runs VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
                 (run_id,logical,'backtests','SUMMARY_ONLY' if summary_only else 'SUCCEEDED',metadata.get('strategy_version',study['strategy_version'] if study else None),
@@ -128,7 +131,14 @@ class ResultRepository:
         return bool(self.store.rows('SELECT 1 FROM result_tables t JOIN result_runs r USING(run_id) WHERE r.logical_path=? AND t.table_name=?',(self.store.key(folder),name)))
 
     def validate(self,prefix=None):
-        rows=self.store.rows('SELECT r.logical_path,t.table_name FROM result_runs r JOIN result_tables t USING(run_id) WHERE r.logical_path LIKE ?',((self.store.key(prefix)+'/%') if prefix else '%',))
+        if prefix:
+            # Same reason as publish(): a literal prefix, never a LIKE pattern.
+            head=self.store.key(prefix).rstrip('/')+'/'
+            rows=self.store.rows(
+                'SELECT r.logical_path,t.table_name FROM result_runs r JOIN result_tables t USING(run_id) WHERE substr(r.logical_path,1,?)=?',
+                (len(head),head))
+        else:
+            rows=self.store.rows('SELECT r.logical_path,t.table_name FROM result_runs r JOIN result_tables t USING(run_id)')
         for row in rows:self.read_table(row['logical_path'],row['table_name'])
         return {'ok':True,'tables':len(rows)}
 
