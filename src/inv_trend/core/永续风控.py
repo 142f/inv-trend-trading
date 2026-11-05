@@ -7,6 +7,8 @@ import math
 import numpy as np
 import pandas as pd
 
+from .数量步长_v1 import floor_to_step
+
 
 @dataclass(frozen=True)
 class PositionTier:
@@ -127,7 +129,7 @@ class MarginStateMachine:
             # The currently documented rule partially reduces tier >= 3.
             target = (spec.tiers[tier_index - 1].notional_cap / (spec.contract_value * mark)
                       if tier_index >= 2 else 0.)
-            target = math.floor(target / spec.lot_size) * spec.lot_size
+            target = floor_to_step(target, spec.lot_size, name="liquidation target")
             if target < spec.minimum_size:
                 target = 0.
             qty = position.contracts - target
@@ -181,13 +183,23 @@ def stop_loss_value(side, qty, entry, stop, contract_value, roundtrip_cost_rate)
 
 
 def risk_estimates(closes, *, covariance_days=60):
-    """Input ends at the signal close; all rolling estimates are backward-looking."""
-    returns = closes.pct_change(fill_method=None)
+    """Input ends at the signal close; all rolling estimates are backward-looking.
+
+    A single ``Series`` is promoted to a one-column frame: ``Series.cov`` returns
+    a scalar and ``Series.quantile`` returns a float, so the vectorised path used
+    to raise ``AttributeError`` for single-instrument portfolios.  Both shapes
+    now return a ``(n, n)`` covariance and an ``(n,)`` stress vector.
+    """
+    frame = closes.to_frame() if isinstance(closes, pd.Series) else closes
+    if not isinstance(frame, pd.DataFrame) or frame.empty:
+        raise ValueError('closes must be a non-empty Series or DataFrame')
+    returns = frame.pct_change(fill_method=None)
     rolling_vol = returns.rolling(covariance_days).std(ddof=1) * math.sqrt(365.25)
     current = rolling_vol.iloc[-1]
     stress = rolling_vol.iloc[:-1].tail(365).quantile(.95).combine(current, max)
     cov = returns.tail(covariance_days).cov().to_numpy() * 365.25
-    if len(returns.dropna()) < 365 + covariance_days or not np.isfinite(cov).all() or not np.isfinite(stress).all():
+    if (len(returns.dropna()) < 365 + covariance_days or cov.shape != (frame.shape[1],) * 2
+            or not np.isfinite(cov).all() or not np.isfinite(stress.to_numpy()).all()):
         raise ValueError('insufficient causal volatility history')
     return cov, stress.to_numpy()
 
@@ -222,5 +234,5 @@ def risk_sized_contracts(*, equity, side, price, stop, spec,
     leverage = spec.leverage(raw * unit_notional)
     raw = min(raw, max(0., equity * .8 - margin_used) /
               (unit_notional * (1 / leverage + spec.fee_rate)))
-    qty = math.floor(raw / spec.lot_size) * spec.lot_size
+    qty = floor_to_step(raw, spec.lot_size, name="risk-sized contracts")
     return qty if qty >= spec.minimum_size else 0.

@@ -7,7 +7,7 @@ feature calculation into an implicit data read or use data from a different run.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from copy import deepcopy
 import hashlib
 from typing import Iterable
@@ -241,7 +241,11 @@ class FeatureCache:
         if prepared is None:
             prepared = PreparedBars._build_validated(bars, request, fingerprint)
             self._prepared[key] = prepared
-        return prepared
+        # ``PreparedBars`` is frozen but its frame is not: a caller writing into
+        # ``prepared.frame`` used to poison every later run that hits this cache
+        # key.  pandas' copy-on-write turns this into a metadata-only copy, so
+        # the isolation costs no data copy.
+        return replace(prepared, frame=prepared.frame.copy(deep=False))
 
     def clear(self) -> None:
         self._prepared.clear()

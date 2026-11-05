@@ -7,7 +7,6 @@ from __future__ import annotations
 
 from dataclasses import replace
 from copy import deepcopy
-import math
 
 import numpy as np
 import pandas as pd
@@ -17,6 +16,7 @@ from inv_trend.adapters.multi_asset.models.domain import AssetSpec, PortfolioSta
 from inv_trend.adapters.multi_asset.strategy.engine import MultiAssetTurtleStrategy
 from inv_trend.application.strategy_config import DailyChecksConfig
 from inv_trend.core.strategy.daily.strategy_checks import prepare_daily_strategy_checks, analyze_prepared_strategy_checks
+from inv_trend.core.数量步长_v1 import floor_to_step
 from inv_trend.core.趋势准入 import trend_filter, confirmed_eligibility
 from inv_trend.core.永续风控 import (IsolatedPosition, MarginStateMachine, specification_at,
                                  funding_cashflow, risk_sized_contracts, risk_estimates,
@@ -178,7 +178,7 @@ class MinuteReplay:
             unit_notional = price * spec.contract_value
             qty = min(order.qty, max(0., 3 * equity - gross) / unit_notional,
                       spec.tiers[-1].notional_cap / unit_notional)
-            qty = math.floor(qty / spec.lot_size) * spec.lot_size
+            qty = floor_to_step(qty, spec.lot_size, name="original-mode quantity")
         if not self.candidate['pyramid'] and order.action == 'add':
             qty = 0.
         if qty and self.risk_mode == 'standardized':
@@ -198,7 +198,7 @@ class MinuteReplay:
                     low = mid
                 else:
                     high = mid
-            qty = math.floor(low / spec.lot_size) * spec.lot_size
+            qty = floor_to_step(low, spec.lot_size, name="volatility-scaled quantity")
         if qty < spec.minimum_size:
             self.events.append(dict(timestamp=str(t), symbol=symbol, action='REJECT', reason='RISK_OR_MINIMUM_SIZE'))
             return
@@ -292,7 +292,7 @@ class MinuteReplay:
             leverage = spec.leverage(p.total_qty * spec.contract_value * self.prices[s])
             local = min(local, max(0., self.margins[s]) * leverage /
                         (p.total_qty * spec.contract_value * self.prices[s]))
-            target = math.floor(p.total_qty * local / spec.lot_size) * spec.lot_size
+            target = floor_to_step(p.total_qty * local, spec.lot_size, name="risk reduction target")
             if target < spec.minimum_size:
                 target = 0.
             if p.total_qty - target >= spec.lot_size * .999:
