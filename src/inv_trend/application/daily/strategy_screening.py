@@ -19,7 +19,7 @@ from inv_trend.core.strategy.daily import (
     prepare_daily_analysis,
 )
 
-from ..daily_analysis import (
+from .report_projection import (
     build_breakout_assessments,
     build_instrument_report_bundle,
 )

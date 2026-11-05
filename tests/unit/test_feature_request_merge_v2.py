@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from inv_trend.application.daily_analysis import prepare_daily_analysis
+from inv_trend.application.daily.report_projection import prepare_daily_analysis
 from inv_trend.application.strategy_config import DailyChecksConfig
 from inv_trend.core.features import FeatureRequest, PreparedBars
 

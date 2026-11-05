@@ -508,7 +508,7 @@ DEFAULT_CHANGE_LOG: tuple[Mapping[str, str], ...] = (
         "effect": "平稳窗口稳定在 50%；异常证据、阶段摘要和图表统一使用可比较的 ATR 倍数。",
     },
     {
-        "module": "application/daily_analysis.py + observability/report_renderer.py",
+        "module": "application/daily/report_projection.py + observability/report_renderer.py",
         "change": "区分海龟正式收盘突破与盘中越轨观察，并聚合异常阶段",
         "reason": "K 线影线越过通道但收盘回落时，旧报告无法解释为何没有正式信号；逐日异常也会形成重复噪声。",
         "effect": "正式策略语义不变；报告增加盘中未确认证据、异常阶段和可展开的逐日明细。",
@@ -532,7 +532,7 @@ DEFAULT_CHANGE_LOG: tuple[Mapping[str, str], ...] = (
         "effect": "每个条件均输出实际值、阈值、运算、满足状态、相对位置、权重、时间和价格。",
     },
     {
-        "module": "application/daily_analysis.py",
+        "module": "application/daily/report_projection.py",
         "change": "新增单一日报分析结果",
         "reason": "计算、回放、图表和 JSON 之前分散拼装，存在重复计算和字段漂移。",
         "effect": "策略结果、条件树、异常、状态和图表数据均来自同一份 PreparedDailyAnalysis。",
