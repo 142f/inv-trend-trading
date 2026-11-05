@@ -23,7 +23,7 @@ from inv_trend.application.daily_stages import (
     StrategyScreeningService as LegacyScreeningService,
     TrendDecisionService as LegacyDecisionService,
 )
-from inv_trend.application.daily_analysis import prepare_daily_analysis as legacy_prepare_daily_analysis
+from inv_trend.application.daily.report_projection import prepare_daily_analysis as legacy_prepare_daily_analysis
 from inv_trend.application.daily_models import StrategyScreeningResult
 from inv_trend.application.daily.strategy_screening import _screening_snapshot
 from inv_trend.core.signals import SignalEvent

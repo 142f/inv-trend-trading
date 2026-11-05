@@ -245,6 +245,139 @@ def test_staged_daily_workflow_keeps_read_stages_side_effect_free(tmp_path: Path
     assert workflow.stage_executions[-1].recovered is False
 
 
+def _fail_one_symbol(monkeypatch: pytest.MonkeyPatch, symbol: str) -> None:
+    """Make the pinned-bar read fail for exactly one configured symbol."""
+
+    original = DailyWorkflow._load_pinned_bars
+
+    def _patched(self, asset, data_result):
+        if asset.symbol == symbol:
+            raise RuntimeError("pinned bars unreadable")
+        return original(self, asset, data_result)
+
+    monkeypatch.setattr(DailyWorkflow, "_load_pinned_bars", _patched)
+
+
+def test_screening_failure_is_isolated_to_one_symbol(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """One bad symbol must not stop the other symbols or look successful."""
+
+    scanner, _ = _service(tmp_path, symbols=("AAA", "BBB"))
+    workflow = DailyWorkflow(
+        data_root=tmp_path / "data",
+        output_dir=tmp_path / "out",
+        signal_log_dir=tmp_path / "logs",
+        assets=scanner.assets,
+        historical_service=scanner.historical_service,
+        now=lambda: datetime(2024, 4, 19, 12, tzinfo=UTC),
+    )
+    _fail_one_symbol(monkeypatch, "BBB")
+
+    result = workflow.run(
+        symbols=("AAA", "BBB"), bootstrap_days=80, render_html=False
+    )
+
+    rows = {row["symbol"]: row for row in result.snapshot["symbols"]}
+    assert set(rows) == {"AAA", "BBB"}
+    assert rows["AAA"]["run_status"] not in {"failed", "blocked", "stale"}
+    assert rows["BBB"]["run_status"] == "failed"
+    assert "BBB" in result.failed_symbols
+    assert result.exit_code == 1
+    # The broken symbol still has immutable evidence with an explicit reason.
+    staging = (
+        tmp_path / "out" / "runs" / "2024-04-19" / ".staging"
+        / result.snapshot["run_id"] / "BBB" / "01_canonical"
+    )
+    screening = json.loads(
+        (staging / "strategy_screening_result.json").read_text(encoding="utf-8")
+    )
+    assert screening["screening_status"] == "FAILED"
+    assert "pinned bars unreadable" in screening["reason"]
+
+
+def test_strict_mode_aborts_on_the_first_unusable_symbol(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """--strict restores all-or-nothing behaviour for callers that want it."""
+
+    scanner, _ = _service(tmp_path, symbols=("AAA", "BBB"))
+    workflow = DailyWorkflow(
+        data_root=tmp_path / "data",
+        output_dir=tmp_path / "out",
+        signal_log_dir=tmp_path / "logs",
+        assets=scanner.assets,
+        historical_service=scanner.historical_service,
+        now=lambda: datetime(2024, 4, 19, 12, tzinfo=UTC),
+    )
+    _fail_one_symbol(monkeypatch, "BBB")
+
+    with pytest.raises(RuntimeError, match="pinned bars unreadable"):
+        workflow.run(
+            symbols=("AAA", "BBB"),
+            bootstrap_days=80,
+            render_html=False,
+            strict=True,
+        )
+
+
+def test_failed_atomic_commit_leaves_an_interrupted_run_but_no_business_state(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A failed commit must be auditable without leaking cursors or signals."""
+
+    scanner, _ = _service(tmp_path)
+    workflow = DailyWorkflow(
+        data_root=tmp_path / "data",
+        output_dir=tmp_path / "out",
+        signal_log_dir=tmp_path / "logs",
+        assets=scanner.assets,
+        historical_service=scanner.historical_service,
+        now=lambda: datetime(2024, 4, 19, 12, tzinfo=UTC),
+    )
+    report_date, run_id = "2024-04-19", "failed-commit"
+    workflow.data_update(
+        run_id=run_id,
+        report_date=report_date,
+        symbols=("AAA",),
+        bootstrap_days=80,
+    )
+    workflow.strategy_screen(run_id=run_id, report_date=report_date)
+    workflow.trend_decide(run_id=run_id, report_date=report_date)
+
+    def fail_commit(self, **kwargs):
+        raise RuntimeError("atomic commit failed")
+
+    monkeypatch.setattr(SQLiteDailySignalRepository, "commit_daily_run", fail_commit)
+    with pytest.raises(RuntimeError, match="atomic commit failed"):
+        workflow.commit(run_id=run_id, report_date=report_date)
+
+    with sqlite3.connect(workflow.database_path) as connection:
+        run = connection.execute(
+            "SELECT status, error_count FROM daily_runs WHERE run_id=?", (run_id,)
+        ).fetchone()
+        assert run == ("INTERRUPTED", 1)
+        assert connection.execute("SELECT COUNT(*) FROM scan_cursors").fetchone()[0] == 0
+        assert connection.execute("SELECT COUNT(*) FROM signal_events").fetchone()[0] == 0
+        assert connection.execute("SELECT COUNT(*) FROM signal_outbox").fetchone()[0] == 0
+
+
+def test_ensure_run_persists_a_failed_commit_once(tmp_path: Path) -> None:
+    """P1-6 review: a failed commit must be visible and idempotent."""
+
+    db_path = tmp_path / "state" / "signals.sqlite3"
+    repository = SQLiteDailySignalRepository(db_path)
+    started = "2024-04-19T00:00:00+00:00"
+    assert repository.ensure_run("audit-run", started) is True
+    assert repository.ensure_run("audit-run", started) is False
+    repository.interrupt_run("audit-run", "2024-04-19T00:01:00+00:00")
+    with sqlite3.connect(db_path) as db:
+        row = db.execute(
+            "SELECT status, error_count FROM daily_runs WHERE run_id=?", ("audit-run",)
+        ).fetchone()
+    assert row == ("INTERRUPTED", 1)
+
+
 def test_staged_screen_reads_the_pinned_version_after_current_moves(tmp_path: Path) -> None:
     """A resumed screen must not silently switch to a newly activated D1 set."""
 
@@ -343,8 +476,12 @@ def test_staged_screen_rejects_a_port_that_returns_the_wrong_version(tmp_path: P
     wrong.attrs["dataset_version"] = "another-version"
 
     scanner.historical_service.load_bars_version = lambda *args, **kwargs: wrong.copy()
+    # Strict mode keeps the historical all-or-nothing rejection.
     with pytest.raises(ValueError, match="do not match staged dataset version"):
-        workflow.strategy_screen(run_id=run_id, report_date=report_date)
+        workflow.strategy_screen(run_id=run_id, report_date=report_date, strict=True)
+    # Default mode isolates the same defect instead of stopping the run.
+    summary = workflow.strategy_screen(run_id=run_id, report_date=report_date)
+    assert summary["failures"][0]["symbol"] == "AAA"
 
 
 def test_staged_research_mode_keeps_observation_evidence_without_state_mutation(
@@ -537,9 +674,11 @@ def test_staged_commit_rolls_back_a_late_sqlite_failure_for_every_symbol(
     assert repository.load_cursor("BBB.TEST.SPOT", "D1", "corrected-v2") is None
     assert repository.pending_notifications() == []
     with sqlite3.connect(workflow.database_path) as db:
+        # The operational run row stays observable as INTERRUPTED (P1-6 fix);
+        # only the business state inside the transaction is rolled back.
         assert db.execute(
-            "SELECT COUNT(*) FROM daily_runs WHERE run_id=?", (run_id,)
-        ).fetchone()[0] == 0
+            "SELECT status FROM daily_runs WHERE run_id=?", (run_id,)
+        ).fetchone() == ("INTERRUPTED",)
         assert db.execute(
             "SELECT COUNT(*) FROM daily_run_instruments WHERE run_id=?", (run_id,)
         ).fetchone()[0] == 0
@@ -580,8 +719,8 @@ def test_staged_commit_rejects_a_cursor_advanced_by_a_newer_run(tmp_path: Path) 
     assert repository.load_cursor("AAA.TEST.SPOT", "D1", "corrected-v2") == committed_cursor
     with sqlite3.connect(workflow.database_path) as db:
         assert db.execute(
-            "SELECT COUNT(*) FROM daily_runs WHERE run_id=?", (older_run,)
-        ).fetchone()[0] == 0
+            "SELECT status FROM daily_runs WHERE run_id=?", (older_run,)
+        ).fetchone() == ("INTERRUPTED",)
 
 
 def test_staged_commit_deserializes_decision_projection_without_signal_generator(

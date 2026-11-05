@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 
 from inv_trend.application.daily.trend_decision import _structured_evidence_chain
-from inv_trend.application.daily_analysis import build_instrument_report_bundle
+from inv_trend.application.daily.report_projection import build_instrument_report_bundle
 from inv_trend.application.strategy_config import DailyChecksConfig
 from inv_trend.core.strategy.daily import (
     build_indicator_lifecycles,

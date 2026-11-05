@@ -15,7 +15,7 @@ from inv_trend.adapters.detector.indicators.daily_strategy_checks import (
     daily_strategy_feature_request as legacy_daily_strategy_feature_request,
     prepare_daily_strategy_checks as legacy_prepare_daily_strategy_checks,
 )
-from inv_trend.application.daily_analysis import (
+from inv_trend.application.daily.report_projection import (
     PreparedDailyAnalysis as legacy_prepared_daily_analysis,
     analyze_prepared_daily_analysis as legacy_analyze_prepared_daily_analysis,
     build_rule_evaluations as legacy_build_rule_evaluations,

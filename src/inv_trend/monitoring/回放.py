@@ -55,7 +55,9 @@ class HistoricalReplay:
         decisions = []
         total = len(bars)
         for index, bar_time in enumerate(bars.index):
-            prefix = bars.iloc[:index + 1].copy()
+            # A slice view is enough: _scan_verified_prefix re-indexes (and copies)
+            # the prefix anyway, so copying here doubled the per-bar frame cost.
+            prefix = bars.iloc[:index + 1]
             prefix.attrs = deepcopy(bars.attrs)
             end = pd.Timestamp(prefix.iloc[-1]['bar_end']) if 'bar_end' in prefix else bar_time + pd.Timedelta(
                 '1D' if frame == 'D1' else '4h')

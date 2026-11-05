@@ -1,0 +1,176 @@
+{
+  "schema_version": 1,
+  "captured_at": "2026-11-05T12:50:00+08:00",
+  "branch": "refactor/logic-fixes",
+  "base_commit": "b551ff8",
+  "head_commit": "b91067a",
+  "scope": "逻辑修复 + 结构收敛 + 无用代码清理 + 基于实测的性能优化",
+  "tests": {
+    "before": {
+      "collected": 1488,
+      "passed": 1487,
+      "failed": 1,
+      "duration_seconds": 786.11,
+      "warnings": 9
+    },
+    "after": {
+      "collected": 1501,
+      "passed": 1500,
+      "failed": 1,
+      "duration_seconds": 694.94,
+      "warnings": 9
+    },
+    "added_tests": 13,
+    "failure": {
+      "test": "tests/test_美股前100指标_像素.py::test_board_pixels_match_baseline",
+      "status": "pre-existing environment failure (Playwright driver cannot spawn in this sandbox)",
+      "changed_by_this_refactor": false
+    },
+    "command": "python -m pytest -q -p no:randomly"
+  },
+  "static_checks": {
+    "ruff_F": "pass",
+    "architecture_boundaries": "13 passed",
+    "golden_master": "pass (included in full suite)"
+  },
+  "fixes": [
+    {
+      "id": "P0-1",
+      "area": "data/calendar.py",
+      "what": "NYSE 元旦补休跨年错配",
+      "evidence": "is_nyse_trading_day(2021-12-31) True -> False; classify_missing holiday=1 provider_gap=0"
+    },
+    {
+      "id": "P0-2",
+      "area": "data/pipeline + data/processing + data/review",
+      "what": "质量计数写死为 0、dataset 级请求窗口自证",
+      "evidence": "重复行现在 duplicate_count=1、score<100"
+    },
+    {
+      "id": "P0-3",
+      "area": "data/api.py",
+      "what": "repair 无条件写 CURATED",
+      "evidence": "低质量帧抛 DataQualityError"
+    },
+    {
+      "id": "P0-4",
+      "area": "application/daily/notification_delivery.py",
+      "what": "恢复投递失败未计数",
+      "evidence": "新增用例 errors=1/persist_errors"
+    },
+    {
+      "id": "P0-5",
+      "area": "infra/脱敏.py + storage + observability",
+      "what": "两套脱敏强度不一致导致凭据落盘",
+      "evidence": "三入口一致性用例；token/signature/webhook 全部脱敏"
+    },
+    {
+      "id": "P1-1",
+      "area": "monitoring/扫描器.py",
+      "what": "git 缺失/卡死导致监控无法启动",
+      "evidence": "OSError 时 git_commit=unknown"
+    },
+    {
+      "id": "P1-2",
+      "area": "storage/研究结果_v3.py",
+      "what": "LIKE 通配符误绑 study",
+      "evidence": "qXw_x 不再命中 q_w_x"
+    },
+    {
+      "id": "P1-3",
+      "area": "infra/文件操作.py + artifact_publisher + backtest/artifacts",
+      "what": "固定临时名原子写",
+      "evidence": "无 .tmp 残留；replace=False 语义用例"
+    },
+    {
+      "id": "P1-4",
+      "area": "data/storage.py + data/audit.py",
+      "what": "一致性检查/全量审计 N×M 连接",
+      "evidence": "见 performance.storage"
+    },
+    {
+      "id": "P1-7",
+      "area": "storage/制品.py",
+      "what": "不可达的 storage_version=3 读回分支",
+      "evidence": "全仓无写入方（grep 仅读取处）"
+    }
+  ],
+  "deleted_code": [
+    "src/inv_trend/adapters/detector/risk/position_sizing.py (整文件)",
+    "src/inv_trend/observability/audit.py (整文件)",
+    "adapters/multi_asset/backtest/runner._trade_cost",
+    "adapters/multi_asset/data/pipeline.data_columns/ensure_columns/OPTIONAL_COLUMNS",
+    "integrations/okx.utc_now_ms",
+    "storage/组合研究_v1.PortfolioRepository.read_report",
+    "application/EMA统一基准.config_dict",
+    "application/多品种验收._phase_table",
+    "core/四资产合同_v1.unverified_contract",
+    "data/registry.symbol_for_instrument_id",
+    "adapters/multi_asset/models/order_intent.ReservationBook.total_usage",
+    "data/pipeline/行情阶段_v1._group_consecutive (重复副本，零调用)",
+    "application/daily_pipeline 两个从未读取的 service 字段",
+    "storage/阶段运行_v1 恒假身份冲突分支"
+  ],
+  "kept_pending_confirmation": [
+    "integrations/okx.place_market_order/place_limit_order/system_time (可能是对外封装)",
+    "notifications/渠道.NotificationChannel Protocol (零引用，可能是结构约定)",
+    "core/math_utils.macd() (公开 API，src 内零调用)",
+    "application/daily_analysis.py (生产零导入，仅测试引用)",
+    "application/滚动验证.py 的 assert 泄漏防线",
+    "core/EMA趋势策略.py 自写 ATR/ADX 与 wilder_atr 口径差异"
+  ],
+  "performance": {
+    "storage": {
+      "measurement": "scripts/benchmark_storage.py（合成 60 identities，同一台机器）",
+      "v3_store_open_ms": {
+        "before": 4.35,
+        "after": 1.92,
+        "note": "开库不再执行多余事务写入"
+      },
+      "connection_open_ms_median": {
+        "first_run": 13.78,
+        "second_run": 10.5,
+        "note": "机器负载波动，DuckDB 目录"
+      },
+      "consistency_pass": {
+        "before_modelled_ms": "4 connections × ~10.5ms × 60 ≈ 2500ms (仅连接)",
+        "after_measured_ms": 74.67,
+        "connections_per_pass": 1
+      }
+    },
+    "untouched_paths": {
+      "feature_preparation_ms": {
+        "before": 27.2,
+        "after": 17.6,
+        "note": "该路径本轮未改动，差异属运行间波动"
+      },
+      "detector_replay_ms": {
+        "before": 545.2,
+        "after": 559.1,
+        "note": "同上"
+      },
+      "multi_asset_timeline_ms": {
+        "before": 129.8,
+        "after": 117.1,
+        "note": "同上"
+      }
+    },
+    "deferred": [
+      "行情阶段 merge_current 逐行比对（子评审实测 1.31s/60k 行，需先复测再向量化）",
+      "state_transitions 逐根重算 O(n²)（子评审实测 300/600/1200 = 0.38/1.29/5.08s）",
+      "读路径 sha256 记忆化",
+      "回放前缀摘要增量计算"
+    ]
+  },
+  "open_questions": [
+    "Q1 单标的失败隔离",
+    "Q2 历史数据重新审计",
+    "Q3 repair 失败策略",
+    "Q4 rolling_percentile 预热口径",
+    "Q5 TURTLE_PERIODS/共振判定",
+    "Q6 EMA 策略 ATR 口径",
+    "Q7 okx place_* API",
+    "Q8 daily_analysis.py 删除",
+    "Q10 README 历史数字"
+  ]
+}
