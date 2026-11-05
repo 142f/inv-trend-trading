@@ -1,11 +1,42 @@
 """One fully funded multi-asset ledger. Execution only receives current opens."""
 from dataclasses import asdict, dataclass
+from datetime import date, datetime
 import math
 
 import numpy as np
 
 from .四资产合同_v1 import CORE, utc
 from .阶段协议_v1 import digest
+from .数量步长_v1 import floor_to_step
+
+
+def _json_state(value):
+    """Return a JSON-safe copy of a checkpoint value, encoding instants as ISO-8601.
+
+    ``utc()`` accepts ``datetime``/``pd.Timestamp`` at the API boundary, but the
+    raw objects were stored in ``last_open``/``last_close``/orders and only blew
+    up when ``checkpoint()`` serialised them — long after the backtest ran.
+    Converting once here keeps the ledger usable with any UTC-representable
+    input, and keeps the checkpoint hash stable across input types.
+    """
+
+    if isinstance(value, datetime):
+        return utc(value).isoformat()
+    if isinstance(value, date):
+        return value.isoformat()
+    if isinstance(value, dict):
+        return {str(key): _json_state(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_state(item) for item in value]
+    if isinstance(value, np.bool_):
+        return bool(value)
+    if isinstance(value, np.integer):
+        return int(value)
+    if isinstance(value, np.floating):
+        return float(value)
+    if isinstance(value, (bool, int, float, str)) or value is None:
+        return value
+    raise TypeError(f"checkpoint value is not serialisable: {type(value).__name__}")
 
 
 @dataclass(frozen=True)
@@ -69,7 +100,10 @@ class PortfolioAccount:
                    self.contracts[s].contract_multiplier for s in CORE)
 
     def submit(self, targets, at):
-        if self.last_close is None or utc(at) != utc(self.last_close):
+        # Normalise once: utc() accepts datetime/Timestamp, but order digests and
+        # checkpoints are JSON-canonical, so the ledger only ever stores ISO text.
+        stamp = utc(at).isoformat()
+        if self.last_close is None or utc(stamp) != utc(self.last_close):
             raise ValueError("orders require completed known close")
         if set(targets) != set(CORE) or any(not math.isfinite(w) or w < 0 for w in targets.values()):
             raise ValueError("invalid target weights")
@@ -85,12 +119,13 @@ class PortfolioAccount:
             for old in self.orders:
                 if old["symbol"] == s and old["status"] == "PENDING":
                     old["status"] = "SUPERSEDED"
-            order = dict(symbol=s, signal_at=at, target_quantity=target,
+            order = dict(symbol=s, signal_at=stamp, target_quantity=target,
                          due_step=self.step[s] + self.costs.delay_bars, status="PENDING")
             order["order_id"] = digest({**order, "ordinal": len(self.orders)})
             self.orders.append(order)
 
     def execute_open(self, at, opens):
+        at = utc(at).isoformat()
         if self.last_open and utc(at) <= utc(self.last_open):
             raise ValueError("non-monotonic execution clock")
         if self.last_close and utc(at) < utc(self.last_close):
@@ -126,7 +161,7 @@ class PortfolioAccount:
             requested = abs(delta)
             qty = min(requested, capacity[s] / unit)
             qty = min(qty, self.cash / (unit * (1 + self.costs.fee_bps / 10000))) if side > 0 else min(qty, self.positions[s])
-            qty = math.floor(qty / spec.quantity_step) * spec.quantity_step
+            qty = floor_to_step(qty, spec.quantity_step)
             if qty < spec.min_quantity:
                 qty = 0.
             fee = qty * unit * self.costs.fee_bps / 10000
@@ -153,6 +188,7 @@ class PortfolioAccount:
         self.check()
 
     def mark_close(self, at, closes):
+        at = utc(at).isoformat()
         if self.last_close and utc(at) <= utc(self.last_close):
             raise ValueError("non-monotonic valuation clock")
         if not self.last_open or utc(at) <= utc(self.last_open):
@@ -193,9 +229,11 @@ class PortfolioAccount:
         state = {k: v for k, v in vars(self).items() if k not in ("contracts", "costs")}
         state = {**state, "costs": asdict(self.costs),
                  "contracts": {s: asdict(c) for s, c in self.contracts.items()}}
-        # Canonical round trip removes mutable aliasing.
+        # Canonical round trip removes mutable aliasing.  Instants are encoded
+        # here (see _json_state) because utc() accepts datetime/Timestamp at the
+        # API boundary and json.dumps would otherwise fail only at save time.
         import json
-        state = json.loads(json.dumps(state, allow_nan=False))
+        state = json.loads(json.dumps(_json_state(state), allow_nan=False))
         return {"state": state, "hash": digest(state)}
 
     def restore(self, checkpoint):

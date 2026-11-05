@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-import numpy as np
+import math
+
+from inv_trend.core.数量步长_v1 import floor_to_step
 
 
 def _risk_sized_qty(
@@ -19,6 +21,6 @@ def _risk_sized_qty(
 
 
 def _round_down(value: float, step: float) -> float:
-    if step <= 0:
+    if not math.isfinite(step) or step <= 0:
         return float(value)
-    return float(np.floor(value / step) * step)
+    return floor_to_step(value, step, name="sized quantity")
