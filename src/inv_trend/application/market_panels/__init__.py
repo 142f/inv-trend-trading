@@ -8,5 +8,12 @@ quantity, market aggregates and the temperature history) as pure functions.
 
 from .决策推导 import derive_symbol_decision
 from .市场聚合 import aggregate_market, append_history
+from .组合风控 import DEFAULT_CAPS, allocate_portfolio
 
-__all__ = ["derive_symbol_decision", "aggregate_market", "append_history"]
+__all__ = [
+    "DEFAULT_CAPS",
+    "allocate_portfolio",
+    "append_history",
+    "aggregate_market",
+    "derive_symbol_decision",
+]

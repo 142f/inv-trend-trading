@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 from html import escape
+from typing import Any, Mapping
 
 _META_KEYS = (
     ("provider", "数据来源"),
@@ -38,8 +39,102 @@ def render_decision_desk(payload: dict, meta: dict | None = None) -> str:
     )
     template = _TEMPLATE.replace("%META%", meta_html)
     template = template.replace("%DISCLAIMER%", escape(_DISCLAIMER))
+    template = template.replace("%PORTFOLIO%", _portfolio_section(payload))
     template = template.replace("%DATA%", data)
     return template
+
+
+def _money(value) -> str:
+    if value is None:
+        return "—"
+    return f"{float(value):,.2f}"
+
+
+def _pct(value) -> str:
+    if value is None:
+        return "—"
+    return f"{float(value):.2f}%"
+
+
+def _portfolio_section(payload: Mapping[str, Any]) -> str:
+    """Server-rendered portfolio budget and today's executable tickets.
+
+    The table is rendered in Python so the page is readable without JavaScript;
+    the copy/CSV buttons only enhance it.  A payload without a portfolio block
+    (older snapshots, unit fixtures) renders nothing at all.
+    """
+
+    portfolio = payload.get("portfolio")
+    if not isinstance(portfolio, Mapping):
+        return ""
+    allocations = [item for item in portfolio.get("allocations") or [] if isinstance(item, Mapping)]
+    if not allocations:
+        return ""
+    totals = portfolio.get("totals") or {}
+    long_totals = totals.get("long") or {}
+    short_totals = totals.get("short") or {}
+    caps = portfolio.get("caps") or {}
+    boxes = [
+        (str(totals.get("positions", 0)), "可执行标的"),
+        (_money(totals.get("notional")), "组合名义（$）"),
+        (f"{float(totals.get('leverage') or 0):.2f}×", f"杠杆（上限 {caps.get('max_total_leverage', '—')}×）"),
+        (_money(totals.get("risk_amount")), f"1N 风险合计（上限 {_pct(float(caps.get('max_total_1n_risk_pct', 0)) * 100)}）"),
+        (_pct(totals.get("risk_pct")), "风险占权益"),
+        (f"{long_totals.get('positions', 0)} · {_money(long_totals.get('notional'))}", f"多头（风险上限 {_pct(float(caps.get('max_direction_1n_risk_pct', 0)) * 100)}）"),
+        (f"{short_totals.get('positions', 0)} · {_money(short_totals.get('notional'))}", "空头"),
+    ]
+    summary = "".join(
+        f'<div class="pf-box"><b>{escape(value)}</b><span>{escape(label)}</span></div>'
+        for value, label in boxes
+    )
+    hits = portfolio.get("caps_hit") or []
+    hits_html = "".join(f"<li>{escape(str(item.get('detail')))}</li>" for item in hits if isinstance(item, Mapping))
+    rows_html = []
+    for index, item in enumerate(allocations, 1):
+        side = str(item.get("side"))
+        side_label = "做多" if side == "long" else "做空"
+        side_cls = "多" if side == "long" else "空"
+        qty = int(item.get("qty") or 0)
+        suggested = int(item.get("suggested_qty") or qty)
+        qty_text = str(qty) if not item.get("capped") else f"{qty}（建议 {suggested}）"
+        ticket = f"{item.get('symbol')}\t{side_label}\t{qty}\t{_money(item.get('price'))}\t{_money(item.get('stop'))}"
+        rows_html.append(
+            "<tr data-ticket=\"" + escape(ticket) + "\">"
+            f"<td>{index}</td><td><b>{escape(str(item.get('symbol')))}</b></td>"
+            f'<td class="{side_cls}">{side_label}</td>'
+            f"<td>{escape(str(item.get('grade')))}</td>"
+            f"<td class='num'>{qty_text}</td>"
+            f"<td class='num'>{_money(item.get('price'))}</td>"
+            f"<td class='num'>{_money(item.get('stop'))}</td>"
+            f"<td class='num'>{_money(item.get('risk_amount'))}</td>"
+            f"<td class='num'>{_money(item.get('notional'))}</td>"
+            f'<td><button type="button" class="copy" data-copy="' + escape(ticket) + '">复制</button></td>'
+            "</tr>"
+        )
+    caps_html = (
+        f'<div class="pf-caps"><b>预算裁剪</b><ul>{hits_html}</ul></div>' if hits_html else ''
+    )
+    table_head = (
+        '<h3>今日可执行清单（按优先级，股数已按组合上限裁剪）</h3>'
+        '<div class="pf-table-wrap"><table class="pf-table"><thead><tr>'
+        '<th>#</th><th>代码</th><th>方向</th><th>评级</th><th>股数</th><th>参考价</th>'
+        '<th>止损</th><th>单笔风险($)</th><th>名义($)</th><th>票据</th>'
+        '</tr></thead><tbody>'
+    )
+    return (
+        '<section class="pf" id="portfolio">'
+        '<div class="pf-head"><h2>组合执行预算</h2>'
+        '<div class="pf-actions"><button type="button" id="copy-all">复制全部票据</button>'
+        '<button type="button" id="export-csv">导出 CSV</button></div></div>'
+        f'<div class="pf-grid">{summary}</div>'
+        + caps_html
+        + table_head
+        + "".join(rows_html)
+        + '</tbody></table></div>'
+        '<p class="note">票据格式：代码 / 方向 / 股数 / 参考价 / 止损，制表符分隔，可直接粘贴到表格或券商下单窗口。'
+        '股数为按单笔风险预算与组合上限裁剪后的可执行数量；未列入的触发标的表示预算已用尽。</p>'
+        '</section>'
+    )
 
 
 _TEMPLATE = """<!DOCTYPE html>
@@ -103,6 +198,24 @@ _TEMPLATE = """<!DOCTYPE html>
   .note { color:var(--muted); font-size:13px; }
   .empty { color:var(--muted); padding:24px 0; text-align:center; }
   .fail-list { margin:4px 0 0; padding-left:18px; }
+  .pf { margin:0 0 16px; padding:12px 14px 6px; background:var(--card); border:1px solid var(--line); border-radius:12px; }
+  .pf-head { display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; }
+  .pf-head h2 { margin:0; font-size:19px; }
+  .pf-actions { display:flex; gap:8px; }
+  .pf-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:8px; margin:10px 0; }
+  .pf-box { background:var(--paper); border:1px solid var(--line); border-radius:10px; padding:8px 10px; }
+  .pf-box b { display:block; font-size:18px; font-variant-numeric:tabular-nums; }
+  .pf-box span { color:var(--muted); font-size:12px; }
+  .pf-caps { background:var(--hot); border-radius:8px; padding:6px 10px; margin:0 0 10px; font-size:12px; }
+  .pf-caps ul { margin:4px 0 0; padding-left:18px; }
+  .pf h3 { margin:6px 0 8px; font-size:15px; }
+  .pf-table-wrap { overflow-x:auto; }
+  .pf-table { width:100%; border-collapse:collapse; font-size:13px; }
+  .pf-table th, .pf-table td { border-bottom:1px solid var(--line); padding:5px 8px; text-align:left; white-space:nowrap; }
+  .pf-table th { color:var(--muted); font-weight:600; }
+  .pf-table td.num { text-align:right; font-variant-numeric:tabular-nums; }
+  .pf-table tr:hover { background:var(--paper); }
+  .pf-table .copy { padding:3px 10px; font-size:12px; }
 </style>
 </head>
 <body>
@@ -111,6 +224,7 @@ _TEMPLATE = """<!DOCTYPE html>
   <dl class="meta">%META%</dl>
   <p class="disclaimer">%DISCLAIMER%</p>
   <div class="summary" id="summary"></div>
+  %PORTFOLIO%
   <div class="bar-inner">
     <div class="controls">
       <button type="button" class="tab on" data-zone="triggered">已触发</button>
@@ -291,10 +405,14 @@ function renderSummary(){
   rows.forEach(row => { const z = zoneOf(row); if (zones[z] !== undefined) zones[z] += 1; });
   const failed = DATA.failed.length;
   const incomplete = (DATA.incomplete || []).length;
+  const total = rows.length;
+  const rest = Math.max(0, total - zones.triggered - zones.near - zones.watch);
   document.getElementById("summary").innerHTML =
-    '<div class="box"><b>' + zones.triggered + '</b><span>已触发（A/B 级）</span></div>'
+    '<div class="box"><b>' + zones.triggered + '</b><span>已触发（A/B 级，可执行）</span></div>'
     + '<div class="box"><b>' + zones.near + '</b><span>临近触发（≤2%）</span></div>'
-    + '<div class="box"><b>' + zones.watch + '</b><span>观察仓</span></div>'
+    + '<div class="box"><b>' + zones.watch + '</b><span>观察仓（A/B 级未触发）</span></div>'
+    + '<div class="box"><b>' + rest + '</b><span>其余（未评级/未触发）</span></div>'
+    + '<div class="box"><b>' + total + '</b><span>标的合计</span></div>'
     + '<div class="box' + (failed ? " warn" : "") + '"><b>' + failed + '</b><span>数据失败</span></div>'
     + '<div class="box"><b>' + incomplete + '</b><span>预热不足</span></div>';
 }
@@ -309,6 +427,7 @@ function render(){
       + '<span class="badge">' + row.funds + '</span>'
       + ((row.adx >= 25) ? '<span class="badge hot">强趋势</span>' : '')
       + ((row.relative_volume >= 1.5) ? '<span class="badge hot">放量</span>' : '')
+      + ((PF_BY[row.symbol] && PF_BY[row.symbol].capped) ? '<span class="badge hot">组合裁剪</span>' : '')
       + (!row.warmup_ok ? '<span class="badge hot">预热不足</span>' : '')
       + '</div>'
       + '<div class="rows">' + kv("收盘", fmt(row.close)) + primaryLines(row) + '</div>'
@@ -346,6 +465,48 @@ document.getElementById("reset").addEventListener("click", () => {
 });
 document.getElementById("fails").innerHTML = DATA.failed.map(item => "<li>" + item.symbol + "（" + item.funds + "）：" + item.error + "</li>").join("") || "<li>没有</li>";
 document.getElementById("incomplete").innerHTML = (DATA.incomplete || []).map(item => "<li>" + item.symbol + "：" + item.bar_count + " 根，" + item.reason + "，预热不足</li>").join("") || "<li>没有</li>";
+function copyText(text){
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    return navigator.clipboard.writeText(text).catch(() => fallbackCopy(text));
+  }
+  return Promise.resolve(fallbackCopy(text));
+}
+function fallbackCopy(text){
+  const area = document.createElement("textarea");
+  area.value = text; area.style.position = "fixed"; area.style.opacity = "0";
+  document.body.appendChild(area); area.select();
+  try { document.execCommand("copy"); } finally { document.body.removeChild(area); }
+}
+const PF = DATA.portfolio || null;
+const PF_BY = {};
+if (PF) { (PF.allocations || []).forEach(item => { PF_BY[item.symbol] = item; }); }
+document.querySelectorAll(".pf-table .copy").forEach(button => button.addEventListener("click", () => {
+  copyText(button.dataset.copy || "");
+  const label = button.textContent; button.textContent = "已复制";
+  setTimeout(() => { button.textContent = label; }, 1200);
+}));
+const copyAll = document.getElementById("copy-all");
+if (copyAll) copyAll.addEventListener("click", () => {
+  const rows = (PF && PF.allocations) || [];
+  const header = "代码\t方向\t股数\t参考价\t止损";
+  const body = rows.map(item => [item.symbol, item.side === "long" ? "做多" : "做空", item.qty, item.price, item.stop].join("\t"));
+  copyText([header].concat(body).join("\\n"));
+});
+const exportCsv = document.getElementById("export-csv");
+if (exportCsv) exportCsv.addEventListener("click", () => {
+  const rows = (PF && PF.allocations) || [];
+  const head = ["symbol","side","grade","qty","suggested_qty","price","stop","risk_amount","notional","funds"];
+  const lines = [head.join(",")].concat(rows.map(item => head.map(key => {
+    const value = item[key];
+    return value === null || value === undefined ? "" : String(value);
+  }).join(",")));
+  const blob = new Blob(["\\ufeff" + lines.join("\\n")], {type:"text/csv;charset=utf-8"});
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(blob);
+  link.download = "美股前100可执行清单_" + (DATA.as_of || "latest") + ".csv";
+  document.body.appendChild(link); link.click(); document.body.removeChild(link);
+  URL.revokeObjectURL(link.href);
+});
 renderSummary();
 render();
 </script>

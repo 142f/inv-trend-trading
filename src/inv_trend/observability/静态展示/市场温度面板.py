@@ -133,7 +133,7 @@ _TEMPLATE = """<!DOCTYPE html>
 const DATA = %DATA%;
 const HISTORY = %HISTORY%;
 const market = DATA.market || {};
-const HEALTH_KEYS = [["rows", "标的"], ["failed", "数据失败"], ["incomplete", "预热不足"], ["triggered_count", "今日已触发"], ["near_count", "临近触发"]];
+const HEALTH_KEYS = [["rows", "标的"], ["failed", "数据失败"], ["incomplete", "预热不足"], ["triggered_count", "已触发（全部评级）"], ["triggered_ab_count", "已触发 A/B 级（可执行）"], ["near_count", "临近触发"]];
 const RATING_META = [
   ["A_long", "A 级多头", "#8d2b1f"], ["A_short", "A 级空头", "#1e7d46"],
   ["B_long", "B 级多头", "#d9918a"], ["B_short", "B 级空头", "#7fb394"],
@@ -145,7 +145,7 @@ let window_ = 60;
 function renderHealth(){
   const health = market.data_health || {};
   const boxes = HEALTH_KEYS.map(([key, label]) => {
-    const value = (key === "triggered_count" || key === "near_count")
+    const value = (key === "triggered_count" || key === "triggered_ab_count" || key === "near_count")
       ? market[key]
       : health[key];
     const shown = value !== undefined && value !== null ? value : "—";

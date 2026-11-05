@@ -19,6 +19,7 @@ from inv_trend.data.providers import YahooChartProvider
 from inv_trend.data.snapshot import resolve_snapshot_bars
 from inv_trend.application.market_panels import (
     aggregate_market,
+    allocate_portfolio,
     append_history,
     derive_symbol_decision,
 )
@@ -460,6 +461,14 @@ def main(argv: list[str] | None = None) -> dict:
         "risk_pct": float(args.risk_pct if args.risk_pct is not None else 0.005),
         "stop_n": float(resolved.rules["stop_n"]),
         "daily_checks": resolved.daily_checks,
+        # Canonical portfolio caps; the decision desk allocates the risk budget
+        # against these instead of taking every trigger at full size.
+        "caps": {
+            key: float(resolved.rules[key])
+            for key in ("max_total_1n_risk_pct", "max_direction_1n_risk_pct",
+                        "max_total_leverage", "max_direction_leverage")
+            if key in resolved.rules
+        },
     }
     window = resolve_window(datetime.now(timezone.utc), args.as_of, completed_only=completed_only)
     cutoff = window["completeness_now"]
@@ -516,6 +525,13 @@ def main(argv: list[str] | None = None) -> dict:
         "sources": sorted(set(sources)),
     }
     market = aggregate_market(rows, as_of=as_of, generated_at=generated_at, data_health=data_health)
+    portfolio = allocate_portfolio(
+        rows,
+        equity=decision_config["equity"],
+        risk_pct=decision_config["risk_pct"],
+        stop_n=decision_config["stop_n"],
+        caps=decision_config.get("caps") or None,
+    )
     payload = {
         "as_of": as_of,
         "data_cutoff": cutoff.isoformat().replace("+00:00", "Z"),
@@ -529,6 +545,7 @@ def main(argv: list[str] | None = None) -> dict:
         "failed": failed,
         "incomplete": incomplete,
         "market": market,
+        "portfolio": portfolio,
     }
     content_hash = _content_hash(rows)
     bar_count = {
@@ -586,6 +603,7 @@ def main(argv: list[str] | None = None) -> dict:
         "equity": decision_config["equity"],
         "risk_pct": decision_config["risk_pct"],
         "stop_n": decision_config["stop_n"],
+        "caps": decision_config.get("caps") or {},
     }), encoding="utf-8")
     history_summary = None
     if completed_only and not window["partial_mode"]:

@@ -23,6 +23,7 @@ def aggregate_market(rows: list[dict], *, as_of: str, generated_at: str, data_he
     adx_values: list[float] = []
     rel_volumes: list[float] = []
     triggered = 0
+    triggered_ab = 0
     near = 0
     for row in rows:
         decision = row.get("decision") or {}
@@ -47,8 +48,13 @@ def aggregate_market(rows: list[dict], *, as_of: str, generated_at: str, data_he
             and 0 < item["distance_pct"] <= NEAR_TRIGGER_PCT
             for item in entries
         )
+        strong_triggered = (
+            symbol_triggered and grade in ("A", "B") and direction in ("long", "short")
+        )
         if symbol_triggered:
             triggered += 1
+            if strong_triggered:
+                triggered_ab += 1
         elif symbol_near:
             near += 1
         state = (decision.get("volatility") or {}).get("state")
@@ -92,6 +98,9 @@ def aggregate_market(rows: list[dict], *, as_of: str, generated_at: str, data_he
         "median_relative_volume": _round1(statistics.median(rel_volumes)) if rel_volumes else None,
         "temperature_score": _round1(min(100.0, max(0.0, temperature))),
         "triggered_count": triggered,
+        # The desk only executes A/B-grade triggers; expose that count so the
+        # thermometer and the desk cannot report different "triggered" totals.
+        "triggered_ab_count": triggered_ab,
         "near_count": near,
         "counted_rows": counted,
         "data_health": data_health,
