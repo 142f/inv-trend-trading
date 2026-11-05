@@ -50,6 +50,9 @@ class DailyChecksConfigLike(Protocol):
     rating_b_min_families: int
 
 
+# Default entry periods.  Calculations never read this constant: the channels
+# are built from ``config.turtle_systems``, so a custom configuration must vote
+# with its own entry periods instead of the default 20/55 channels.
 TURTLE_PERIODS = (20, 55)
 
 
@@ -268,7 +271,7 @@ def _state_at(prepared: PreparedDailyStrategyChecks, position: int) -> dict[str,
     timestamp = base.index[-1]
     sma = _sma_alignment(row, prepared.config)
     ema = _ema_trend(row, prepared.config, len(base))
-    turtle = _turtle_direction(row)
+    turtle = _turtle_direction(row, prepared.config)
     macd = {
         label: _macd_state(frame.loc[frame.index <= timestamp], prepared.config)
         for label, frame in prepared.macd_frames.items()
@@ -330,10 +333,19 @@ def _ema_trend(
     }
 
 
-def _turtle_direction(row: pd.Series) -> dict[str, Any]:
+def turtle_entry_periods(config: DailyChecksConfigLike) -> tuple[int, ...]:
+    """Return the entry channels the configured turtle systems actually vote with."""
+
+    periods = tuple(sorted({int(system[0]) for system in config.turtle_systems}))
+    if not periods:
+        raise ValueError("turtle_systems must define at least one entry period")
+    return periods
+
+
+def _turtle_direction(row: pd.Series, config: DailyChecksConfigLike) -> dict[str, Any]:
     directions: list[str] = []
     ready = False
-    for period in TURTLE_PERIODS:
+    for period in turtle_entry_periods(config):
         close = _finite_float(row.get("close"))
         high = _finite_float(row.get(f"channel_high_{period}"))
         low = _finite_float(row.get(f"channel_low_{period}"))

@@ -26,7 +26,15 @@
       "status": "pre-existing environment failure (Playwright driver cannot spawn in this sandbox)",
       "changed_by_this_refactor": false
     },
-    "command": "python -m pytest -q -p no:randomly"
+    "command": "python -m pytest -q -p no:randomly",
+    "final": {
+      "collected": 1505,
+      "passed": 1504,
+      "failed": 1,
+      "duration_seconds": 652.57,
+      "warnings": 9
+    },
+    "final_failure": "pre-existing Playwright environment failure (unchanged; present in baseline)"
   },
   "static_checks": {
     "ruff_F": "pass",
@@ -115,7 +123,6 @@
     "integrations/okx.place_market_order/place_limit_order/system_time (可能是对外封装)",
     "notifications/渠道.NotificationChannel Protocol (零引用，可能是结构约定)",
     "core/math_utils.macd() (公开 API，src 内零调用)",
-    "application/daily_analysis.py (生产零导入，仅测试引用)",
     "application/滚动验证.py 的 assert 泄漏防线",
     "core/EMA趋势策略.py 自写 ATR/ADX 与 wilder_atr 口径差异"
   ],
@@ -163,14 +170,30 @@
     ]
   },
   "open_questions": [
-    "Q1 单标的失败隔离",
-    "Q2 历史数据重新审计",
-    "Q3 repair 失败策略",
-    "Q4 rolling_percentile 预热口径",
-    "Q5 TURTLE_PERIODS/共振判定",
-    "Q6 EMA 策略 ATR 口径",
-    "Q7 okx place_* API",
-    "Q8 daily_analysis.py 删除",
-    "Q10 README 历史数字"
-  ]
+    "Q1 已实施",
+    "Q2 已执行只读审计（历史未重写）",
+    "Q3 repair 失败策略（当前失败闭合）",
+    "Q4 rolling_percentile 预热口径（保持原状，已文档标注）",
+    "Q5 TURTLE_PERIODS/共振判定（保持原状，已文档标注）",
+    "Q6 EMA 策略 ATR 口径（保持原状，已文档标注）",
+    "Q7 okx place_* API（保留，已文档标注）",
+    "Q8 已迁移并删除",
+    "Q10 README 历史数字（保持原状，已文档标注）"
+  ],
+  "round2": {
+    "approved_actions": {
+      "Q1": "已实施：strategy_screen 逐标的失败隔离 + FAILED 证据 + commit run_status=failed + CLI --strict；新增 2 用例，版本错配用例覆盖双模式",
+      "Q2": "已执行只读 audit_universe（78 个 curated D1 标的，17.44s；2 OK / 76 RESEARCH_ONLY）；未重写任何历史 manifest 或 current 指针",
+      "Q4_to_Q6": "按要求暂缓，代码保持原状；事实与后续验证方式见 docs/策略口径与待确认事项_20261105.md",
+      "Q8": "已实施：报告投影实现迁移到 application/daily/report_projection.py；1 个生产导入方 + 6 个测试导入方改路径；确认零引用后删除 application/daily_analysis.py"
+    },
+    "correction": "早前把 application/daily_analysis.py 记为死代码有误：application/daily/strategy_screening.py 从它导入 build_breakout_assessments/build_instrument_report_bundle。它是放错位置的生产代码，已迁移而非简单删除。",
+    "p1_6_fix": "signal_commit 在业务事务外 ensure_run，失败时 interrupt_run 标记 INTERRUPTED；两处断言旧行为(无行)的测试已同步改为断言 INTERRUPTED",
+    "review": "每项改动按用户要求经过两轮复核（见 git diff 与专项测试）",
+    "final_regression": "1504 passed / 1 failed（既有 Playwright 环境失败）/ 652.57s，全量 1505 收集",
+    "review_passes": [
+      "review#1: 逐文件 git diff + 定向测试",
+      "review#2: 全仓 diff + 全量回归 + 迁移后零引用检查"
+    ]
+  }
 }

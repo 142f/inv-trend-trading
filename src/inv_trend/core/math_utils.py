@@ -233,12 +233,18 @@ def rolling_percentile(
     The current observation is included because the indicator is evaluated at
     the completed-bar boundary.  Exact ties receive half of their probability
     mass, so a constant window ranks at 50% instead of being misclassified as
-    the 100th percentile.  Callers choose the explicit warm-up length.
+    the 100th percentile.
+
+    The default warm-up is the full window.  A percentile labelled "120-day"
+    must be measured against 120 observations; the previous default of
+    ``lookback // 4`` produced the same label from 30 samples, so two call sites
+    that differed only in this argument were reporting incomparable numbers
+    under one name.  Callers that really want a shorter warm-up must say so.
     """
     _numeric_series(values, "values")
     if lookback < 2:
         raise ValueError("lookback must be >= 2")
-    minimum = min(lookback, max(2, lookback // 4)) if min_periods is None else min_periods
+    minimum = lookback if min_periods is None else min_periods
     if not 2 <= minimum <= lookback:
         raise ValueError("min_periods must be between 2 and lookback")
 
