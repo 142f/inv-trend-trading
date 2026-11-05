@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import replace
+
 import pandas as pd
 import pytest
 
@@ -9,6 +11,10 @@ from inv_trend.adapters.detector.indicators.daily_strategy_checks import (
 )
 from inv_trend.application.strategy_config import DailyChecksConfig
 from inv_trend.core.math_utils import directional_movement_index
+from inv_trend.core.strategy.daily.strategy_checks import (
+    _turtle_direction,
+    turtle_entry_periods,
+)
 from inv_trend.core.decision_events import ExecutionDecisionEvent
 from inv_trend.core.resampling import aggregate_completed_sessions
 from inv_trend.core.signals import SignalEvent
@@ -110,6 +116,35 @@ def test_wilder_dmi_adx_identifies_a_persistent_uptrend() -> None:
 
     assert values["plus_di"].iloc[-1] > values["minus_di"].iloc[-1]
     assert values["adx"].iloc[-1] > 25.0
+
+
+def test_turtle_votes_with_the_configured_entry_periods() -> None:
+    """A custom turtle_systems must not silently read the default 20/55 channels."""
+
+    config = replace(DailyChecksConfig(), turtle_systems=((30, 10), (40, 20)))
+    assert turtle_entry_periods(config) == (30, 40)
+
+    # Only the 20-bar channel is broken here.  20 is an *exit* period of this
+    # configuration, so no configured system has voted: the default (20, 55)
+    # constant would still have reported a long breakout.
+    row = pd.Series(
+        {
+            "close": 170.0,
+            "channel_high_20": 160.0,
+            "channel_low_20": 140.0,
+            "channel_high_30": 200.0,
+            "channel_low_30": 140.0,
+            "channel_high_40": 200.0,
+            "channel_low_40": 140.0,
+        }
+    )
+    assert _turtle_direction(row, config)["direction"] == "none"
+
+    # A final close above every prior high is a breakout of both entry channels.
+    bars = _bars([100.0 + value for value in range(79)] + [250.0])
+    prepared = prepare_daily_strategy_checks(bars, config, session_anchor=bars.index[0])
+    result = analyze_prepared_strategy_checks(prepared)
+    assert result["rating"]["family_votes"]["turtle"] == "long"
 
 
 def test_daily_check_configuration_rejects_unknown_nested_keys() -> None:

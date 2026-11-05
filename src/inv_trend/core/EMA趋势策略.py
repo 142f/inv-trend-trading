@@ -4,6 +4,8 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 
+from .math_utils import directional_movement_index, wilder_atr
+
 PAIRS = ((10, 20), (10, 55), (20, 55))
 
 
@@ -141,16 +143,16 @@ def signals(frame, cfg=Config()):
             raise ValueError("bar unavailable at next open")
     for n in (10, 12, 20, 26, 55):
         f[f"ema{n}"] = f.close.ewm(span=n, adjust=False).mean()
-    tr = pd.concat([f.high-f.low, (f.high-f.close.shift()).abs(),
-                    (f.low-f.close.shift()).abs()], axis=1).max(axis=1)
-    f["atr"] = tr.ewm(alpha=1/14, adjust=False).mean()
+    # ATR/ADX come from the shared Wilder primitives.  The local copy used a
+    # bare EWM (value on bar 0, no 14-bar seed), which made ``stop_atr * atr``
+    # and the ADX quality gate incomparable with the D1 report and with the
+    # perpetual risk module that already use the Wilder convention.
+    f["atr"] = wilder_atr(f.high, f.low, f.close, 14)
     macd = f.ema12-f.ema26
     f["macd"] = macd-macd.ewm(span=9, adjust=False).mean()
-    up, down = f.high.diff(), -f.low.diff()
-    plus = up.where((up > down) & (up > 0), 0).ewm(alpha=1/14, adjust=False).mean()
-    minus = down.where((down > up) & (down > 0), 0).ewm(alpha=1/14, adjust=False).mean()
-    f["adx"] = (100*(plus-minus).abs()/(plus+minus).replace(0, np.nan)).ewm(
-        alpha=1/14, adjust=False).mean().fillna(0)
+    # Missing warm-up stays 0 so the existing "no evidence" gate semantics hold.
+    f["adx"] = directional_movement_index(
+        f.high, f.low, f.close, 14)["adx"].fillna(0)
     f["volume_ratio"] = f.volume/f.volume.rolling(20, min_periods=20).mean().replace(0, np.nan)
     for (side, j), values in relation_states(f, cfg.confirmation).items():
         f[f"state_{side}_{j}"] = values

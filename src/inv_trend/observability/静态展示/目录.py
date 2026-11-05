@@ -48,14 +48,39 @@ PAGES: tuple[StaticPage, ...] = (
         "美股前100指标看板.html",
         "generated",
     ),
+    StaticPage(
+        "us-direction-map",
+        "美股前100方向偏度总览",
+        "全部参与标的 × 8 个方向系统的投票矩阵、偏度得分与市场分布，由脚本按运行时数据生成。",
+        "美股前100方向偏度总览.html",
+        "generated",
+    ),
+    StaticPage(
+        "us-decision-desk",
+        "美股前100投资决策面板",
+        "已触发/临近触发/观察三区决策卡：评级、突破触发价与距离、止损位、建议股数、退出通道；含组合风险预算、按上限裁剪的可执行清单与可复制票据，由脚本按运行时数据生成。",
+        "美股前100投资决策面板.html",
+        "generated",
+    ),
+    StaticPage(
+        "us-market-thermometer",
+        "美股前100市场温度面板",
+        "市场温度分、评级分布、波动状态、突破计数与温度历史，回答当前环境是否适合顺趋势交易。",
+        "美股前100市场温度面板.html",
+        "generated",
+    ),
 )
 
 PAGE_BY_ID = {page.id: page for page in PAGES}
 
 GENERATED_FILES = frozenset({
     "美股前100指标看板.html",
+    "美股前100方向偏度总览.html",
+    "美股前100投资决策面板.html",
+    "美股前100市场温度面板.html",
     "美股前100指标数据.json",
     "美股前100指标_回执.json",
+    "市场温度历史.json",
 })
 
 

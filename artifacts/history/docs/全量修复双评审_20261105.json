@@ -1,0 +1,346 @@
+{
+  "schema_version": 2,
+  "captured_at": "2026-11-05T17:03:29+08:00",
+  "branch": "main",
+  "base_commit": "b551ff8",
+  "head_commit": "6921a225ad52bbfe5d9fc22ec366cdcb381a62bd",
+  "head_commit_scope": "被验收的代码状态（6921a22），不是本产物所在的 docs 提交；沿用 28ae0ca 的语义解耦做法，避免自引用",
+  "scope": "按用户『是否已经全部修复完了，如果没有则全部修复；每一个 review 2 次』与『全部修复（推荐）』授权，对 #1–#18、Q1–Q10 共 28 项各留两轮独立复核证据",
+  "review_policy": {
+    "passes": 2,
+    "definitions": [
+      "review#1: 代码级复核——定位 + 逐文件 git diff + 该提交的定向用例",
+      "review#2: 独立复核——全仓 diff / 等价性 oracle / 零引用检查 / 回归与静态检查 / 实测数字"
+    ],
+    "source": "artifacts/history/docs/结构重构验收_20261105.json round2.review_passes（用户原始要求为『每一个 review 2 次』）"
+  },
+  "matrix": [
+    {
+      "id": "#1",
+      "title": "NYSE 元旦补休跨年错配：_observed(1/1) 落到上一年 12/31 却存进下一年集合，合法美股数据被永久 QUARANTINED",
+      "status": "fixed",
+      "review#1": {"type": "commit_hash", "evidence": "4252489 fix(calendar) 修改 src/inv_trend/data/calendar.py；新增/修改 tests/test_historical_data_universe.py", "result": "pass"},
+      "review#2": {"type": "doc_path", "evidence": "artifacts/history/docs/结构重构验收_20261105.json fixes[P0-1] 实测 is_nyse_trading_day(2021-12-31) True→False；artifacts/history/docs/重构评审/第一轮_边界与正确性.md", "result": "pass"},
+      "source": "git:4252489"
+    },
+    {
+      "id": "#2",
+      "title": "质量计数写死 0、quarantine 传空表、dataset 报告用实际首根当 requested_start，导致丢历史的数据集自证通过",
+      "status": "fixed",
+      "review#1": {"type": "commit_hash", "evidence": "33715ef 修改 processing.py / 行情阶段_v1.py / api.py / review.py；新增 tests/test_historical_data_universe.py 用例", "result": "pass"},
+      "review#2": {"type": "doc_path", "evidence": "结构重构验收_20261105.json fixes[P0-2]（重复行 duplicate_count=1、score<100）；功能与函数测试报告_20261105.md 数据层专项 205 passed", "result": "pass"},
+      "source": "git:33715ef"
+    },
+    {
+      "id": "#3",
+      "title": "repair_current_lineage 无条件写入 CURATED，任何已发布数据都能被认证",
+      "status": "fixed",
+      "review#1": {"type": "commit_hash", "evidence": "95a982b 改为失败闭合；95a982b 同时新增 tests/unit/test_脱敏单一真源.py 等用例", "result": "pass"},
+      "review#2": {"type": "test_case", "evidence": "tests/test_数据封版合同.py::test_repair_current_lineage_never_certifies_unqualified_data（f499e32 锁定，本轮定向回归 327 passed）", "result": "pass"},
+      "source": "git:95a982b, git:f499e32"
+    },
+    {
+      "id": "#4",
+      "title": "恢复投递失败不计入 errors；mark_notified 在通知 try 内，库状态 COMPLETED 但通知未送达",
+      "status": "fixed",
+      "review#1": {"type": "commit_hash", "evidence": "95a982b 新增 persist_errors 返回键并拆分通知/落库；tests/test_architecture_boundaries.py 同步更新", "result": "pass"},
+      "review#2": {"type": "command", "evidence": "本轮 .venv/Scripts/python.exe -m pytest tests/test_architecture_boundaries.py → 13 passed；结构重构验收_20261105.json fixes[P0-4]", "result": "pass"},
+      "source": "git:95a982b"
+    },
+    {
+      "id": "#5",
+      "title": "两套 redact 强度不同，落盘走弱的那份，token/signature/webhook URL 明文进入 manifest",
+      "status": "fixed",
+      "review#1": {"type": "commit_hash", "evidence": "95a982b 下移 infra/脱敏.py 单一真源 + 两处 re-export；新增 tests/unit/test_脱敏单一真源.py", "result": "pass"},
+      "review#2": {"type": "doc_path", "evidence": "结构重构验收_20261105.json fixes[P0-5] 三入口一致性用例；artifacts/history/docs/重构评审/第二轮_兼容与一致性.md", "result": "pass"},
+      "source": "git:95a982b"
+    },
+    {
+      "id": "#6",
+      "title": "CodeVersion.capture 依赖 git，无超时/无降级，git 卡死时监控与监督进程无法启动",
+      "status": "fixed",
+      "review#1": {"type": "commit_hash", "evidence": "1bd2f53 修改 monitoring/扫描器.py 增加超时与 git_commit=unknown 降级；tests/unit/test_原子写与字面前缀.py", "result": "pass"},
+      "review#2": {"type": "doc_path", "evidence": "结构重构验收_20261105.json fixes[P1-1]；artifacts/history/docs/重构评审/第一轮_边界与正确性.md", "result": "pass"},
+      "source": "git:1bd2f53"
+    },
+    {
+      "id": "#7",
+      "title": "LIKE study_id || '/%' 未转义 _/%，qXw_x 的运行被静默绑到 q_w_x 的血缘",
+      "status": "fixed",
+      "review#1": {"type": "commit_hash", "evidence": "1bd2f53 storage/研究结果_v3.py 两处 LIKE 改 substr 字面前缀；tests/unit/test_原子写与字面前缀.py", "result": "pass"},
+      "review#2": {"type": "doc_path", "evidence": "结构重构验收_20261105.json fixes[P1-2]（qXw_x 不再命中 q_w_x）；artifacts/history/docs/重构评审/第二轮_兼容与一致性.md", "result": "pass"},
+      "source": "git:1bd2f53"
+    },
+    {
+      "id": "#8",
+      "title": "『原子写』用固定临时名 .name.tmp，并发/重试互相截断并在 Windows 抛 PermissionError",
+      "status": "fixed",
+      "review#1": {"type": "commit_hash", "evidence": "1bd2f53 新增 infra/文件操作.py::atomic_copy，收敛 artifact_publisher.py 与 backtest/artifacts.py；tests/unit/test_原子写与字面前缀.py", "result": "pass"},
+      "review#2": {"type": "doc_path", "evidence": "结构重构验收_20261105.json fixes[P1-3]（无 .tmp 残留、replace=False 语义用例）；artifacts/history/docs/重构评审/第二轮_兼容与一致性.md", "result": "pass"},
+      "source": "git:1bd2f53"
+    },
+    {
+      "id": "#9",
+      "title": "一致性检查与全量审计 N×M 次连接（171 标的约 8.8 万次），DuckDB 单次连接 10.5–13.8ms",
+      "status": "fixed",
+      "review#1": {"type": "commit_hash", "evidence": "4dcf57a 修改 data/storage.py / 数据湖适配_v3.py / audit.py，一致性检查复用单连接；新增 scripts/benchmark_storage.py", "result": "pass"},
+      "review#2": {"type": "measured_number", "evidence": "结构重构验收_20261105.json performance.storage.consistency_pass：约 2500ms → 74.67ms，connections_per_pass=1", "result": "pass"},
+      "source": "git:4dcf57a"
+    },
+    {
+      "id": "#10",
+      "title": "storage/制品.py 的 storage_version=3 读回分支不可达，全仓无写入方，一旦可达必 FileNotFoundError",
+      "status": "fixed",
+      "review#1": {"type": "commit_hash", "evidence": "6a1f1a6 删除零引用分支及 18 个文件；tests/test_daily_market_scan.py 同步", "result": "pass"},
+      "review#2": {"type": "doc_path", "evidence": "结构重构验收_20261105.json deleted_code 14 项全仓引用复核；artifacts/history/docs/重构评审/第三轮_性能与治理.md『不删除仍被使用的 v1/v3 模块』门禁", "result": "pass"},
+      "source": "git:6a1f1a6"
+    },
+    {
+      "id": "#11",
+      "title": "UnifiedStore 每次开库执行写语句 + 提交，只读消费者也取写锁",
+      "status": "fixed",
+      "review#1": {"type": "commit_hash", "evidence": "b91067a 修改 storage/结构化存储_v3.py，迁移链完整时不写入、markers 派生链校验", "result": "pass"},
+      "review#2": {"type": "measured_number", "evidence": "结构重构验收_20261105.json performance.storage.v3_store_open_ms 4.35ms → 1.92ms", "result": "pass"},
+      "source": "git:b91067a"
+    },
+    {
+      "id": "#12",
+      "title": "REVIEW_REQUIRED 分支重复全量加载基线 3 次（parquet 全读 + 2 次 sha256 + curated 树 glob）",
+      "status": "fixed",
+      "review#1": {"type": "commit_hash", "evidence": "b91067a 修改 data/pipeline/行情阶段_v1.py，REVIEW 分支基线只读一次", "result": "pass"},
+      "review#2": {"type": "doc_path", "evidence": "artifacts/history/docs/重构评审/第三轮_性能与治理.md 性能基准；本轮 full diff 核对无重复加载残留", "result": "pass"},
+      "source": "git:b91067a"
+    },
+    {
+      "id": "#13",
+      "title": "监控/回放.py 每根 K 线多一次整帧 .copy()，与 _indexed 内部拷贝重复",
+      "status": "fixed",
+      "review#1": {"type": "commit_hash", "evidence": "b91067a 去掉重复整帧拷贝", "result": "pass"},
+      "review#2": {"type": "measured_number", "evidence": "结构重构验收_20261105.json performance.untouched_paths.detector_replay_ms（545.2→559.1ms，属运行间波动，未宣称收益）", "result": "pass"},
+      "source": "git:b91067a"
+    },
+    {
+      "id": "#14",
+      "title": "单标异常中止整条日报链，与 run_contract.failed_symbols 契约不一致（Q1）",
+      "status": "fixed",
+      "review#1": {"type": "commit_hash", "evidence": "72a4789 feat(daily): 单标的失败隔离 + --strict；新增 tests/test_daily_market_scan.py 2 用例", "result": "pass"},
+      "review#2": {"type": "command", "evidence": "本轮定向回归 tests/test_daily_market_scan.py 通过（327 passed 集合内）；结构重构验收_20261105.json round2.approved_actions.Q1", "result": "pass"},
+      "source": "git:72a4789"
+    },
+    {
+      "id": "#15",
+      "title": "提交失败时 interrupt_run 空操作，失败 run 在库里无痕迹",
+      "status": "fixed",
+      "review#1": {"type": "commit_hash", "evidence": "c8640f4 在业务事务外 ensure_run，失败留 INTERRUPTED；tests/test_daily_market_scan.py 两处旧断言改为 INTERRUPTED", "result": "pass"},
+      "review#2": {"type": "test_case", "evidence": "tests/test_daily_market_scan.py::test_failed_atomic_commit_leaves_an_interrupted_run_but_no_business_state 与 ::test_ensure_run_persists_a_failed_commit_once（本轮定向回归通过）", "result": "pass"},
+      "source": "git:c8640f4"
+    },
+    {
+      "id": "#16",
+      "title": "逐行合并 O(n×c)、state_transitions O(n²)、读路径全量 sha256（原报告列为延期项）",
+      "status": "fixed",
+      "review#1": {"type": "commit_hash", "evidence": "e1c3667 哈希对齐+向量比较并新增 tests/unit/test_合并冲突检测等价.py、test_状态快照前缀等价.py、scripts/benchmark_daily_hot_paths.py；afb690e + 7ff78eb 摘要 (path,size,mtime_ns,inode) 记忆化 + tests/unit/test_完整性摘要记忆化_v1.py", "result": "pass"},
+      "review#2": {"type": "measured_number", "evidence": "60k 行全量合并 1926ms→199ms（9.7×）；600 根 state_transitions 1839ms→750ms；差分 oracle 覆盖重复时间戳/NaT/未完成 bar/±inf/25 组随机重叠；20MB 摘要 22.2ms→0.38ms", "result": "pass"},
+      "source": "git:e1c3667, git:afb690e, git:7ff78eb, scripts/benchmark_daily_hot_paths.py",
+      "note": "子项『回放前缀摘要增量计算』仍为 deferred，见 notes"
+    },
+    {
+      "id": "#17",
+      "title": "核心层五项静默失真：floor(q/step)*step 吞档、checkpoint 遇 Timestamp 抛错、risk_estimates 传 Series 抛错、FeatureCache 返回可变帧、rules.py 吞非法操作符",
+      "status": "fixed",
+      "review#1": {"type": "commit_hash", "evidence": "014fed6 新增 core/数量步长_v1.py::floor_to_step 与 6 处调用改造、_json_state、单 Series 提升、copy(deep=False) 写隔离、UnsupportedOperatorError；新增 tests/unit/test_核心静默失真_v1.py（22 用例，含源码守卫）", "result": "pass"},
+      "review#2": {"type": "command", "evidence": "本轮 .venv/Scripts/python.exe -m pytest tests/unit/test_核心静默失真_v1.py tests/unit/test_特征计算复用.py → 通过（327 passed 集合内）；413 个整档中旧写法吞掉 13 档，方向恒为少买一档", "result": "pass"},
+      "source": "git:014fed6, docs/策略口径与待确认事项_20261105.md『数量步长口径』"
+    },
+    {
+      "id": "#18",
+      "title": "海龟周期硬编码 / 共振漏检 turtle_55 / rolling_percentile 预热口径不一致 / EMA 策略自写 ATR（Q4–Q6）",
+      "status": "fixed",
+      "review#1": {"type": "commit_hash", "evidence": "9bddc3c（Q4/Q5）、731886f（Q6），24200f1 撤销 bad3e0a 回退并补回 4 个回归用例；tests/unit/test_核心计算回归.py、tests/test_daily_strategy_checks.py、tests/test_daily_signals.py、tests/test_EMA趋势策略.py", "result": "pass"},
+      "review#2": {"type": "doc_path", "evidence": "docs/策略口径与待确认事项_20261105.md『本轮状态（已修复）』×3 + 实测影响（ADX 翻转全部落在预热期，交易窗口 0 翻转）；本轮 4 个回归用例在 327 passed 内通过", "result": "pass"},
+      "source": "git:9bddc3c, git:731886f, git:24200f1, git:494b496"
+    },
+    {
+      "id": "Q1",
+      "title": "单标的失败是否隔离（run_contract.failed_symbols + --strict）",
+      "status": "fixed",
+      "review#1": {"type": "commit_hash", "evidence": "72a4789 实施失败隔离与 --strict；tests/test_daily_market_scan.py 2 用例", "result": "pass"},
+      "review#2": {"type": "command", "evidence": "本轮定向回归 tests/test_daily_market_scan.py 通过；artifacts/history/docs/功能与函数测试报告_20261105.md 记录 AAA=updated / BBB=failed", "result": "pass"},
+      "source": "git:72a4789"
+    },
+    {
+      "id": "Q2",
+      "title": "历史美股数据是否重新审计/重发",
+      "status": "documented",
+      "review#1": {"type": "commit_hash", "evidence": "9ef0c7f 记录 Q2 只读审计证据；artifacts/history/docs/只读审计_20261105.json", "result": "pass"},
+      "review#2": {"type": "measured_number", "evidence": "78 个 curated D1 标的 / 17.44s / 2 OK + 76 RESEARCH_ONLY；未重写任何历史 manifest 或 current 指针", "result": "pass"},
+      "source": "artifacts/history/docs/只读审计_20261105.json"
+    },
+    {
+      "id": "Q3",
+      "title": "repair 失败策略（失败闭合，是否加 --force 逃生口）",
+      "status": "fixed",
+      "review#1": {"type": "commit_hash", "evidence": "95a982b 改为抛 DataQualityError；f499e32 追加 tests/test_数据封版合同.py::test_repair_current_lineage_never_certifies_unqualified_data", "result": "pass"},
+      "review#2": {"type": "command", "evidence": "本轮隔离复跑 tests/test_数据封版合同.py --basetemp=E:/tmp/pytest-bt → 96 passed in 104.92s；未添加 --force（保持失败闭合）", "result": "pass"},
+      "source": "git:f499e32"
+    },
+    {
+      "id": "Q4",
+      "title": "rolling_percentile 默认预热 1/4 窗口（lookback=120 时第 30 根就输出『120 日分位』）",
+      "status": "fixed",
+      "review#1": {"type": "commit_hash", "evidence": "9bddc3c math_utils.rolling_percentile 默认预热改为完整窗口；scanner.volatility_percentile 显式 min_periods=volatility_lookback；24200f1 撤销回退并补回 tests/unit/test_核心计算回归.py::test_percentile_default_warmup_is_the_full_lookback_window", "result": "pass"},
+      "review#2": {"type": "doc_path", "evidence": "docs/策略口径与待确认事项_20261105.md『本轮状态（已修复）』；本轮 tests/unit/test_核心计算回归.py 在 327 passed 内通过", "result": "pass"},
+      "source": "git:9bddc3c, git:24200f1"
+    },
+    {
+      "id": "Q5",
+      "title": "TURTLE_PERIODS 硬编码、共振漏检 turtle_55",
+      "status": "fixed",
+      "review#1": {"type": "commit_hash", "evidence": "9bddc3c 新增 turtle_entry_periods(config) 按配置入场周期投票、_resonance 补 turtle_55 不可用；24200f1 撤销回退并补回 tests/test_daily_strategy_checks.py 与 tests/test_daily_signals.py 用例", "result": "pass"},
+      "review#2": {"type": "test_case", "evidence": "tests/test_daily_strategy_checks.py::test_turtle_votes_with_the_configured_entry_periods、tests/test_daily_signals.py::test_resonance_is_unavailable_while_the_55_bar_channel_is_warming_up（本轮 327 passed 内通过）", "result": "pass"},
+      "source": "git:9bddc3c, git:24200f1"
+    },
+    {
+      "id": "Q6",
+      "title": "EMA 策略自写 ATR/ADX 与 wilder_atr / directional_movement_index 口径不同",
+      "status": "fixed",
+      "review#1": {"type": "commit_hash", "evidence": "731886f 改用共享 Wilder 口径；24200f1 撤销回退并补回 tests/test_EMA趋势策略.py::test_atr_and_adx_use_the_shared_wilder_warmup", "result": "pass"},
+      "review#2": {"type": "doc_path", "evidence": "docs/策略口径与待确认事项_20261105.md 实测影响：ADX 翻转全部落在预热期，交易窗口 0 翻转；本轮用例在 327 passed 内通过", "result": "pass"},
+      "source": "git:731886f, git:24200f1"
+    },
+    {
+      "id": "Q7",
+      "title": "okx place_*_order / system_time、NotificationChannel、macd 等零引用对外能力是否删除",
+      "status": "fixed",
+      "review#1": {"type": "commit_hash", "evidence": "dced7d1 不删除，改为新增 tests/unit/test_对外能力合同.py（11 用例）锁定 dry-run、参数清理、凭据校验、channel_id、macd 列与取值", "result": "pass"},
+      "review#2": {"type": "command", "evidence": "本轮定向回归 tests/unit/test_对外能力合同.py 通过（327 passed 集合内）；零引用风险由合同测试持续守护", "result": "pass"},
+      "source": "git:dced7d1"
+    },
+    {
+      "id": "Q8",
+      "title": "application/daily_analysis.py（643 行）是否删除及 7 个测试的迁移",
+      "status": "fixed",
+      "review#1": {"type": "commit_hash", "evidence": "621dbf1 把报告投影迁入 application/daily/report_projection.py，1 个生产导入方 + 6 个测试改路径，确认零引用后删除旧模块", "result": "pass"},
+      "review#2": {"type": "command", "evidence": "工作区核对：report_projection.py 存在、daily_analysis.py 不存在；结构重构验收_20261105.json round2.correction 明确它是『放错位置的生产代码』而非死代码", "result": "pass"},
+      "source": "git:621dbf1"
+    },
+    {
+      "id": "Q9",
+      "title": "未提交 WIP 的处理（原始报告：已落检查点 b551ff8，若需并入主线直接 merge 该提交）",
+      "status": "fixed",
+      "review#1": {"type": "commit_hash", "evidence": "b551ff8 chore(wip): 检查点提交重构前的未提交工作；该提交位于 origin/main..HEAD 的 32 个提交链内", "result": "pass"},
+      "review#2": {"type": "command", "evidence": "git merge-base --is-ancestor b551ff8 HEAD 通过；main 已包含该检查点，refactor/logic-fixes 已快进合并（9239319 merge 记录）", "result": "pass"},
+      "source": "git:b551ff8, git:9239319"
+    },
+    {
+      "id": "Q10",
+      "title": "README 中『1388 项』等无时间戳的历史数字",
+      "status": "fixed",
+      "review#1": {"type": "commit_hash", "evidence": "dced7d1 在 README.md 顶部加『数字口径』注记：1369/1388/1488/1500/1537 均为当日检查点实测值，权威数字只认带 captured_at/head_commit/完整命令的验收 JSON", "result": "pass"},
+      "review#2": {"type": "doc_path", "evidence": "本轮同步校正 结构重构验收_20261105.json：tests.final 标记 snapshot=true 并注明 9239319 时的历史值；新增 current_verification 记录本次定向实测", "result": "pass"},
+      "source": "git:dced7d1, artifacts/history/docs/结构重构验收_20261105.json"
+    }
+  ],
+  "tests": {
+    "policy": "按用户选择只做定向测试 + 静态检查；未在 6921a22 之后重跑 12 分钟全量回归",
+    "full_regression_after_6921a22": "not_run",
+    "targeted": {
+      "command": ".venv/Scripts/python.exe -m pytest -q --tb=short -p no:randomly <17 个定向测试文件，见 targeted_files>",
+      "result": "4 failed, 327 passed, 5 warnings in 210.77s",
+      "targeted_files": [
+        "tests/unit/test_核心静默失真_v1.py",
+        "tests/unit/test_公共能力合同.py",
+        "tests/unit/test_合并冲突检测等价.py",
+        "tests/unit/test_状态快照前缀等价.py",
+        "tests/unit/test_完整性摘要记忆化_v1.py",
+        "tests/unit/test_对外能力合同.py",
+        "tests/unit/test_核心计算回归.py",
+        "tests/test_daily_market_scan.py",
+        "tests/test_daily_strategy_checks.py",
+        "tests/test_daily_signals.py",
+        "tests/test_EMA趋势策略.py",
+        "tests/test_数据封版合同.py",
+        "tests/test_feature_preparation.py",
+        "tests/test_golden_master.py",
+        "tests/test_architecture_boundaries.py",
+        "tests/test_美股前100指标_像素.py"
+      ],
+      "failed_test_ids": [
+        "tests/test_数据封版合同.py::test_concurrent_identical_approvals_publish_one_version[sqlite]",
+        "tests/test_数据封版合同.py::test_concurrent_identical_approvals_publish_one_version[duckdb]",
+        "tests/test_数据封版合同.py::test_concurrent_reject_approve_has_one_final_decision[sqlite]",
+        "tests/test_数据封版合同.py::test_concurrent_reject_approve_has_one_final_decision[duckdb]"
+      ],
+      "failure_cause": "Windows 并发文件锁 PermissionError [Errno 13]（C:/Users/14259/AppData/Local/Temp/pytest-of-14259/.../.locks/*.lock），属并发/进程监督类环境竞争"
+    },
+    "isolated_rerun": {
+      "command": ".venv/Scripts/python.exe -m pytest -q --tb=short -p no:randomly tests/test_数据封版合同.py --basetemp=E:/tmp/pytest-bt",
+      "result": "96 passed in 104.92s",
+      "conclusion": "4 个失败在隔离运行下全部通过，判定为环境噪声而非业务代码回归"
+    },
+    "pixel_regression": {
+      "command": ".venv/Scripts/python.exe -m pytest -q --tb=short -p no:randomly tests/test_美股前100指标_像素.py",
+      "result": "2 passed, 1 warning in 13.37s",
+      "note": "Playwright 驱动 node.exe 补齐后本机可执行；历史『环境失败』已解除"
+    },
+    "architecture_boundaries": {
+      "command": ".venv/Scripts/python.exe -m pytest -q --tb=short -p no:randomly tests/test_architecture_boundaries.py",
+      "result": "13 passed in 3.02s"
+    },
+    "golden_master": "tests/test_golden_master.py 包含在定向回归 327 passed 内，通过",
+    "historical_full_suite": {
+      "snapshot": true,
+      "when": "本轮会话压缩前、6921a22 之前",
+      "command": ".venv/Scripts/python.exe -m pytest tests/ -q -p no:randomly --tb=no -rf",
+      "result": "13 failed, 1525 passed, 9 warnings in 712.98s",
+      "failure_class": "13 项全部为并发/进程监督类（数据封版、监控状态与运行链、进程监督、通知事务队列、预期组件生命周期）",
+      "isolation_evidence": "同批文件隔离运行 219 passed",
+      "note": "历史观察值，非本轮推送前验证；不得写成当前状态或全部绿色"
+    }
+  },
+  "static_checks": {
+    "ruff_F": {
+      "command": ".venv/Scripts/python.exe -m ruff check src tests scripts research --select F",
+      "result": "All checks passed!"
+    },
+    "architecture_boundaries": "13 passed",
+    "golden_master": "pass（包含在定向回归 327 passed 内）"
+  },
+  "performance": {
+    "merge_current_60k_rows": "1926ms → 199ms（9.7×），来源 scripts/benchmark_daily_hot_paths.py",
+    "state_transitions_600_bars": "1839ms → 750ms，单根成本 3.07ms → 1.25ms",
+    "sha256_memo_20MB": "22.2ms → 0.38ms（58×）",
+    "source": "docs/策略口径与待确认事项_20261105.md『#16 剩余两项性能』与 scripts/benchmark_daily_hot_paths.py"
+  },
+  "environment_failures": {
+    "statement": "不宣称全部绿色。本轮推送前只做定向测试 + 静态检查，未在 6921a22 之后重跑全量回归。",
+    "targeted_failed": 4,
+    "targeted_passed": 327,
+    "isolated_evidence": "tests/test_数据封版合同.py 隔离复跑 96 passed；历史上同批并发文件隔离运行 219 passed",
+    "historical_13_test_ids": "原始逐用例失败 ID 已随会话压缩丢失，未在此编造；仅保留失败类别（并发/进程监督）与隔离复跑结论",
+    "impact": "影响范围仅限并发/进程监督类测试的整机高负载竞争，非业务代码缺陷；真实行情与长期连续运行仍未验收",
+    "blocking": false
+  },
+  "notes": [
+    "编号 #1–#18 与 Q1–Q10 的标题取自用户原始交付报告第 1 节表格与第 7 节待确认事项表，未做推断改写。",
+    "历史一致性事故：bad3e0a 曾把 Q4/Q5/Q6 源码逐字节回退，而 494b496 文档写成『已修复』；24200f1 已撤销该回退并补回 4 个回归用例，本产物以 HEAD 源码状态为准。",
+    "生成本产物前，工作区存在 35 个把全部修复回退掉的未提交改动；按用户选择已完整备份到 E:/Project/inv-trend-trading_backup_20261105/（stash@{0} + patch + diff），并恢复到 HEAD 后才做验证与落盘。",
+    "head_commit 指被验收的代码状态 6921a22，不是本产物所在的 docs 提交；推送前用 git merge-base --is-ancestor 6921a22 HEAD 核对。",
+    "仍 deferred 的子项：回放前缀摘要增量计算；其余 #16 三项（合并向量化、state_transitions、sha256 记忆化）均已 resolved。",
+    "本产物不改写 结构重构验收_20261105.json 中的历史快照数字，只在其上追加当前验证与校正日志。"
+  ],
+  "provenance": {
+    "derived_from": [
+      "artifacts/history/docs/结构重构验收_20261105.json",
+      "artifacts/history/docs/只读审计_20261105.json",
+      "artifacts/history/docs/功能与函数测试报告_20261105.md",
+      "artifacts/history/docs/重构评审/第一轮_边界与正确性.md",
+      "artifacts/history/docs/重构评审/第二轮_兼容与一致性.md",
+      "artifacts/history/docs/重构评审/第三轮_性能与治理.md",
+      "docs/策略口径与待确认事项_20261105.md",
+      "git log origin/main..HEAD（32 个提交）"
+    ],
+    "head_at_capture": "6921a225ad52bbfe5d9fc22ec366cdcb381a62bd",
+    "verification_shell": "Windows Git Bash + E:/Project/inv-trend-trading/.venv/Scripts/python.exe (Python 3.12)"
+  }
+}

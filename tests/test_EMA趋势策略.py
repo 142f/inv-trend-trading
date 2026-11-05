@@ -5,6 +5,7 @@ import pandas as pd
 import pytest
 
 from inv_trend.core.EMA趋势策略 import Config, Relation, backtest, signals
+from inv_trend.core.math_utils import directional_movement_index, wilder_atr
 
 
 def bars():
@@ -104,3 +105,24 @@ def test_data_validation_and_zero_confirmation():
     assert r.step(-1) == "失效" and r.step(1) == "确认成功"
     with pytest.raises(ValueError):
         replace(Config(), weights=(1,1,1))
+
+
+def test_atr_and_adx_use_the_shared_wilder_warmup():
+    """Stops and the ADX gate must use the same scale as the D1 report."""
+
+    frame = signals(bars())
+
+    pd.testing.assert_series_equal(
+        frame["atr"],
+        wilder_atr(frame["high"], frame["low"], frame["close"], 14),
+        check_names=False,
+    )
+    assert frame["atr"].iloc[:13].isna().all()
+    assert np.isfinite(frame["atr"].iloc[13])
+
+    expected_adx = directional_movement_index(
+        frame["high"], frame["low"], frame["close"], 14
+    )["adx"].fillna(0.0)
+    pd.testing.assert_series_equal(frame["adx"], expected_adx, check_names=False)
+    # 2*period-1 bars are needed before ADX exists at all.
+    assert frame["adx"].iloc[:26].eq(0.0).all()
