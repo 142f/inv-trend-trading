@@ -34,8 +34,16 @@ def test_shared_features_compute_each_average_once_and_reuse_cached_result():
         cache = features.FeatureCache()
         first = cache.prepare(frame, request)
         assert [probe.call_count for probe in probes] == [1, 4, 3, 1]
-        assert cache.prepare(frame.copy(), request) is first
+        second = cache.prepare(frame.copy(), request)
+        # The cache still avoids recomputation, but it hands out an isolated
+        # frame: a caller that writes into it must not poison later runs.
         assert [probe.call_count for probe in probes] == [2, 4, 3, 1]
+        assert second.frame is not first.frame
+        assert second.frame.equals(first.frame) and second.frame is not frame
+
+        first.frame["close"] = -1.0
+        third = cache.prepare(frame, request)
+        assert third.frame["close"].iloc[-1] == frame["close"].iloc[-1]
 
 
 def test_breakout_direction_matches_close_rule_at_boundaries_and_with_buffer():

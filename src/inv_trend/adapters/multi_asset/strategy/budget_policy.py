@@ -6,6 +6,8 @@ from dataclasses import dataclass
 import math
 from typing import Mapping
 
+from inv_trend.core.数量步长_v1 import floor_to_step
+
 from ..models.domain import LONG, AssetSpec, PortfolioState, TurtleRules
 from ..models.order_intent import ReservationUsage
 
@@ -64,7 +66,7 @@ class PortfolioBudgetPolicy:
         # Capacity is divided by per-unit impact.  Ratios of existing totals are
         # deliberately never used: that was the source of prior scaling errors.
         quantity = min(requested_qty, risk_capacity / risk_per_qty, leverage_capacity / notional_per_qty)
-        quantity = math.floor(quantity / spec.qty_step) * spec.qty_step
+        quantity = floor_to_step(quantity, spec.qty_step, name="budgeted quantity")
         if (
             quantity <= 0
             or quantity < spec.min_qty

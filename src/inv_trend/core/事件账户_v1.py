@@ -3,9 +3,9 @@ from __future__ import annotations
 
 from collections import deque
 from dataclasses import asdict, dataclass
-import math
 
 from .阶段协议_v1 import AccountSnapshot, Bar, Fill, Signal, digest, finite, timestamp
+from .数量步长_v1 import floor_to_step
 
 
 @dataclass(frozen=True, slots=True)
@@ -62,7 +62,7 @@ class CashBroker:
         self.short_signals_blocked = 0
 
     def _round(self, value: float) -> float:
-        return math.floor(max(0.0, value) / self.config.lot_size + 1e-10) * self.config.lot_size
+        return floor_to_step(max(0.0, value), self.config.lot_size, name="event account quantity")
 
     def on_signal(self, signal: Signal, *, audit: bool = True) -> AccountSnapshot:
         bar = signal.features.bar

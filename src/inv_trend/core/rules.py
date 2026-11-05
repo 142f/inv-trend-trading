@@ -7,6 +7,15 @@ from typing import Any, Mapping
 
 from .explanations import ConditionEvaluation
 
+# Operators are part of the caller's schema, not runtime data: an unknown value
+# is a programming error, never "unavailable evidence".  A dedicated type keeps
+# evaluate_condition from swallowing it with the numeric-evaluation failures.
+SUPPORTED_OPERATORS = (">", ">=", "<", "<=", "==", "!=", "between", "outside")
+
+
+class UnsupportedOperatorError(ValueError):
+    """Raised when a condition carries an operator this module cannot evaluate."""
+
 
 def evaluate_condition(
     *,
@@ -40,6 +49,8 @@ def evaluate_condition(
             price=price,
             metadata=metadata or {},
         )
+    except UnsupportedOperatorError:
+        raise
     except (TypeError, ValueError, ArithmeticError) as exc:
         return unavailable_condition(
             condition_id=condition_id,
@@ -151,7 +162,10 @@ def _compare(actual: Any, operator: str, reference: Any) -> bool:
         lower, upper = _finite_number(low), _finite_number(high)
         inside = lower <= value <= upper
         return inside if operator == "between" else not inside
-    raise ValueError(f"unsupported comparison operator: {operator}")
+    raise UnsupportedOperatorError(
+        f"unsupported comparison operator: {operator!r}; "
+        f"expected one of {', '.join(SUPPORTED_OPERATORS)}"
+    )
 
 
 def _relative_position(actual: Any, operator: str, reference: Any) -> str:
@@ -172,4 +186,10 @@ def _relative_position(actual: Any, operator: str, reference: Any) -> str:
     return "equal"
 
 
-__all__ = ["boolean_condition", "evaluate_condition", "unavailable_condition"]
+__all__ = [
+    "SUPPORTED_OPERATORS",
+    "UnsupportedOperatorError",
+    "boolean_condition",
+    "evaluate_condition",
+    "unavailable_condition",
+]
