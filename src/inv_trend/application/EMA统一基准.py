@@ -1,6 +1,6 @@
 """EMA and passive order adapters sharing the maintained Turtle execution engine."""
 
-from dataclasses import asdict, replace
+from dataclasses import replace
 import hashlib
 import json
 
@@ -392,6 +392,3 @@ def choose_training(records):
     ranked = sorted(records, key=lambda x: (-score(x["metrics"]), x["candidate_id"]))
     return ranked[0]["candidate_id"]
 
-
-def config_dict(cfg):
-    return asdict(cfg)

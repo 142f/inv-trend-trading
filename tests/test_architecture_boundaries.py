@@ -333,6 +333,7 @@ DECLARED_PACKAGE_EDGES: frozenset[tuple[str, str]] = frozenset({
     ("notifications", "monitoring"),
     ("notifications", "observability"),
     ("observability", "core"),
+    ("observability", "infra"),
     ("ports", "core"),
     ("storage", "core"),
     ("storage", "infra"),

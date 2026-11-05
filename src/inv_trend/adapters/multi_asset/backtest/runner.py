@@ -1242,10 +1242,6 @@ def _fill_cash_cost(qty: float, price: float, spec: AssetSpec, *, price_slippage
     return notional * bps / 10000.0
 
 
-def _trade_cost(qty: float, price: float, spec: AssetSpec) -> float:
-    return _fill_cash_cost(qty, price, spec, price_slippage=False)
-
-
 def _exit_type(reason: str) -> str:
     if reason == "intraday_take_profit":
         return "take_profit"

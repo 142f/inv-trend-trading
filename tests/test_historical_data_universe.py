@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 import json
 from pathlib import Path
 
@@ -10,7 +10,7 @@ import pandas as pd
 import pytest
 
 from inv_trend.data.api import HistoricalDataService
-from inv_trend.data.calendar import is_nyse_trading_day
+from inv_trend.data.calendar import classify_missing, is_nyse_trading_day, nyse_holidays
 from inv_trend.data.config import load_instruments
 from inv_trend.data.models import DataConflictError, DataQualityError, ProviderResult
 from inv_trend.infra.integrity import sha256_file
@@ -157,6 +157,91 @@ def test_nyse_holiday_rules():
     assert is_nyse_trading_day(pd.Timestamp("2024-07-03"))
     assert not is_nyse_trading_day(pd.Timestamp("2024-01-06"))   # Saturday
     assert not is_nyse_trading_day(pd.Timestamp("2024-01-07"))   # Sunday
+
+
+def test_observed_new_year_stays_in_the_calendar_year_it_closes():
+    """A Saturday January 1 closes the *previous* December 31.
+
+    The observed date must be looked up in the year it actually falls in;
+    otherwise a closed session is classified as a provider gap and the whole
+    equity dataset fails certification (allow_missing is exact for equities).
+    """
+
+    assert not is_nyse_trading_day(date(2021, 12, 31))   # observed New Year 2022
+    assert not is_nyse_trading_day(date(2027, 12, 31))   # observed New Year 2028
+    assert is_nyse_trading_day(date(2023, 12, 29))       # New Year 2024 was a Monday
+    assert is_nyse_trading_day(date(2024, 12, 31))
+    assert date(2021, 12, 31) in nyse_holidays(2021)
+    assert date(2021, 12, 31) not in nyse_holidays(2022)
+    assert date(2022, 1, 1) not in nyse_holidays(2022)
+    assert nyse_holidays(2022) == {
+        date(2022, 1, 17), date(2022, 2, 21), date(2022, 4, 15), date(2022, 5, 30),
+        date(2022, 6, 20), date(2022, 7, 4), date(2022, 9, 5), date(2022, 11, 24),
+        date(2022, 12, 26),
+    }
+
+
+def test_missing_observed_new_year_is_a_holiday_not_a_provider_gap():
+    """The absent 2021-12-31 session must not be reported as missing data."""
+
+    absent, breakdown = classify_missing(
+        pd.DatetimeIndex([pd.Timestamp("2021-12-30", tz="UTC"), pd.Timestamp("2022-01-03", tz="UTC")]),
+        market="xnas",
+        session="regular",
+        start=pd.Timestamp("2021-12-30", tz="UTC"),
+        end=pd.Timestamp("2022-01-03", tz="UTC"),
+        freq="1D",
+    )
+    assert breakdown["provider_gap"] == 0
+    assert breakdown["holiday"] == 1
+    assert len(absent) == 0
+
+
+def test_exact_duplicate_rows_lower_the_published_quality_score(tmp_path: Path):
+    """Cleaning counters must reach the quality report instead of being zeroed.
+
+    A dataset whose provider repeated a bar used to report a perfect score,
+    because the pipeline rebuilt NormalizationResult with literal zeros.
+    """
+
+    frame = stock_bars()
+    frame = pd.concat([frame, frame.iloc[[0]]], ignore_index=True)
+    service = HistoricalDataService(tmp_path, providers={"yahoo_chart": FakeProvider(frame)})
+    config = service.instruments["NVDA"]
+    service.instruments["NVDA"] = config.__class__(
+        **{**config.__dict__, "primary_source": "yahoo_chart"}
+    )
+    manifest = service.ingest("NVDA", "D1", datetime(2024, 1, 2, tzinfo=UTC), datetime(2024, 2, 2, tzinfo=UTC))
+    assert manifest.quality_score < 100.0
+    assert manifest.quality_status == "CURATED"
+    # Run-level report: the duplicate was dropped by this run, so the counter is 1.
+    run_report = json.loads(
+        (service.lake.root / "ingestion_reports" / f"{manifest.run_id}.json").read_text(encoding="utf-8")
+    )
+    assert run_report["duplicate_count"] == 1
+    assert run_report["quality_score"] < 100.0
+    # Dataset-level report: the published frame itself is clean, and provenance is
+    # recorded so certification can be traced back to the publication path.
+    dataset_report = json.loads(
+        (service.lake.root / "quality_reports" / f"{manifest.dataset_version}.json").read_text(encoding="utf-8")
+    )
+    assert dataset_report["duplicate_count"] == 0
+    assert dataset_report["certification_source"] == "publish_curated"
+
+
+def test_published_frame_audit_recomputes_counters_instead_of_asserting_zero():
+    """Lineage repair must not claim a clean frame it never verified."""
+
+    from inv_trend.data.processing import audit_published_frame
+
+    frame = stock_bars(periods=5)
+    frame.loc[frame.index[1], "high"] = 1.0          # high < low
+    frame = pd.concat([frame, frame.iloc[[0]]], ignore_index=True)
+    result = audit_published_frame(frame)
+    assert result.duplicate_count == 1
+    assert result.ohlc_anomaly_count == 1
+    assert len(result.quarantine) == 1
+    assert result.quarantine["quarantine_reason"].iloc[0] == "invalid_ohlc_or_volume"
 
 
 def test_weekend_and_holiday_are_not_provider_gaps(tmp_path: Path):

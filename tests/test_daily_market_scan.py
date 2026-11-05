@@ -219,7 +219,7 @@ def test_staged_daily_workflow_keeps_read_stages_side_effect_free(tmp_path: Path
     publication = workflow.publish(run_id=run_id, report_date=report_date)
     assert (publication.run_directory / "AAA" / "01_canonical" / "complete_analysis_result.json").exists()
     delivery = workflow.deliver(run_id=run_id, report_date=report_date)
-    assert set(delivery["delivery"]) == {"notified", "errors", "recovered"}
+    assert set(delivery["delivery"]) == {"notified", "errors", "recovered", "persist_errors"}
     retried_publication = workflow.publish(run_id=run_id, report_date=report_date)
     assert retried_publication.run_directory == publication.run_directory
     assert all(
@@ -727,7 +727,7 @@ def test_publish_and_deliver_do_not_read_market_data_after_commit(tmp_path: Path
             now=lambda: datetime(2024, 4, 19, 12, tzinfo=UTC),
         )
     ).deliver(run_id=run_id, report_date=report_date)
-    assert set(delivery["delivery"]) == {"notified", "errors", "recovered"}
+    assert set(delivery["delivery"]) == {"notified", "errors", "recovered", "persist_errors"}
 
 
 def test_trend_decide_consumes_staged_json_without_opening_market_data(tmp_path: Path) -> None:

@@ -1,6 +1,5 @@
 """Append-only portfolio evidence in the existing SQLite authority."""
 from dataclasses import asdict
-import json
 
 from .结构化存储_v3 import UnifiedStore, canonical, digest, utcnow
 
@@ -151,6 +150,3 @@ class PortfolioRepository:
         with self.store.connect() as db:
             db.execute("INSERT INTO reports VALUES(?,?,?,?)", (study_id, name, raw, digest(raw)))
 
-    def read_report(self, study_id):
-        rows = self.store.rows("SELECT payload FROM reviews WHERE study_id=? AND version='v1'", (study_id,))
-        return json.loads(rows[0]["payload"])

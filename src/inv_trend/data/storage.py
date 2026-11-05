@@ -115,10 +115,18 @@ class DataLake:
         if startup_check:
             self.check_current_consistency(verify_lineage=False)
 
-    def _current_identities(self) -> set[tuple[str, str]]:
-        with self._connect() as db:
-            identities = {(str(row[0]), str(row[1])) for row in db.execute(
-                'SELECT symbol,timeframe FROM current_versions').fetchall()}
+    def _current_identities(self, *, db=None) -> set[tuple[str, str]]:
+        """Every identity that claims to have a current version.
+
+        A caller that already holds a connection passes it in: opening one
+        connection per symbol turned a full audit into an NxM connection storm.
+        """
+
+        if db is None:
+            with self._connect() as connection:
+                return self._current_identities(db=connection)
+        identities = {(str(row[0]), str(row[1])) for row in db.execute(
+            'SELECT symbol,timeframe FROM current_versions').fetchall()}
         for pointer in (self.root / 'curated').glob('symbol=*/timeframe=*/current.json'):
             identities.add((pointer.parent.parent.name.split('=', 1)[1], pointer.parent.name.split('=', 1)[1]))
         return identities
@@ -129,19 +137,25 @@ class DataLake:
         from .lineage import load_current_lineage
         from inv_trend.storage.结构化存储_v3 import StoreError
         issues = []
-        identities = self._current_identities()
-        for symbol, timeframe in sorted(identities):
-            try:
-                pointer = self.current_version(symbol, timeframe)
-                catalog = self._current_catalog_row(symbol, timeframe)
-                if not pointer or not catalog:
-                    raise DataLineageError('current pointer or catalog row is missing')
-                self._assert_pointer_catalog_consistent(symbol, timeframe, pointer['version'], pointer['run_id'])
-                if verify_lineage:
-                    load_current_lineage(self, symbol, timeframe, bars=self.read_bars(symbol, timeframe))
-            except (DataLineageError, StoreError, OSError, KeyError, ValueError) as exc:
-                issues.append({'symbol': symbol, 'timeframe': timeframe,
-                               'error_type': type(exc).__name__, 'message': str(exc)})
+        # One read connection for the whole pass: this runs on every startup,
+        # and opening ~4 connections per identity made it the dominant cost of
+        # a universe-wide audit.
+        with self._connect() as db:
+            identities = self._current_identities(db=db)
+            for symbol, timeframe in sorted(identities):
+                try:
+                    pointer = self.current_version(symbol, timeframe)
+                    catalog = self._current_catalog_row(symbol, timeframe, db=db)
+                    if not pointer or not catalog:
+                        raise DataLineageError('current pointer or catalog row is missing')
+                    self._assert_pointer_catalog_consistent(
+                        symbol, timeframe, pointer['version'], pointer['run_id'], db=db
+                    )
+                    if verify_lineage:
+                        load_current_lineage(self, symbol, timeframe, bars=self.read_bars(symbol, timeframe))
+                except (DataLineageError, StoreError, OSError, KeyError, ValueError) as exc:
+                    issues.append({'symbol': symbol, 'timeframe': timeframe,
+                                   'error_type': type(exc).__name__, 'message': str(exc)})
         result = {'ok': not issues, 'checked': len(identities), 'issues': issues,
                   'backend': self._catalog_engine, 'catalog_path': str(self.catalog_path)}
         if issues and raise_on_error:
@@ -593,14 +607,15 @@ class DataLake:
         timeframe: str,
         version: str,
         run_id: str | None = None,
+        *,
+        db=None,
     ) -> None:
         pointer = self.current_version(symbol, timeframe)
-        with self._connect() as db:
-            row = db.execute(
-                "SELECT version, run_id FROM current_versions "
-                "WHERE symbol=? AND timeframe=?",
-                (symbol, timeframe),
-            ).fetchone()
+        if db is None:
+            with self._connect() as connection:
+                row = self._current_row(connection, symbol, timeframe)
+        else:
+            row = self._current_row(db, symbol, timeframe)
         run_matches = run_id is None or (
             row is not None
             and str(row[1]) == run_id
@@ -713,15 +728,23 @@ class DataLake:
                 str(previous_catalog["run_id"]),
             )
 
+    @staticmethod
+    def _current_row(db, symbol: str, timeframe: str):
+        """Fetch the raw current row on an existing connection."""
+
+        return db.execute(
+            "SELECT version, run_id, updated_at FROM current_versions "
+            "WHERE symbol=? AND timeframe=?",
+            (symbol, timeframe),
+        ).fetchone()
+
     def _current_catalog_row(
-        self, symbol: str, timeframe: str
+        self, symbol: str, timeframe: str, *, db=None
     ) -> dict[str, str] | None:
-        with self._connect() as db:
-            row = db.execute(
-                "SELECT version, run_id, updated_at FROM current_versions "
-                "WHERE symbol=? AND timeframe=?",
-                (symbol, timeframe),
-            ).fetchone()
+        if db is None:
+            with self._connect() as connection:
+                return self._current_catalog_row(symbol, timeframe, db=connection)
+        row = self._current_row(db, symbol, timeframe)
         if row is None:
             return None
         return {

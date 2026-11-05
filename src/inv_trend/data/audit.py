@@ -20,8 +20,21 @@ from inv_trend.infra.integrity import sha256_file
 from .storage import open_data_lake
 
 
-def audit_dataset(root: str | Path, symbol: str, timeframe: str = "D1") -> dict[str, object]:
-    lake = open_data_lake(root)
+def audit_dataset(
+    root: str | Path,
+    symbol: str,
+    timeframe: str = "D1",
+    *,
+    lake=None,
+) -> dict[str, object]:
+    """Audit one dataset; pass lake to share one opened authority across a universe.
+
+    Opening the authority runs the current-consistency pass, so a per-symbol
+    open made audit_universe quadratic in both connections and file reads.
+    """
+
+    if lake is None:
+        lake = open_data_lake(root)
     current = lake.current_version(symbol.upper(), timeframe.upper())
     if current is None:
         return {"symbol": symbol.upper(), "timeframe": timeframe.upper(), "status": "NO_CURRENT_POINTER"}
@@ -265,7 +278,9 @@ def audit_dataset(root: str | Path, symbol: str, timeframe: str = "D1") -> dict[
 
 
 def audit_universe(root: str | Path, symbols: list[str], timeframe: str = "D1") -> dict[str, object]:
-    rows = [audit_dataset(root, symbol, timeframe) for symbol in symbols]
+
+    lake = open_data_lake(root)
+    rows = [audit_dataset(root, symbol, timeframe, lake=lake) for symbol in symbols]
     curated = [r for r in rows if r.get("quality_status") == "CURATED"]
     return {
         "audited_at": datetime.now(timezone.utc).isoformat(),

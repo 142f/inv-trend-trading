@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+import shutil
 from typing import Callable
 from uuid import uuid4
 
@@ -15,6 +16,37 @@ def sync_directory(path: Path) -> None:
             os.fsync(descriptor)
         finally:
             os.close(descriptor)
+
+
+def atomic_copy(
+    source: str | Path,
+    destination: str | Path,
+    *,
+    replace: bool = True,
+    directory_sync: Callable[[Path], None] = sync_directory,
+) -> None:
+    """Publish an existing file under a new name without a partial reader window.
+
+    The temporary name carries the pid and a uuid so two publishers never share
+    one scratch file, and the scratch file is removed on every failure path.
+    """
+
+    source = Path(source)
+    destination = Path(destination)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    if not replace and destination.exists():
+        raise FileExistsError(destination)
+    temporary = destination.with_name(
+        f".{destination.name}.{os.getpid()}.{uuid4().hex}.tmp"
+    )
+    try:
+        shutil.copyfile(source, temporary)
+        if not replace and destination.exists():
+            raise FileExistsError(destination)
+        os.replace(temporary, destination)
+        directory_sync(destination.parent)
+    finally:
+        temporary.unlink(missing_ok=True)
 
 
 def atomic_write(

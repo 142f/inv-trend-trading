@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable
 
 import pandas as pd
 
@@ -16,7 +15,6 @@ from .validator import validate_alignment, validate_ohlcv_frame
 
 
 PRICE_COLUMNS = ["open", "high", "low", "close"]
-OPTIONAL_COLUMNS = ["volume", "spread", "source", "timeframe"]
 
 
 @dataclass(frozen=True)
@@ -174,15 +172,3 @@ def quality_report_row(report: DataQualityReport) -> dict[str, object]:
     }
 
 
-def data_columns(df: pd.DataFrame) -> list[str]:
-    return [column for column in MULTI_ASSET_BAR_COLUMNS if column in df.columns] + [
-        column for column in df.columns if column not in MULTI_ASSET_BAR_COLUMNS
-    ]
-
-
-def ensure_columns(df: pd.DataFrame, extra: Iterable[str] = ()) -> pd.DataFrame:
-    out = df.copy()
-    for column in [*OPTIONAL_COLUMNS, *extra]:
-        if column not in out.columns:
-            out[column] = 0.0 if column in {"volume", "spread"} else ""
-    return out

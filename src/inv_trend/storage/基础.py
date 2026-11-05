@@ -16,6 +16,7 @@ import time
 from uuid import uuid4
 
 from inv_trend.infra.integrity import sha256_file as file_hash
+from inv_trend.infra.脱敏 import redact
 from inv_trend.infra.文件操作 import atomic_write, sync_directory
 from inv_trend.infra.时间 import parse_utc_datetime, to_rfc3339_utc
 
@@ -30,18 +31,9 @@ def now():
     return to_rfc3339_utc(datetime.now(timezone.utc))
 
 
-_SECRET = re.compile(r"(?:password|passwd|secret|api[_-]?key|access[_-]?token|authorization|private[_-]?key)", re.I)
-
-
-def redact(value):
-    if isinstance(value, dict):
-        return {str(k): "[REDACTED]" if _SECRET.search(str(k)) else redact(v) for k, v in value.items()}
-    if isinstance(value, (list, tuple)):
-        return [redact(v) for v in value]
-    if isinstance(value, str):
-        value = re.sub(r"(?i)(Bearer\s+)\S+", r"\1[REDACTED]", value)
-        value = re.sub(r"(?i)((?:password|secret|api[_-]?key|access[_-]?token)\s*[=:]\s*)[^\s,;]+", r"\1[REDACTED]", value)
-    return value
+# The redaction rules live in infra/脱敏.py: manifests, run blobs and experiment
+# registrations are written by this layer, so they must use exactly the same
+# rules as the monitoring and notification paths.
 
 
 def encoded(value):

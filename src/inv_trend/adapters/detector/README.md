@@ -157,8 +157,7 @@ if transition key is new:
 - 只在有利方向到达下一档时加仓；
 - unified 模式会把全仓止损向有利方向移动；layered 模式保留分层语义；
 - 输出的是风险比例建议，不是交易所 lot 数；
-- 实际数量可调用
-  `suggested_risk_quantity(equity, risk_fraction, atr, point_value)`；
+- 从风险预算换算手数由调用方（应用层）完成；检测器不再内置该工具函数；
 - 组合总风险、成交时重新校验和保证金属于现有风险/执行模块职责。
 
 ## 9. 回测方案

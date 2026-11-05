@@ -46,16 +46,19 @@ class NotificationDeliveryService:
     ) -> dict[str, int]:
         """Deliver pending events without creating signals or changing cursors."""
 
-        result = {"notified": 0, "errors": 0, "recovered": 0}
+        # ``errors`` is the counter the run status and the CLI exit code read.
+        # A recovery failure that only logged would let an undelivered
+        # notification look like a completed run.
+        result = {"notified": 0, "errors": 0, "recovered": 0, "persist_errors": 0}
         current = self.repository.pending_notifications(run_id)
         for event in current:
-            try:
-                self.notifier.notify(event)
-                self.repository.mark_notified(event.signal_id, self._timestamp())
+            outcome = self._deliver_one(event)
+            if outcome == "delivered":
                 result["notified"] += 1
-            except Exception as exc:  # Delivery errors remain in the outbox for retry.
-                self.repository.mark_delivery_error(event.signal_id, str(exc))
-                result["errors"] += 1
+                continue
+            result["errors"] += 1
+            if outcome == "unrecorded":
+                result["persist_errors"] += 1
 
         if not include_recovery:
             return result
@@ -63,13 +66,37 @@ class NotificationDeliveryService:
         for event in self.repository.pending_notifications():
             if event.signal_id in current_ids:
                 continue
-            try:
-                self.notifier.notify(event)
-                self.repository.mark_notified(event.signal_id, self._timestamp())
+            outcome = self._deliver_one(event)
+            if outcome == "delivered":
                 result["recovered"] += 1
-            except Exception as exc:  # Leave failed recovery records retryable too.
-                self.repository.mark_delivery_error(event.signal_id, str(exc))
+                continue
+            result["errors"] += 1
+            if outcome == "unrecorded":
+                result["persist_errors"] += 1
         return result
+
+    def _deliver_one(self, event) -> str:
+        """Notify one event and persist the outcome.
+
+        Returns ``delivered`` on success, ``notify_failed`` when the channel
+        rejected the event (it stays retryable) and ``unrecorded`` when the
+        notification left but the outbox write failed, which must be visible
+        rather than silently counted as a success.
+        """
+
+        try:
+            self.notifier.notify(event)
+        except Exception as exc:  # Delivery errors remain in the outbox for retry.
+            self.repository.mark_delivery_error(event.signal_id, str(exc))
+            return "notify_failed"
+        try:
+            self.repository.mark_notified(event.signal_id, self._timestamp())
+        except Exception as exc:  # The notification is out; the record is not.
+            self.repository.mark_delivery_error(
+                event.signal_id, f"notified but unrecorded: {exc}"
+            )
+            return "unrecorded"
+        return "delivered"
 
     run = deliver
 

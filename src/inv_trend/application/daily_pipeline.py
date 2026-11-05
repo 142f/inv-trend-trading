@@ -22,12 +22,7 @@ from inv_trend.adapters.detector.storage.daily_signal_repository import SQLiteDa
 from inv_trend.adapters.daily.composition import create_daily_run_artifact_writer
 from .asset_config import select_detector_assets
 from .daily.run_contract import DEFAULT_BOOTSTRAP_DAYS, DailyMarketScanResult
-from .daily_stages import (
-    DailyDataUpdateService,
-    ExecutionContext,
-    StrategyScreeningService,
-    TrendDecisionService,
-)
+from .daily_stages import DailyDataUpdateService, ExecutionContext
 from .strategy_config import (
     DailyChecksConfig,
     TrendDecisionConfig,
@@ -89,11 +84,8 @@ class DailyMarketScanService:
             provider_retries=self.provider_retries,
             refresh_data=self.refresh_data,
         )
-        self.strategy_screening_service = StrategyScreeningService(
-            self.daily_checks_config,
-            self.trend_decision_config,
-        )
-        self.trend_decision_service = TrendDecisionService(self.trend_decision_config)
+        # The staged workflow owns screening/decision services; building a second
+        # pair here would let the two drift apart with nothing reading these.
         self.artifact_writer = create_daily_run_artifact_writer(
             self.output_dir,
             signal_log_root=self.signal_log_dir,

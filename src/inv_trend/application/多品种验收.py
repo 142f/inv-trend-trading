@@ -375,38 +375,6 @@ def _run(frames, candidate: dict, start, end, *, multiple: float = 1.0, research
     return metrics
 
 
-def _phase_table(result) -> list[dict]:
-    """Describe calendar slices of the single acceptance equity curve."""
-
-    equity = result.equity_curve.astype(float)
-    trades = result.trades
-    ranges = (
-        ("2025H1", "2025-01-01", "2025-06-30"),
-        ("2025H2", "2025-07-01", "2025-12-31"),
-        ("2026", "2026-01-01", "2026-12-31"),
-    )
-    rows = []
-    for name, start, end in ranges:
-        start_ts = pd.Timestamp(start, tz="UTC")
-        end_ts = pd.Timestamp(end, tz="UTC")
-        sl = equity.loc[(equity.index >= start_ts) & (equity.index <= end_ts)]
-        if len(sl) < 2:
-            continue
-        change = float(sl.iloc[-1] - sl.iloc[0])
-        analysis = analyze_equity(sl)
-        exits = pd.to_datetime(trades["exit_time"], utc=True) if not trades.empty else pd.Series(dtype="datetime64[ns, UTC]")
-        part = trades.loc[(exits >= start_ts) & (exits <= end_ts)] if not trades.empty else trades
-        rows.append({
-            "phase": name,
-            "equity_change": change,
-            "phase_return": float(analysis.metrics["total_return"]),
-            "max_drawdown": float(analysis.metrics["max_drawdown"]),
-            "trade_count": int(len(part)),
-            "trade_net_profit": float(part["pnl"].sum()) if not part.empty else 0.0,
-        })
-    return rows
-
-
 def _bounded_frames(frames, end_ts):
     bounded = {}
     for symbol, frame in frames.items():

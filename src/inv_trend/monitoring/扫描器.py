@@ -39,13 +39,44 @@ class CodeVersion:
 
     @classmethod
     def capture(cls, root: str | Path | None = None):
+        """Describe the running code without requiring a usable git checkout.
+
+        Release archives have no .git and a wedged git (network share, stale
+        index) must not stop the supervisor from starting, so a failed lookup
+        degrades to "unknown" instead of raising.  The content hash is the
+        authoritative part used by decisions.
+        """
+
         root = Path(root) if root is not None else Path(__file__).resolve().parents[3]
-        commit = subprocess.run(['git', '-C', str(root), 'rev-parse', 'HEAD'],
-                                capture_output=True, text=True, check=True).stdout.strip()
+        commit = _git_commit(root)
         sources = sorted(list((root / 'src').rglob('*.py')) + [root / 'pyproject.toml'])
         content = {path.relative_to(root).as_posix(): sha256_file(path)
                    for path in sources}
         return cls(commit, digest(content))
+
+
+_GIT_COMMIT_CACHE: dict[str, str] = {}
+
+
+def _git_commit(root: Path) -> str:
+    """Return the HEAD commit, or "unknown" when git is missing or unusable."""
+
+    key = str(root)
+    if key in _GIT_COMMIT_CACHE:
+        return _GIT_COMMIT_CACHE[key]
+    try:
+        completed = subprocess.run(
+            ["git", "-C", str(root), "rev-parse", "HEAD"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+        commit = completed.stdout.strip() if completed.returncode == 0 else ""
+    except (OSError, subprocess.SubprocessError):
+        commit = ""
+    _GIT_COMMIT_CACHE[key] = commit or "unknown"
+    return _GIT_COMMIT_CACHE[key]
 
 
 def _indexed(frame: pd.DataFrame) -> pd.DataFrame:

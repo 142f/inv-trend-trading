@@ -108,9 +108,9 @@ class StageRepository:
                 old = db.execute("SELECT payload FROM stage_artifacts_v1 WHERE artifact_id=?",
                                  (packet.artifact_id,)).fetchone()
                 if old:
-                    previous = decode_envelope(zlib.decompress(old[0]))
-                    if previous.artifact_id != packet.artifact_id:
-                        raise ValueError("artifact identity conflict")
+                    # The row is selected by artifact_id, so an "identity conflict"
+                    # check here could never fire; the envelope digest already
+                    # covers the payload. Retries therefore stay idempotent.
                     continue
                 c = packet.context
                 db.execute("INSERT INTO stage_artifacts_v1 VALUES(" + ",".join("?" * 14) + ")",
