@@ -1,0 +1,1074 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>数据管理流水线 · 任务看板 v1</title>
+<style>
+  :root{
+    --bg:#eef1f5;
+    --panel:#ffffff;
+    --panel-2:#f7f9fb;
+    --ink:#141a21;
+    --muted:#63707e;
+    --line:#dfe5ec;
+    --line-soft:#eaeef3;
+    --accent:#2f62d8;
+    --accent-soft:#e8effc;
+    --done:#1c8f5f;
+    --done-ink:#146c47;
+    --done-soft:#e6f5ee;
+    --doing:#b8791a;
+    --doing-soft:#fdf3e2;
+    --radius:14px;
+    --shadow:0 1px 2px rgba(20,26,33,.05),0 8px 24px -12px rgba(20,26,33,.16);
+    --mono:ui-monospace,SFMono-Regular,"Cascadia Mono","Consolas","Liberation Mono",monospace;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    background:var(--bg);
+    color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei","Noto Sans CJK SC",sans-serif;
+    font-size:15px;
+    line-height:1.62;
+    -webkit-font-smoothing:antialiased;
+    padding-bottom:72px;
+  }
+  code{
+    font-family:var(--mono);
+    font-size:.86em;
+    background:#f0f3f7;
+    border:1px solid var(--line-soft);
+    border-radius:5px;
+    padding:.08em .38em;
+    color:#334;
+    white-space:nowrap;
+  }
+  strong{font-weight:650}
+
+  /* ---------- 顶部 ---------- */
+  .topbar{
+    position:sticky; top:0; z-index:30;
+    background:rgba(255,255,255,.92);
+    backdrop-filter:saturate(1.6) blur(10px);
+    border-bottom:1px solid var(--line);
+  }
+  .topbar-inner{max-width:1120px;margin:0 auto;padding:16px 24px 14px}
+  .title-row{display:flex;align-items:flex-start;gap:16px;flex-wrap:wrap}
+  .titles{flex:1 1 320px;min-width:0}
+  h1{
+    margin:0;font-size:20px;line-height:1.35;font-weight:700;letter-spacing:-.01em;
+  }
+  .sub{margin:5px 0 0;color:var(--muted);font-size:12.5px}
+  .sub a{color:var(--accent);text-decoration:none}
+  .actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+
+  button{
+    font:inherit;font-size:13px;
+    border:1px solid var(--line);
+    background:#fff;color:var(--ink);
+    padding:7px 13px;border-radius:9px;cursor:pointer;
+    transition:background .14s,border-color .14s,box-shadow .14s,transform .06s;
+    white-space:nowrap;
+  }
+  button:hover{background:var(--panel-2);border-color:#cdd6e0}
+  button:active{transform:translateY(1px)}
+  button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+  button.primary{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
+  button.primary:hover{background:#2554c0;border-color:#2554c0}
+  button.ghost-danger:hover{background:#fdf0ef;border-color:#e9c3bf;color:#a33326}
+
+  /* 进度区 */
+  .progress-block{margin-top:14px}
+  .prow{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
+  .pnum{font-variant-numeric:tabular-nums;font-size:26px;font-weight:750;letter-spacing:-.02em}
+  .pnum .sep{color:#c2ccd6;font-weight:400;margin:0 1px}
+  .pnum .den{font-size:15px;font-weight:600;color:var(--muted)}
+  .ppct{
+    font-variant-numeric:tabular-nums;font-size:12px;font-weight:700;
+    color:var(--accent);background:var(--accent-soft);
+    padding:2px 9px;border-radius:999px;
+  }
+  .pnote{color:var(--muted);font-size:12.5px;margin-left:auto}
+  .bar{
+    margin-top:9px;height:9px;border-radius:999px;
+    background:#e4e9f0;overflow:hidden;
+    box-shadow:inset 0 1px 2px rgba(20,26,33,.06);
+  }
+  .bar > i{
+    display:block;height:100%;width:0%;
+    border-radius:999px;
+    background:linear-gradient(90deg,#3f79ea,#22a06b);
+    transition:width .35s cubic-bezier(.22,.68,.36,1);
+  }
+
+  /* ---------- 阶段 ---------- */
+  main{max-width:1120px;margin:0 auto;padding:24px}
+  details.stage{
+    background:var(--panel);
+    border:1px solid var(--line);
+    border-radius:var(--radius);
+    box-shadow:var(--shadow);
+    margin-bottom:16px;
+    overflow:hidden;
+  }
+  details.stage + details.stage{margin-top:0}
+  summary.shead{
+    list-style:none;cursor:pointer;
+    display:flex;align-items:center;gap:14px;
+    padding:15px 18px;
+    border-left:4px solid var(--stage,var(--accent));
+    background:linear-gradient(180deg,#fff, #fbfcfe);
+    user-select:none;
+  }
+  summary.shead::-webkit-details-marker{display:none}
+  summary.shead:hover{background:#fafcff}
+  summary.shead:focus-visible{outline:2px solid var(--accent);outline-offset:-3px}
+  .caret{
+    flex:0 0 auto;width:18px;height:18px;color:var(--muted);
+    transition:transform .18s ease;
+  }
+  details[open] > summary.shead .caret{transform:rotate(90deg)}
+  .sid{
+    flex:0 0 auto;font-family:var(--mono);font-size:11.5px;font-weight:700;
+    color:#fff;background:var(--stage,var(--accent));
+    padding:2px 8px;border-radius:6px;letter-spacing:.03em;
+  }
+  .stitle{flex:1 1 auto;min-width:0}
+  .stitle b{display:block;font-size:15px;font-weight:650;letter-spacing:-.005em}
+  .stitle span{display:block;color:var(--muted);font-size:12px;margin-top:1px}
+  .scount{
+    flex:0 0 auto;font-variant-numeric:tabular-nums;font-size:12.5px;font-weight:650;
+    color:var(--muted);
+  }
+  .scount.done-all{color:var(--done-ink)}
+  .sbar{flex:0 0 auto;width:64px;height:5px;border-radius:999px;background:#e4e9f0;overflow:hidden}
+  .sbar > i{display:block;height:100%;width:0;background:var(--stage,var(--accent));transition:width .3s}
+
+  .tasks{padding:6px 12px 14px}
+  .task{
+    display:flex;gap:13px;
+    padding:12px 12px 12px 11px;
+    border-radius:10px;
+    border:1px solid transparent;
+    cursor:pointer;
+    transition:background .13s,border-color .13s;
+  }
+  .task + .task{margin-top:2px}
+  .task:hover{background:var(--panel-2);border-color:var(--line-soft)}
+  .task:focus-visible{outline:2px solid var(--accent);outline-offset:-1px}
+  /* 已完成：整行淡绿底 + 左侧绿线，与勾选框、状态胶囊共同提供多重区分 */
+  .task.done{
+    background:#f3faf6;
+    border-color:#d8ece2;
+    box-shadow:inset 3px 0 0 -1px var(--done);
+  }
+  .task.done:hover{background:#eaf7f0;border-color:#c7e5d6}
+
+  .tick{
+    flex:0 0 auto;width:20px;height:20px;margin-top:2px;
+    border:1.6px solid #b9c4d1;border-radius:6px;
+    background:#fff;
+    display:flex;align-items:center;justify-content:center;
+    transition:border-color .15s,background .15s;
+  }
+  .tick svg{width:12px;height:12px;opacity:0;transition:opacity .15s;color:#fff}
+  .task.done .tick{background:var(--done);border-color:var(--done)}
+  .task.done .tick svg{opacity:1}
+  .task.doing .tick{border-color:var(--doing);background:var(--doing-soft)}
+  .task.doing .tick::after{
+    content:"";width:7px;height:7px;border-radius:50%;background:var(--doing);
+  }
+
+  .tbody{flex:1 1 auto;min-width:0}
+  .thead{display:block;line-height:1.55}
+  .tid{
+    font-family:var(--mono);font-size:11.5px;font-weight:700;color:var(--muted);
+    letter-spacing:.04em;margin-right:9px;
+  }
+  .ttl{font-weight:600;font-size:14.5px;letter-spacing:-.005em;margin-right:8px}
+  /* 标题保持真正的 inline 元素，line-through 才能稳定渲染（flex 项上不可靠） */
+  .task.done .ttl{
+    color:#5b6a77;
+    text-decoration:line-through;
+    text-decoration-thickness:1.5px;
+    text-decoration-color:#93a3b1;
+  }
+  .tmeta{
+    display:inline-block;
+    font-family:var(--mono);font-size:11px;color:#5f6b78;
+    background:#f5f7fa;border:1px solid var(--line-soft);
+    padding:1px 6px;border-radius:5px;
+  }
+  ul.points{
+    margin:7px 0 0;padding:0;list-style:none;
+    display:grid;gap:3px;
+  }
+  ul.points li{
+    position:relative;padding-left:14px;
+    font-size:13px;color:#4a5765;
+  }
+  ul.points li::before{
+    content:"";position:absolute;left:2px;top:.62em;
+    width:4px;height:4px;border-radius:50%;background:#c3cdd8;
+  }
+  .task.done ul.points li{color:#66727f}
+  .task.done code{background:#eef3f0;color:#5f6b78}
+
+  .tright{flex:0 0 auto;display:flex;flex-direction:column;align-items:flex-end;gap:6px;margin-left:2px}
+  .state{
+    font-size:11px;font-weight:650;letter-spacing:.02em;
+    padding:2px 8px;border-radius:999px;
+    background:#f2f5f8;color:var(--muted);
+    border:1px solid transparent;
+  }
+  .task.done .state{background:var(--done-soft);color:#177a51;border-color:#c9e8d8}
+  .task.doing .state{background:var(--doing-soft);color:#96620f;border-color:#f0dfba}
+  button.doing-btn{
+    font-size:11px;padding:3px 8px;border-radius:7px;
+    color:var(--muted);background:transparent;border:1px solid var(--line-soft);
+  }
+  button.doing-btn:hover{color:var(--doing);border-color:#e8d3ac;background:var(--doing-soft)}
+  .task.doing button.doing-btn{color:var(--doing);border-color:#e8d3ac;background:var(--doing-soft)}
+
+  /* ---------- 提示条 ---------- */
+  .toast{
+    position:fixed;left:50%;bottom:24px;transform:translate(-50%,14px);
+    background:#1b232d;color:#fff;
+    border-radius:11px;
+    padding:10px 12px 10px 16px;
+    font-size:13px;
+    display:flex;align-items:center;gap:14px;
+    box-shadow:0 12px 32px -8px rgba(10,15,20,.5);
+    opacity:0;pointer-events:none;
+    transition:opacity .2s,transform .2s;
+    z-index:60;max-width:calc(100vw - 32px);
+  }
+  .toast.show{opacity:1;transform:translate(-50%,0);pointer-events:auto}
+  .toast button{
+    background:transparent;border:1px solid rgba(255,255,255,.28);color:#fff;
+    font-size:12px;padding:3px 9px;border-radius:7px;
+  }
+  .toast button:hover{background:rgba(255,255,255,.12)}
+
+  footer{
+    max-width:1120px;margin:0 auto;padding:4px 24px 32px;
+    color:#5e6b79;font-size:12.5px;
+  }
+  footer .lbl{color:#59656f}
+  footer .row{display:flex;gap:8px;flex-wrap:wrap;align-items:baseline}
+  footer .dot{color:#c8d1da}
+
+  @media (max-width:640px){
+    .topbar-inner{padding:13px 15px 12px}
+    main{padding:15px}
+    h1{font-size:17px}
+    .pnum{font-size:22px}
+    .tright{flex-direction:row;align-items:center}
+    .state{order:2}
+    button.doing-btn{order:1}
+    .task{gap:10px;padding:11px 8px}
+    .scount{display:none}
+    .sbar{width:44px}
+  }
+  @media (prefers-reduced-motion:reduce){
+    *{transition:none !important}
+  }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="topbar-inner">
+    <div class="title-row">
+      <div class="titles">
+        <h1>数据管理流水线 · 任务看板</h1>
+        <p class="sub">
+          来源：《数据管理流水线标准化方案 v1》§5 &nbsp;<span class="dot">·</span>&nbsp;
+          P0–P5 共 <b id="totalNote">21</b> 项 &nbsp;<span class="dot">·</span>&nbsp;
+          纯本地运行，不联网、不上传任何数据
+        </p>
+      </div>
+      <div class="actions">
+        <button id="btnAll" class="primary" type="button">全部完成</button>
+        <button id="btnReset" class="ghost-danger" type="button">重置</button>
+        <button id="btnExport" type="button">导出 JSON</button>
+        <button id="btnImport" type="button">导入 JSON</button>
+        <input id="fileInput" type="file" accept=".json,application/json" hidden>
+      </div>
+    </div>
+
+    <div class="progress-block">
+      <div class="prow">
+        <div class="pnum"><span id="pDone">0</span><span class="sep">/</span><span class="den" id="pTotal">21</span></div>
+        <span class="ppct" id="pPct">0%</span>
+        <span class="pnote" id="pNote">未开始</span>
+      </div>
+      <div class="bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-label="总体完成进度">
+        <i id="pBar"></i>
+      </div>
+    </div>
+  </div>
+</div>
+
+<main id="stages"></main>
+
+<footer>
+  <div class="row">
+    <span class="lbl">操作：</span>
+    <span>单击任务行 = 标记完成 / 取消完成</span>
+    <span class="dot">·</span>
+    <span>点「进行中」= 标记为进行中（不完成）</span>
+    <span class="dot">·</span>
+    <span>点阶段标题 = 折叠 / 展开</span>
+  </div>
+  <div class="row" style="margin-top:4px">
+    <span class="lbl">存储：</span>
+    <span>进度自动保存在本机浏览器 localStorage（键 <code>inv-trend-pipeline-board-v1</code>），刷新后保留；换设备请用「导出 / 导入 JSON」迁移。勾选是人工记录，和代码仓库没有自动联动。</span>
+  </div>
+  <div class="row" style="margin-top:4px">
+    <span class="lbl">任务基线：</span>
+    <span>.trae/documents/数据管理流水线标准化方案_v1.md — §5 P0–P5（逐条对应，未增删）</span>
+  </div>
+</footer>
+
+<div class="toast" id="toast" role="status" aria-live="polite">
+  <span id="toastMsg"></span>
+  <button id="toastUndo" type="button" hidden>撤销</button>
+  <button id="toastClose" type="button" aria-label="关闭提示">关闭</button>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  /* ============================================================
+   * 任务清单：严格对应方案 §5 的 P0–P5（21 项，未增删）
+   * ============================================================ */
+  var PLAN = [
+    {
+      id: 'P0',
+      title: '契约测试与基准先行',
+      note: '产品代码零改动',
+      why: '把目标变成可执行断言，后续每步都能量化。',
+      stage: '#2c5cc6',
+      tasks: [
+        {
+          id: 'P0-1',
+          title: '采集 K 线链路 pinned 基准',
+          meta: '新增 · tests/数据流水线基准_v1.json',
+          points: [
+            '在**改动前**采集，作为改后复核基线（同 golden master 的「pinned 基线」思路）',
+            '用固定离线 CSV Provider（`CsvBarsProvider` 指向 `tests` 内固定 CSV fixture，**无网络**）',
+            '跑一次 `HistoricalDataService.ingest` + `load_bars` + `load_bars_version` + `reprocess_raw`',
+            '记录 `dataset_version`、`raw_snapshot_id`、curated `bars.parquet` 的 `frame_hash` 与 `sha256`',
+            '记录 `quality_report`（去掉 `generated_at` 与墙钟字段）、读取结果列名/dtype/`frame_hash`、`Manifest` 的内容寻址字段',
+            '采集必须早于 P2 搬移'
+          ]
+        },
+        {
+          id: 'P0-2',
+          title: '新增契约测试',
+          meta: '新增 · tests/test_数据流水线契约_v1.py',
+          points: [
+            '断言 `PIPELINE_STAGES == ("acquire","transform","persist","read")`',
+            '断言注册表能解析 `"bars"` 且四阶段齐全',
+            '断言 P0 基准可被当前实现复现'
+          ]
+        },
+        {
+          id: 'P0-3',
+          title: '验证：新测试通过',
+          meta: '验证',
+          points: [
+            '应全部通过——此时产品代码零改动，基准必然可复现'
+          ]
+        }
+      ]
+    },
+    {
+      id: 'P1',
+      title: '新增 `data/pipeline/` 子包',
+      note: 'additive，零行为变更',
+      why: '先立契约与缝，再搬移；此时无人调用，风险为零。',
+      stage: '#5a54c9',
+      tasks: [
+        {
+          id: 'P1-1',
+          title: '新增 `data/pipeline/` 子包骨架',
+          meta: '新增 · 5 个文件',
+          points: [
+            '`pipeline/__init__.py`、`契约_v1.py`、`注册表_v1.py`、`流水线_v1.py`、`行情阶段_v1.py`',
+            '四个阶段**直接调用现有函数/方法**，尚未搬移代码',
+            '属 `data` 子包：包级 importer 仍是 `data`，**不新增任何包级边**'
+          ]
+        },
+        {
+          id: 'P1-2',
+          title: '`data/__init__.py` 追加导出',
+          meta: '修改 · additive',
+          points: [
+            '追加 `MarketDataPipeline`、`PipelineSpec`、`register_pipeline`、`get_pipeline`、`PIPELINE_STAGES`',
+            '既有导出全部保留且行为不变'
+          ]
+        },
+        {
+          id: 'P1-3',
+          title: '验证：契约与包图',
+          meta: '验证',
+          points: [
+            '`test_architecture_boundaries.py` 包图精确不变',
+            '`test_数据流水线契约_v1.py` 全绿',
+            '定向回归'
+          ]
+        }
+      ]
+    },
+    {
+      id: 'P2',
+      title: '把 K 线编排自 `api.py` 逐行搬移到流水线',
+      note: '等价优先',
+      why: '消除单文件巨类，建立可命名的 `acquire/transform/persist/read` 缝。',
+      stage: '#99570f',
+      tasks: [
+        {
+          id: 'P2-1',
+          title: '搬移 K 线编排',
+          meta: '修改 · 行情阶段_v1.py + 流水线_v1.py',
+          points: [
+            '搬移 `_fetch`、`ingest` 的 raw 落盘段、`_ingest_result`、`reprocess_raw`、`_merge_current`、`_outside_overlap_revisions`',
+            '纯函数一并搬移：`_completed_bar_changes`、`_same_bar_value`、`_validate_provider_identity`、`_fallback_eligible`、`_group_consecutive`、`_bounded_range`',
+            '通用编排（run_id 生成、阶段时序、事件日志）→ `流水线_v1.py`'
+          ]
+        },
+        {
+          id: 'P2-2',
+          title: '`api.py` 改写为薄 facade',
+          meta: '修改 · 同名参数与默认值不变',
+          points: [
+            '`ingest`/`reprocess_raw`/`load_bars`/`load_bars_version` 改为委托 `self.pipeline`',
+            '其余方法原地保留：`update`/`update_gaps`/`update_many`/`missing_intervals`/`status`/`coverage`/`diagnose_current`/`repair_current_lineage`/`approve_review`/`reject_review`/`reopen_review`/`update_holdings`/`load_holdings`/`sync_holdings_universe`/…',
+            '其中 `update*` 内部改为调 `self.pipeline.ingest`'
+          ]
+        },
+        {
+          id: 'P2-3',
+          title: '搬移铁律：只改 import 与 self 引用',
+          meta: '约束',
+          points: [
+            '只允许改 import 与 `self.xxx` → 显式注入',
+            '**不得改动任何算术、字段顺序、dtype、排序**',
+            '`write_normalized` 与 quarantine 写盘从计算段移入 `persist`（Parquet 内容寻址不可变，写入顺序不影响内容哈希）'
+          ]
+        },
+        {
+          id: 'P2-4',
+          title: '验证：基准复核 + 定向回归',
+          meta: '验证',
+          points: [
+            '`tests/数据流水线基准_v1.json` 逐项一致',
+            '定向回归 `test_historical_data.py`、`test_historical_data_p0.py`、`test_historical_data_incremental.py`',
+            '定向回归 `test_结构化存储…`、`test_数据封版合同.py`、`test_增量发布合同.py`',
+            '`tests/test_golden_master.py`'
+          ]
+        }
+      ]
+    },
+    {
+      id: 'P3',
+      title: '暴露标准四阶段接口 + 统一读取入口',
+      note: '',
+      why: '让「链路」成为可独立替换、可被外部复用的显式接口。',
+      stage: '#17694a',
+      tasks: [
+        {
+          id: 'P3-1',
+          title: '暴露标准四阶段接口',
+          meta: '修改 · MarketDataPipeline',
+          points: [
+            '显式暴露 `acquire` / `transform` / `persist` / `read`',
+            '`ingest` 明确实现为 `acquire → transform → persist`'
+          ]
+        },
+        {
+          id: 'P3-2',
+          title: '统一读取入口',
+          meta: '修改 · 签名不变',
+          points: [
+            '`HistoricalDataService.load_bars`/`load_bars_version` 委托 `pipeline.read`',
+            '`data.load_bars` 模块级函数签名不变'
+          ]
+        },
+        {
+          id: 'P3-3',
+          title: '新增 `data-pipeline` 对比 surface',
+          meta: '修改 · scripts/结构对比_产物_v1.py',
+          points: [
+            '离线跑 `ingest` 一次',
+            '把 raw / normalized / curated / manifests / quality_reports 写入 `--out`',
+            '写 `readback.json`（读取结果的列名 / dtype / `frame_hash`）'
+          ]
+        },
+        {
+          id: 'P3-4',
+          title: '验证：改前/改后产物对比',
+          meta: '验证',
+          points: [
+            '`scripts/结构对比_v1.py` 归一化后应无 `value` / `structural` 差异',
+            'raw 文件名含随机 `run_id` → 用 `«ID»` 归一化或显式 reps 抹平（决策 D5）',
+            '定向回归'
+          ]
+        }
+      ]
+    },
+    {
+      id: 'P4',
+      title: '规范文档',
+      note: '',
+      stage: '#5f50b8',
+      tasks: [
+        {
+          id: 'P4-1',
+          title: '新增流水线规范文档',
+          meta: '新增 · docs/数据管理流水线规范_v1.md',
+          points: [
+            '链路定义与四阶段职责',
+            '`契约_v1.py` 的 Protocol / DTO 逐字段说明',
+            '`PipelineSpec` / 注册表与 `kind` 命名约定',
+            '目录与文件命名约定（延续 `_v1` 后缀）',
+            '与既有模块的映射表（方案 §2.1）',
+            '**扩展指引**：新增同源/同类数据只写 4 个适配器 + 1 次 `register_pipeline`，附最小骨架代码'
+          ]
+        },
+        {
+          id: 'P4-2',
+          title: '模块依赖契约追加说明',
+          meta: '修改 · docs/模块依赖契约_v1.md',
+          points: [
+            '追加一节：`data/pipeline/` 为 `data` 子包、不新增包级边'
+          ]
+        },
+        {
+          id: 'P4-3',
+          title: 'README 补指引',
+          meta: '修改 · README.md',
+          points: [
+            '「代码结构与维护」补一句指向新规范文档'
+          ]
+        },
+        {
+          id: 'P4-4',
+          title: '验证：文档与代码一致',
+          meta: '验证',
+          points: [
+            '文档与代码的命名 / 字段一致（人工核对）'
+          ]
+        }
+      ]
+    },
+    {
+      id: 'P5',
+      title: '验收与回执',
+      note: '',
+      stage: '#4b5a6b',
+      tasks: [
+        {
+          id: 'P5-1',
+          title: '运行并记录各项验证',
+          meta: '验证 · 5 项',
+          points: [
+            '`tests/test_数据流水线契约_v1.py`',
+            '`tests/test_golden_master.py`',
+            '全量回归',
+            '`ruff check src scripts tests --select F`',
+            '`scripts/遗留模块引用审计.py`'
+          ]
+        },
+        {
+          id: 'P5-2',
+          title: '新增验收回执',
+          meta: '新增 · docs/数据流水线标准化验收_20261020.json',
+          points: [
+            '沿用既有回执字段：`date`/`scope`/`commits`/`dependency_progress`/`verification_stages`/`numerical_baseline`/`review`/`deliverables`/`data_protection`'
+          ]
+        },
+        {
+          id: 'P5-3',
+          title: '验收判据',
+          meta: '判据',
+          points: [
+            '全量回归失败集合与错误消息与改动前基线**逐项一致**（基线 `1428 passed / 6 failed / 7 warnings`）',
+            '6 项失败为既有监控回放 fixture 不匹配，与本轮无关',
+            'golden master 通过；K 线链路基准逐项一致'
+          ]
+        }
+      ]
+    }
+  ];
+
+  /* ============================================================
+   * 常量与状态
+   * ============================================================ */
+  var KEY = 'inv-trend-pipeline-board-v1';
+  var ALL_IDS = [];
+  var VALID = Object.create(null);
+  PLAN.forEach(function (st) {
+    st.tasks.forEach(function (t) {
+      ALL_IDS.push(t.id);
+      VALID[t.id] = true;
+    });
+  });
+  var TOTAL = ALL_IDS.length;
+
+  var state = { version: 1, updatedAt: null, states: {}, collapsed: {} };
+
+  function blank() {
+    return { version: 1, updatedAt: null, states: {}, collapsed: {} };
+  }
+
+  var STATUS_WORD = {
+    done: 'done', doing: 'doing', todo: 'todo',
+    '已完成': 'done', '进行中': 'doing', '未开始': 'todo'
+  };
+
+  function putStatus(out, id, value) {
+    var v = STATUS_WORD[value];
+    if (VALID[id] && v && v !== 'todo') out.states[id] = v;
+  }
+
+  function readTasks(obj, out) {
+    var rows = obj && obj.tasks;
+    if (!rows) return;
+    if (Array.isArray(rows)) {
+      rows.forEach(function (row) {
+        if (row && typeof row.id === 'string') putStatus(out, row.id, row.status);
+      });
+      return;
+    }
+    if (typeof rows === 'object') {
+      Object.keys(rows).forEach(function (id) { putStatus(out, id, rows[id]); });
+    }
+  }
+
+  function sanitize(obj) {
+    var out = blank();
+    if (!obj || typeof obj !== 'object') return out;
+    var st = obj.states;
+    if (st && typeof st === 'object' && !Array.isArray(st)) {
+      Object.keys(st).forEach(function (k) { putStatus(out, k, st[k]); });
+    }
+    if (!Object.keys(out.states).length) readTasks(obj, out);
+    var co = obj.collapsed;
+    if (co && typeof co === 'object') {
+      Object.keys(co).forEach(function (k) {
+        if (co[k]) out.collapsed[k] = true;
+      });
+    }
+    if (typeof obj.updatedAt === 'string') out.updatedAt = obj.updatedAt;
+    return out;
+  }
+
+  function load() {
+    var raw = null;
+    try {
+      raw = window.localStorage.getItem(KEY);
+    } catch (e) {
+      return blank();
+    }
+    if (!raw) return blank();
+    try {
+      return sanitize(JSON.parse(raw));
+    } catch (e) {
+      return blank();
+    }
+  }
+
+  function save() {
+    state.updatedAt = new Date().toISOString();
+    try {
+      window.localStorage.setItem(KEY, JSON.stringify(state));
+    } catch (e) {
+      toast('无法写入本地存储，进度可能不会被保留', false);
+    }
+  }
+
+  function statusOf(id) {
+    var v = state.states[id];
+    return v === 'done' || v === 'doing' ? v : 'todo';
+  }
+
+  function isDone(id) {
+    return statusOf(id) === 'done';
+  }
+
+  /* ============================================================
+   * 文本格式化（先转义，再还原行内标记）
+   * ============================================================ */
+  function esc(s) {
+    return String(s).replace(/[&<>"']/g, function (c) {
+      return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c];
+    });
+  }
+
+  function inline(s) {
+    return esc(s)
+      .replace(/`([^`]+)`/g, '<code>$1</code>')
+      .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+  }
+
+  /* ============================================================
+   * DOM 构建
+   * ============================================================ */
+  var stageRefs = {};
+  var taskRefs = {};
+
+  var CHECK_SVG =
+    '<svg viewBox="0 0 16 16" fill="none" aria-hidden="true">' +
+    '<path d="M3 8.6l3.2 3.2L13 4.6" stroke="currentColor" stroke-width="2" ' +
+    'stroke-linecap="round" stroke-linejoin="round"/></svg>';
+
+  var CARET_SVG =
+    '<svg class="caret" viewBox="0 0 16 16" fill="none" aria-hidden="true">' +
+    '<path d="M5.5 3.5l5 4.5-5 4.5" stroke="currentColor" stroke-width="1.7" ' +
+    'stroke-linecap="round" stroke-linejoin="round"/></svg>';
+
+  function buildStages() {
+    var host = document.getElementById('stages');
+    var frag = document.createDocumentFragment();
+
+    PLAN.forEach(function (st) {
+      var det = document.createElement('details');
+      det.className = 'stage';
+      det.style.setProperty('--stage', st.stage);
+      det.dataset.stage = st.id;
+
+      var sum = document.createElement('summary');
+      sum.className = 'shead';
+      sum.setAttribute('aria-label', st.id + ' ' + st.title);
+      // 副标题只使用方案原文：标题括注与「为什么」；两者皆无时留空，不臆造。
+      var subParts = [];
+      if (st.note) subParts.push(inline(st.note));
+      if (st.why) subParts.push('为什么：' + inline(st.why));
+      var subHtml = subParts.length
+        ? '<span>' + subParts.join(' &nbsp;·&nbsp; ') + '</span>'
+        : '';
+      sum.innerHTML =
+        CARET_SVG +
+        '<span class="sid">' + esc(st.id) + '</span>' +
+        '<span class="stitle"><b>' + inline(st.title) + '</b>' + subHtml + '</span>' +
+        '<span class="scount" data-count>0/0</span>' +
+        '<span class="sbar" aria-hidden="true"><i></i></span>';
+      det.appendChild(sum);
+
+      var box = document.createElement('div');
+      box.className = 'tasks';
+
+      st.tasks.forEach(function (t) {
+        var row = document.createElement('div');
+        row.className = 'task';
+        row.dataset.id = t.id;
+        row.setAttribute('role', 'button');
+        row.setAttribute('tabindex', '0');
+        row.setAttribute('aria-pressed', 'false');
+
+        var pointsHtml = t.points
+          .map(function (p) { return '<li>' + inline(p) + '</li>'; })
+          .join('');
+
+        row.innerHTML =
+          '<span class="tick" aria-hidden="true">' + CHECK_SVG + '</span>' +
+          '<span class="tbody">' +
+            '<span class="thead">' +
+              '<span class="tid">' + esc(t.id) + '</span>' +
+              '<span class="ttl">' + inline(t.title) + '</span>' +
+              '<span class="tmeta">' + inline(t.meta) + '</span>' +
+            '</span>' +
+            '<ul class="points">' + pointsHtml + '</ul>' +
+          '</span>' +
+          '<span class="tright">' +
+            '<span class="state" data-state>未开始</span>' +
+            '<button class="doing-btn" type="button" data-doing>进行中</button>' +
+          '</span>';
+
+        box.appendChild(row);
+        taskRefs[t.id] = row;
+      });
+
+      det.appendChild(box);
+      frag.appendChild(det);
+      stageRefs[st.id] = { el: det, summary: sum, count: sum.querySelector('[data-count]'), bar: sum.querySelector('.sbar > i'), tasks: st.tasks };
+    });
+
+    host.appendChild(frag);
+  }
+
+  /* ============================================================
+   * 渲染刷新
+   * ============================================================ */
+  function refresh() {
+    var doneTotal = 0;
+
+    PLAN.forEach(function (st) {
+      var refs = stageRefs[st.id];
+      var done = 0;
+
+      st.tasks.forEach(function (t) {
+        var row = taskRefs[t.id];
+        var s = statusOf(t.id);
+        row.classList.toggle('done', s === 'done');
+        row.classList.toggle('doing', s === 'doing');
+        row.setAttribute('aria-pressed', s === 'done' ? 'true' : 'false');
+        row.setAttribute('aria-label',
+          t.id + ' ' + t.title + '，当前状态：' +
+          (s === 'done' ? '已完成' : s === 'doing' ? '进行中' : '未开始') + '。按回车切换完成');
+        row.querySelector('[data-state]').textContent =
+          s === 'done' ? '已完成' : s === 'doing' ? '进行中' : '未开始';
+        var db = row.querySelector('[data-doing]');
+        db.setAttribute('aria-pressed', s === 'doing' ? 'true' : 'false');
+        db.textContent = s === 'doing' ? '取消进行中' : '进行中';
+        if (s === 'done') done += 1;
+      });
+
+      doneTotal += done;
+      var pct = st.tasks.length ? Math.round(done / st.tasks.length * 100) : 0;
+      refs.count.textContent = done + '/' + st.tasks.length;
+      refs.count.classList.toggle('done-all', done === st.tasks.length);
+      refs.bar.style.width = pct + '%';
+    });
+
+    var pctAll = TOTAL ? Math.round(doneTotal / TOTAL * 100) : 0;
+    document.getElementById('pDone').textContent = String(doneTotal);
+    document.getElementById('pTotal').textContent = String(TOTAL);
+    document.getElementById('totalNote').textContent = String(TOTAL);
+    document.getElementById('pPct').textContent = pctAll + '%';
+    document.getElementById('pBar').style.width = pctAll + '%';
+
+    var bar = document.getElementById('pBar').parentNode;
+    bar.setAttribute('aria-valuenow', String(pctAll));
+    bar.setAttribute('aria-valuetext', doneTotal + ' / ' + TOTAL + ' 已完成');
+
+    var note = '未开始';
+    if (doneTotal === TOTAL) note = '全部完成 🎉';
+    else if (doneTotal > 0) note = '进行中 · 还剩 ' + (TOTAL - doneTotal) + ' 项';
+    document.getElementById('pNote').textContent = note;
+  }
+
+  /* ============================================================
+   * 交互
+   * ============================================================ */
+  function setStatus(id, s) {
+    if (s === 'todo') delete state.states[id];
+    else state.states[id] = s;
+    save();
+    refresh();
+  }
+
+  function toggleDone(id) {
+    setStatus(id, isDone(id) ? 'todo' : 'done');
+  }
+
+  function toggleDoing(id) {
+    setStatus(id, statusOf(id) === 'doing' ? 'todo' : 'doing');
+  }
+
+  document.getElementById('stages').addEventListener('click', function (ev) {
+    var doingBtn = ev.target.closest('[data-doing]');
+    var row = ev.target.closest('.task');
+    if (!row) return;
+    if (doingBtn) {
+      ev.preventDefault();
+      ev.stopPropagation();
+      toggleDoing(row.dataset.id);
+      return;
+    }
+    toggleDone(row.dataset.id);
+  });
+
+  document.getElementById('stages').addEventListener('keydown', function (ev) {
+    var row = ev.target.closest('.task');
+    if (!row || ev.target !== row) return;
+    if (ev.key === 'Enter' || ev.key === ' ' || ev.key === 'Spacebar') {
+      ev.preventDefault();
+      toggleDone(row.dataset.id);
+    }
+  });
+
+  // 阶段折叠状态持久化
+  document.getElementById('stages').addEventListener('toggle', function (ev) {
+    var det = ev.target;
+    if (!det.classList || !det.classList.contains('stage')) return;
+    if (det.open) delete state.collapsed[det.dataset.stage];
+    else state.collapsed[det.dataset.stage] = true;
+    save();
+  }, true);
+
+  /* ============================================================
+   * 批量操作 + 撤销
+   * ============================================================ */
+  var undoBuf = null;
+  var undoTimer = null;
+
+  function snapshot() {
+    var copy = {};
+    Object.keys(state.states).forEach(function (k) { copy[k] = state.states[k]; });
+    return copy;
+  }
+
+  // 记录撤销点并给出带「撤销」的提示；8 秒后自动失效。
+  function remember(before, label) {
+    undoBuf = before;
+    if (undoTimer) clearTimeout(undoTimer);
+    toast(label, true);
+    undoTimer = setTimeout(function () { undoBuf = null; }, 8000);
+  }
+
+  function doUndo() {
+    if (!undoBuf) return;
+    state.states = undoBuf;
+    undoBuf = null;
+    save();
+    refresh();
+    toast('已撤销', false);
+  }
+
+  document.getElementById('btnAll').addEventListener('click', function () {
+    var allDone = ALL_IDS.every(function (id) { return isDone(id); });
+    if (allDone) { toast('已经是全部完成', false); return; }
+    var before = snapshot();
+    ALL_IDS.forEach(function (id) { state.states[id] = 'done'; });
+    save();
+    refresh();
+    remember(before, '已全部标记完成');
+  });
+
+  document.getElementById('btnReset').addEventListener('click', function () {
+    var before = snapshot();
+    if (Object.keys(before).length === 0) { toast('当前没有任何进度', false); return; }
+    state.states = {};
+    save();
+    refresh();
+    remember(before, '已重置为未开始');
+  });
+
+  /* ============================================================
+   * 导出 / 导入
+   * ============================================================ */
+  function pad(n) { return n < 10 ? '0' + n : String(n); }
+
+  function stamp() {
+    var d = new Date();
+    return d.getFullYear() + pad(d.getMonth() + 1) + pad(d.getDate()) + '-' +
+      pad(d.getHours()) + pad(d.getMinutes());
+  }
+
+  document.getElementById('btnExport').addEventListener('click', function () {
+    var payload = {
+      schema: 'inv-trend-pipeline-board',
+      version: 1,
+      source: '.trae/documents/数据管理流水线标准化方案_v1.md §5 P0–P5',
+      exportedAt: new Date().toISOString(),
+      total: TOTAL,
+      completed: ALL_IDS.filter(isDone).length,
+      states: state.states
+    };
+    var text = JSON.stringify(payload, null, 2);
+    var blob = new Blob([text], { type: 'application/json;charset=utf-8' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = '数据流水线任务进度_' + stamp() + '.json';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(function () { URL.revokeObjectURL(url); }, 1500);
+    toast('已导出 JSON', false);
+  });
+
+  document.getElementById('btnImport').addEventListener('click', function () {
+    document.getElementById('fileInput').click();
+  });
+
+  document.getElementById('fileInput').addEventListener('change', function (ev) {
+    var file = ev.target.files && ev.target.files[0];
+    if (!file) return;
+    var reader = new FileReader();
+    reader.onload = function () {
+      var parsed;
+      try {
+        parsed = JSON.parse(String(reader.result));
+      } catch (e) {
+        toast('导入失败：不是合法的 JSON 文件', false);
+        ev.target.value = '';
+        return;
+      }
+      var incoming = sanitize(parsed);
+      var count = Object.keys(incoming.states).length;
+      var before = snapshot();
+      state.states = incoming.states;
+      save();
+      refresh();
+      remember(before, '已导入 ' + count + ' 条任务状态');
+      ev.target.value = '';
+    };
+    reader.onerror = function () {
+      toast('导入失败：无法读取文件', false);
+      ev.target.value = '';
+    };
+    reader.readAsText(file, 'utf-8');
+  });
+
+  /* ============================================================
+   * 提示条
+   * ============================================================ */
+  var toastEl = document.getElementById('toast');
+  var toastMsg = document.getElementById('toastMsg');
+  var toastUndo = document.getElementById('toastUndo');
+  var toastTimer = null;
+
+  function toast(msg, withUndo) {
+    toastMsg.textContent = msg;
+    toastUndo.hidden = !withUndo;
+    toastEl.classList.add('show');
+    if (toastTimer) clearTimeout(toastTimer);
+    toastTimer = setTimeout(hideToast, withUndo ? 8000 : 2600);
+  }
+
+  function hideToast() {
+    toastEl.classList.remove('show');
+    if (toastTimer) clearTimeout(toastTimer);
+  }
+
+  toastUndo.addEventListener('click', doUndo);
+  document.getElementById('toastClose').addEventListener('click', hideToast);
+
+  /* ============================================================
+   * 启动
+   * ============================================================ */
+  var VERIFIED_DOING = {};
+
+  function seedVerified() {
+    ALL_IDS.forEach(function (id) {
+      state.states[id] = VERIFIED_DOING[id] || 'done';
+    });
+    save();
+  }
+
+  function init() {
+    var raw = null;
+    try { raw = window.localStorage.getItem(KEY); } catch (e) { raw = null; }
+    state = load();
+    if (!raw) seedVerified();
+    buildStages();
+    PLAN.forEach(function (st) {
+      if (state.collapsed[st.id]) stageRefs[st.id].el.open = false;
+      else stageRefs[st.id].el.open = true;
+    });
+    refresh();
+  }
+
+  init();
+})();
+</script>
+</body>
+</html>
