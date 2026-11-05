@@ -1,30 +1,12 @@
-"""Remove credentials and opaque URLs before persisting or emitting errors."""
-from collections.abc import Mapping
-import re
-from urllib.parse import urlsplit
+"""Thin re-export of the shared redaction implementation.
 
+The rules used to live here, which made the storage layer (manifests, run blobs,
+experiment registrations) apply a weaker rule set.  The implementation now lives
+in infra.脱敏; this module keeps the historical import path for monitoring,
+notification and CLI callers.
+"""
+from __future__ import annotations
 
-_SENSITIVE = re.compile(r'(?i)^(api[_ -]?key|access[_ -]?token|token|secret|password|authorization|signature)$')
+from inv_trend.infra.脱敏 import DEFAULT_MAX_LENGTH, SECRET_NAME, redact
 
-
-def redact(value):
-    if isinstance(value, Mapping):
-        return {str(key): '[REDACTED]' if _SENSITIVE.match(str(key)) else redact(item)
-                for key, item in value.items()}
-    if isinstance(value, (list, tuple)):
-        return [redact(item) for item in value]
-    if not isinstance(value, str):
-        return value
-    def safe_url(match):
-        try:
-            parsed = urlsplit(match.group(0))
-            return f'{parsed.scheme}://{parsed.hostname or "unknown"}/[REDACTED]'
-        except ValueError:
-            return '[REDACTED_URL]'
-    value = re.sub(r'https?://[^\s\"\'<>]+', safe_url, value, flags=re.IGNORECASE)
-    value = re.sub(r'(?i)\bBearer\s+[^\s,;]+', 'Bearer [REDACTED]', value)
-    value = re.sub(r'''(?i)(["'](?:api[_ -]?key|access[_ -]?token|token|secret|password|authorization|signature)["']\s*:\s*)(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')''',
-                   r'\1"[REDACTED]"', value)
-    value = re.sub(r'(?i)\b(api[_ -]?key|access[_ -]?token|token|secret|password|authorization|signature)'
-                   r'(\s*[:=]\s*)[^\s,;]+', r'\1\2[REDACTED]', value)
-    return value[:2048]
+__all__ = ["DEFAULT_MAX_LENGTH", "SECRET_NAME", "redact"]
