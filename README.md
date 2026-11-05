@@ -40,7 +40,9 @@ K 线的获取、转换、保存和读取走 `data/pipeline/` 标准四阶段；
 固定历史提交的重构证据脚本、一次性基线认证脚本、缺失清单的旧清理脚本、
 历史补丁覆盖前核验、一次性交付打包和浏览器自检脚本已移除。其中仍有效的特征复用、
 突破边界和报告结构检查已纳入正式测试；原“5 轮重构”测试按职责整理为
-`tests/unit/test_核心计算回归.py`。已有配置文件和兼容入口继续保留。
+`tests/unit/test_核心计算回归.py`。已有配置文件和兼容入口继续保留。固定展示页面统一由
+`src/inv_trend/observability/静态展示/` 管理，预览入口为
+`static-pages serve --port 8765`，说明见 [静态展示模块](docs/静态展示模块_v1.md)。
 
 Windows 验证入口为 `scripts/run_tests.ps1 -q`；静态未使用代码检查使用
 `python -m ruff check src scripts research tests --select F`。

@@ -15,14 +15,14 @@ from tests.test_永续研究协议 import spec
 def test_missing_data_produces_e0_not_fabricated_windows(tmp_path):
     root = Path(__file__).resolve().parents[1]
     output = tmp_path / '报告'
-    report = run_audit(root, data_root=tmp_path / '空数据', output=output)
+    report = run_audit(root, data_root=tmp_path / '空数据', output=output, storage_root=tmp_path)
     assert report['evidence_level'] == 'E0'
     assert report['selected_trial_rank'] is None
     assert len(report['candidates']) == 12
     assert all(c['metrics'] is None for c in report['candidates'])
     assert pd.read_csv(output / '训练验证测试区间.csv').empty
     assert pd.read_csv(output / '永续逐笔账本.csv').empty
-    assert len(ExperimentRegistry(output / '实验登记.jsonl').read()) == 24
+    assert len(ExperimentRegistry(output / '实验登记.jsonl', root=tmp_path).read()) == 24
     assert 'E0' in (output / '修改前后回测对比.html').read_text(encoding='utf-8')
 
 

@@ -1,7 +1,8 @@
 # src
 
 唯一可维护实现。包根为 `src/inv_trend/`，按 `domain`、`core`、`application`、`adapters`、
-`ports`、`data`、`storage`、`infra`、`monitoring`、`cli` 分层。
+`ports`、`data`、`storage`、`infra`、`monitoring`、`observability`、`cli` 分层。
+固定展示页资源属于 `observability/静态展示/pages/`，是产品展示实现，不是一次性验收产物。
 
 ## 谁写入
 

@@ -11,7 +11,7 @@ artifacts/
 │   ├── scripts/  已完成的一次性审计/对比脚本
 │   ├── 迁移清单_20261103.md
 │   └── 目录治理变更摘要_20261103.md
-├── refactor-acceptance-s1-s5/  本机留存的历史重构验收快照（已忽略）
+├── refactor-acceptance-s1-s5/  本机预览 PNG（已忽略）；页面与静态资源已迁入 src/
 ├── 数据管理流水线任务看板_v1.html  本机留存的任务看板快照（已忽略）
 └── WORK_PROGRESS.md            本机工作进度记录（已忽略）
 ```

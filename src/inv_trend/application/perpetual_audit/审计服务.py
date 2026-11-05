@@ -68,7 +68,8 @@ def _spot_evidence(root):
                 concentration=concentration(pnls, initial_equity=100000., ending_equity=full['ending_equity']))
 
 
-def run_audit(root, *, data_root=None, output=None, download=False, max_pages=None):
+def run_audit(root, *, data_root=None, output=None, download=False, max_pages=None,
+              storage_root=None):
     root = Path(root).resolve()
     data_root = Path(data_root) if data_root else root / 'data/永续审计'
     output = Path(output) if output else root / 'outputs/永续策略审计'
@@ -76,7 +77,8 @@ def run_audit(root, *, data_root=None, output=None, download=False, max_pages=No
     plan_path = root / 'config/永续策略审计计划.yaml'
     plan = yaml.safe_load(plan_path.read_text(encoding='utf-8'))
     validate_plan(plan)
-    registry = ExperimentRegistry(output / '实验登记.jsonl', root=root)
+    registry = ExperimentRegistry(output / '实验登记.jsonl',
+                                  root=Path(storage_root) if storage_root else root)
     code = source_hash(root)
     try:
         git_result = subprocess.run(['git', 'rev-parse', 'HEAD'], cwd=root,
