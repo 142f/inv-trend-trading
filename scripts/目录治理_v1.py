@@ -19,7 +19,7 @@ def is_link(path):
         return False
 
 
-EXCLUDED_ROOTS = {'.git', '.venv'}
+EXCLUDED_ROOTS = {'.git', '.venv', '.ruff_cache'}
 
 
 def in_scope(relative: Path):
@@ -55,7 +55,7 @@ def inventory(root):
             continue
         files.append({'path': relative.as_posix(), 'sha256': sha(path),
                       'bytes': path.stat().st_size, 'reason': reason(relative)})
-    return {'schema_version': 1, 'protected': ['data', 'processed_data', 'metadata', '.env', 'src (except caches)'],
+    return {'schema_version': 1, 'protected': ['data', 'processed_data', 'metadata', '.env', '.git', '.venv', '.ruff_cache', 'src (except caches)'],
             'files': files, 'count': len(files), 'bytes': sum(x['bytes'] for x in files)}
 
 
