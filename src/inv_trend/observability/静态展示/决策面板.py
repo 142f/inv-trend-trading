@@ -210,6 +210,11 @@ const DATA = %DATA%;
 const FAMILY_LABELS = { turtle:"海龟", sma:"SMA", ema:"EMA", macd:"MACD" };
 const EXIT_LABELS = { long_fast:"多头快退出 (10日低)", long_slow:"多头慢退出 (20日低)", short_fast:"空头快退出 (10日高)", short_slow:"空头慢退出 (20日高)" };
 const state = { zone:"triggered", fund:"", dir:"", adx:false, q:"", open:"" };
+const PREF_KEY = "decision";
+Object.assign(state, loadPrefs(PREF_KEY));
+function persistFilters(){
+  savePrefs(PREF_KEY, { zone:state.zone, fund:state.fund, dir:state.dir, adx:state.adx, q:state.q });
+}
 
 function votesOf(row){ const d = row.decision || {}; return d.family_votes || {}; }
 function entriesOf(row){ return (row.decision || {}).breakouts || []; }
@@ -378,6 +383,7 @@ function renderSummary(){
 function render(){
   const rows = sortRows(DATA.rows.filter(show));
   document.getElementById("count").textContent = rows.length + " / " + DATA.rows.length;
+  persistFilters();
   const grid = document.getElementById("grid");
   grid.innerHTML = rows.length ? rows.map(row => {
     const open = state.open === row.symbol;
@@ -466,6 +472,19 @@ if (exportCsv) exportCsv.addEventListener("click", () => {
   URL.revokeObjectURL(link.href);
 });
 renderSummary();
+function syncControls(){
+  document.getElementById("q").value = state.q;
+  document.getElementById("fund").value = state.fund;
+  document.getElementById("dir").value = state.dir;
+  togglePressed(document.getElementById("adx"), state.adx);
+  Array.from(document.querySelectorAll(".tab")).forEach(tab => {
+    const on = tab.dataset.zone === state.zone;
+    tab.classList.toggle("on", on);
+    tab.setAttribute("aria-pressed", String(on));
+  });
+}
+syncControls();
+installBackToTop();
 render();
 onResize(render);
 </script>

@@ -125,6 +125,13 @@ BASE_CSS = """  :root {
   .chart-tip { min-height:1.4em; margin:6px 0 0; color:var(--muted); font-size:var(--fs-meta); font-variant-numeric:tabular-nums; }
   .swatch { display:inline-block; width:10px; height:10px; border-radius:2px; margin-right:4px; vertical-align:-1px; }
   .swatch.long { background:var(--long); } .swatch.short { background:var(--short); } .swatch.mix { background:var(--mix); }
+  /* 长表格横向滚动时首列跟随，代码列始终可读 */
+  .tablewrap th:first-child, .tablewrap td:first-child {
+    position:sticky; left:0; z-index:3; background:var(--card); box-shadow:1px 0 0 var(--line);
+  }
+  .tablewrap thead th:first-child { z-index:4; background:#fbf7ef; }
+  .to-top { position:fixed; right:18px; bottom:18px; z-index:20; display:none; }
+  .to-top.show { display:inline-block; }
   @media (max-width:1280px) { .wrap { padding-inline:16px; } }
   @media (max-width:1024px) {
     h1 { font-size:24px; }
@@ -243,6 +250,40 @@ function bindChartTip(canvas, labels, series){
     show(Math.round(ratio * (count - 1)));
   });
   canvas.addEventListener("focus", () => { if (count) show(count - 1); });
+}
+function prefsKey(page){ return "看板偏好:" + page; }
+function loadPrefs(page){
+  try { return JSON.parse(window.localStorage.getItem(prefsKey(page)) || "{}") || {}; }
+  catch (error) { return {}; }
+}
+function savePrefs(page, value){
+  try { window.localStorage.setItem(prefsKey(page), JSON.stringify(value)); } catch (error) {}
+}
+function installBackToTop(){
+  var button = document.createElement("button");
+  button.type = "button";
+  button.className = "to-top";
+  button.textContent = "回到顶部";
+  button.setAttribute("aria-label", "回到页面顶部");
+  document.body.appendChild(button);
+  var scrollers = function(){
+    return Array.prototype.slice.call(document.querySelectorAll(".tablewrap, .pf-table-wrap"));
+  };
+  var sync = function(){
+    var show = window.scrollY > 400 || scrollers().some(function(node){ return node.scrollTop > 200; });
+    button.classList.toggle("show", show);
+  };
+  // 捕获阶段监听：长表格在容器内部滚动，scroll 事件不会冒泡到 window
+  document.addEventListener("scroll", sync, true);
+  window.addEventListener("resize", sync, { passive:true });
+  sync();
+  button.addEventListener("click", function(){
+    window.scrollTo(0, 0);
+    scrollers().forEach(function(node){ node.scrollTop = 0; node.scrollLeft = 0; });
+    var title = document.querySelector("h1");
+    if (title) { title.setAttribute("tabindex", "-1"); title.focus(); }
+    sync();
+  });
 }
 function drawSpark(canvas, spark, logicalH){
   const h = logicalH;

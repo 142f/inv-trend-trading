@@ -75,6 +75,11 @@ _TEMPLATE = """<!DOCTYPE html>
 <script>
 const DATA = %DATA%;
 const state = { fund:"", bias:"", adx:false, vol:false, q:"", sort:"symbol", desc:false, open:"" };
+const PREF_KEY = "snapshot";
+Object.assign(state, loadPrefs(PREF_KEY));
+function persistFilters(){
+  savePrefs(PREF_KEY, { fund:state.fund, bias:state.bias, adx:state.adx, vol:state.vol, q:state.q, sort:state.sort, desc:state.desc });
+}
 document.getElementById("lede").textContent = DATA.universe + "。Yahoo research-only。price_basis=" + DATA.price_basis + "。截止 " + DATA.data_cutoff + "。成功 " + DATA.rows.length + "，失败 " + DATA.failed.length + "，预热不足 " + (DATA.incomplete || []).length + "。三对 EMA 都在快线之上为多，都在之下为空。仅指标结果，非投资建议。";
 function warmText(row, key) {
   if (!row.warmup_ok && (key === "144" || key === "169")) return "预热不足";
@@ -109,6 +114,7 @@ function render() {
   });
   document.getElementById("count").textContent = rows.length + " / " + DATA.rows.length;
   setAriaSort(document.querySelectorAll("th[data-k]"), state.sort, state.desc);
+  persistFilters();
   document.getElementById("body").innerHTML = rows.length ? rows.map(row => {
     const open = state.open === row.symbol;
     const main = '<tr class="item" data-s="' + row.symbol + '" tabindex="0" role="button" aria-expanded="' + open + '"><td>' + row.symbol + '</td><td>' + row.funds + '</td><td class="num">' + (row.qqq_rank || "—") + '</td><td class="num">' + (row.spy_rank || "—") + '</td><td class="num">' + (row.close ?? "—") + '</td><td class="num">' + (row.adjusted_close ?? "—") + '</td><td class="' + row.bias + '">' + (row.bias || "—") + " " + row.pairs["10_20"] + "/" + row.pairs["10_55"] + "/" + row.pairs["20_55"] + '</td><td class="' + row.sma_bias + '">' + (row.sma_bias || "—") + '</td><td class="' + row.macd + '">' + (row.macd || "—") + '</td><td class="num">' + (row.adx ?? "—") + '</td><td class="num">' + (row.relative_volume ?? "—") + '</td><td>' + row.as_of + '</td></tr>';
@@ -159,6 +165,15 @@ bindActivate(document, "th[data-k]", th => {
 renderList(document.getElementById("fails"), DATA.failed, item => "<li>" + item.symbol + "（" + item.funds + "）：" + item.error + "</li>");
 renderList(document.getElementById("incomplete"), DATA.incomplete || [], item => "<li>" + item.symbol + "：" + item.bar_count + " 根，" + item.reason + "，预热不足</li>");
 onResize(() => { const row = DATA.rows.find(item => item.symbol === state.open); if (row) paint(row); });
+function syncControls(){
+  document.getElementById("q").value = state.q;
+  document.getElementById("fund").value = state.fund;
+  document.getElementById("bias").value = state.bias;
+  togglePressed(document.getElementById("adx"), state.adx);
+  togglePressed(document.getElementById("vol"), state.vol);
+}
+syncControls();
+installBackToTop();
 render();
 </script>
 </body>

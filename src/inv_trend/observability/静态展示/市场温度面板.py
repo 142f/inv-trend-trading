@@ -230,6 +230,7 @@ renderHealth();
 renderTemperature();
 renderRatings();
 renderVolatility();
+installBackToTop();
 drawHistory();
 onResize(drawHistory);
 </script>

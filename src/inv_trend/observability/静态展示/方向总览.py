@@ -141,6 +141,11 @@ _TEMPLATE = """<!DOCTYPE html>
 const DATA = %DATA%;
 const SYSTEMS = [["ema_10_20","EMA 10/20"],["ema_10_55","EMA 10/55"],["ema_20_55","EMA 20/55"],["sma","SMA 排列"],["macd","MACD"],["di","DMI ±DI"],["donchian_20","唐奇安 20 位置"],["donchian_55","唐奇安 55 位置"]];
 const state = { fund:"", bucket:"", adx:false, vol:false, warm:false, q:"", sort:"_score", desc:true, open:"" };
+const PREF_KEY = "direction";
+Object.assign(state, loadPrefs(PREF_KEY));
+function persistFilters(){
+  savePrefs(PREF_KEY, { fund:state.fund, bucket:state.bucket, adx:state.adx, vol:state.vol, warm:state.warm, q:state.q, sort:state.sort, desc:state.desc });
+}
 document.getElementById("lede").textContent =
   DATA.universe + "。成功 " + DATA.rows.length + " 只，失败 " + DATA.failed.length +
   "，预热不足 " + (DATA.incomplete || []).length + "。截止 " + DATA.data_cutoff +
@@ -255,6 +260,7 @@ function render(){
   });
   document.getElementById("count").textContent = rows.length + " / " + ROWS.length;
   setAriaSort(document.querySelectorAll("th[data-k]"), state.sort, state.desc);
+  persistFilters();
   document.getElementById("body").innerHTML = rows.length ? rows.map(row => {
     const open = state.open === row.symbol;
     const adxWeak = !(row.adx >= 20);
@@ -303,6 +309,14 @@ bindActivate(document, "th[data-k]", th => {
 renderList(document.getElementById("fails"), DATA.failed, item => "<li>" + item.symbol + "（" + item.funds + "）：" + item.error + "</li>");
 renderList(document.getElementById("incomplete"), DATA.incomplete || [], item => "<li>" + item.symbol + "：" + item.bar_count + " 根，" + item.reason + "，预热不足</li>");
 drawDistribution();
+function syncControls(){
+  document.getElementById("q").value = state.q;
+  document.getElementById("fund").value = state.fund;
+  document.getElementById("bucket").value = state.bucket;
+  ["adx","vol","warm"].forEach(id => togglePressed(document.getElementById(id), state[id]));
+}
+syncControls();
+installBackToTop();
 render();
 onResize(() => {
   const row = ROWS.find(item => item.symbol === state.open);
