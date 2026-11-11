@@ -15,6 +15,11 @@ def utc_datetime(value: datetime) -> datetime:
     return value.astimezone(timezone.utc)
 
 
+def timestamp_text(value: Any) -> str:
+    """ISO-8601 text for a timestamp, always rendered in UTC."""
+    return utc_timestamp(value).isoformat()
+
+
 def utc_timestamp(value: Any) -> pd.Timestamp:
     """Normalize a pandas-compatible timestamp without losing precision."""
     timestamp = pd.Timestamp(value)

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import pandas as pd
 
+from inv_trend.core.时间 import timestamp_text as _text
+
 from .models import FoldWindow, ValidationPolicy
 
 
@@ -42,15 +44,6 @@ def build_walk_forward_windows(
         return (), None, "INSUFFICIENT_HISTORY"
     holdout = (_text(index[holdout_start_position]), _text(index[-1]))
     return tuple(windows), holdout, "READY"
-
-
-def _text(value: pd.Timestamp) -> str:
-    timestamp = pd.Timestamp(value)
-    if timestamp.tzinfo is None:
-        timestamp = timestamp.tz_localize("UTC")
-    else:
-        timestamp = timestamp.tz_convert("UTC")
-    return timestamp.isoformat()
 
 
 __all__ = ["build_walk_forward_windows"]

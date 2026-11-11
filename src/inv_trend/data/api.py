@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime
 import json
 from pathlib import Path
 from typing import Mapping
@@ -16,6 +16,7 @@ from .models import (
     path_text, utc_now,
 )
 from inv_trend.infra.integrity import sha256_file
+from inv_trend.infra.时间 import require_aware_utc as _aware_utc
 from .lineage import _load_current_lineage, _load_update_lineage, load_current_lineage
 from .processing import FRAME_DELTAS, RULE_VERSION, assess_quality, audit_published_frame
 from .providers import BarsProvider, HoldingsCsvProvider, QqqHoldingsCsvProvider
@@ -444,12 +445,6 @@ def load_bars(symbol: str, timeframe: str, start: datetime | None = None, end: d
     return HistoricalDataService(root).load_bars(symbol, timeframe, start, end, adjusted,
                                                   completed_only=completed_only, allow_research=allow_research,
                                                   allow_legacy=allow_legacy, min_quality_score=min_quality_score)
-
-
-def _aware_utc(value: datetime) -> datetime:
-    if value.tzinfo is None:
-        raise ValueError("datetime boundaries must be timezone-aware")
-    return value.astimezone(timezone.utc)
 
 
 def _group_consecutive(stamps: pd.DatetimeIndex, delta: pd.Timedelta) -> list[list[pd.Timestamp]]:

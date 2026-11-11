@@ -8,6 +8,7 @@ dependency, so one prepared frame can be reused by scans, reports, and tests.
 from __future__ import annotations
 
 from inv_trend.core.math_utils import finite_float as _json_float
+from inv_trend.core.时间 import timestamp_text
 
 from typing import Any, Mapping
 
@@ -83,7 +84,7 @@ def analyze_prepared_daily_signals(
 
     row = prepared.iloc[-1]
     previous = prepared.iloc[-2] if count > 1 else None
-    signal_time = _timestamp_text(prepared.index[-1])
+    signal_time = timestamp_text(prepared.index[-1])
 
     turtle_20 = _turtle_result(prepared, 20)
     turtle_55 = _turtle_result(prepared, 55)
@@ -622,19 +623,10 @@ def _cross_event(
 
 
 
-def _timestamp_text(value: Any) -> str:
-    timestamp = pd.Timestamp(value)
-    if timestamp.tzinfo is None:
-        timestamp = timestamp.tz_localize("UTC")
-    else:
-        timestamp = timestamp.tz_convert("UTC")
-    return timestamp.isoformat()
-
-
 def _timestamp_or_none(value: Any) -> str | None:
     if pd.isna(value):
         return None
-    return _timestamp_text(value)
+    return timestamp_text(value)
 
 
 __all__ = [

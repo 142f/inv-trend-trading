@@ -21,7 +21,7 @@ import hashlib
 import json
 import time
 from dataclasses import asdict, dataclass, replace
-from datetime import datetime, timezone
+from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable, Mapping
 from uuid import uuid4
@@ -30,6 +30,7 @@ import numpy as np
 import pandas as pd
 
 from inv_trend.infra.integrity import sha256_file, stable_hash, strategy_frame_hash
+from inv_trend.infra.时间 import require_aware_utc as _aware_utc
 from ..registry import InstrumentRegistry
 from ..lineage import load_current_lineage, load_versioned_lineage
 from ..models import (
@@ -72,12 +73,6 @@ _OVERLAPS = {"D1": 10, "H4": 20, "H1": 48}
 # ---------------------------------------------------------------------------
 # 纯函数（自 api.py 原样搬移）
 # ---------------------------------------------------------------------------
-
-
-def _aware_utc(value: datetime) -> datetime:
-    if value.tzinfo is None:
-        raise ValueError("datetime boundaries must be timezone-aware")
-    return value.astimezone(timezone.utc)
 
 
 def _bounded_range(instrument: InstrumentConfig, start: datetime, end: datetime) -> tuple[datetime, datetime]:

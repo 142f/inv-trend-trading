@@ -5,6 +5,17 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 
+def require_aware_utc(value: datetime) -> datetime:
+    """Return ``value`` in UTC, rejecting naive datetimes at the boundary.
+
+    Single implementation for every caller that validates a caller-supplied
+    time boundary before querying history.
+    """
+    if value.tzinfo is None:
+        raise ValueError("datetime boundaries must be timezone-aware")
+    return value.astimezone(timezone.utc)
+
+
 def parse_utc_datetime(value: datetime | str) -> datetime:
     """Parse current RFC 3339 and legacy ISO-8601 values as aware UTC."""
     if isinstance(value, datetime):
