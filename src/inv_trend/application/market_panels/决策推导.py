@@ -20,9 +20,6 @@ from inv_trend.core.strategy.daily.strategy_checks import (
     turtle_entry_periods,
 )
 
-TRADING_DAYS_LOOKBACK = 10
-
-
 def derive_symbol_decision(
     bars: pd.DataFrame,
     prepared: pd.DataFrame,

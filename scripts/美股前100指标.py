@@ -28,20 +28,29 @@ from inv_trend.observability.静态展示.快照看板 import render_snapshot_pa
 from inv_trend.observability.静态展示.方向总览 import render_direction_overview as _map_page
 from inv_trend.observability.静态展示.决策面板 import render_decision_desk as _desk_page
 from inv_trend.observability.静态展示.市场温度面板 import render_market_thermometer as _thermo_page
+from inv_trend.observability.静态展示.目录 import GENERATED_OUTPUT_NAMES
 
 ROOT = Path(__file__).resolve().parents[1]
-OUT_HTML = ROOT / "deliverables" / "美股前100指标看板.html"
-OUT_MAP_HTML = ROOT / "deliverables" / "美股前100方向偏度总览.html"
-OUT_DESK_HTML = ROOT / "deliverables" / "美股前100投资决策面板.html"
-OUT_THERMO_HTML = ROOT / "deliverables" / "美股前100市场温度面板.html"
-OUT_HISTORY = ROOT / "deliverables" / "市场温度历史.json"
-OUT_JSON = ROOT / "deliverables" / "美股前100指标数据.json"
-OUT_RECEIPT = ROOT / "deliverables" / "美股前100指标_回执.json"
+OUT_HTML = ROOT / "deliverables" / GENERATED_OUTPUT_NAMES["snapshot_html"]
+OUT_MAP_HTML = ROOT / "deliverables" / GENERATED_OUTPUT_NAMES["direction_html"]
+OUT_DESK_HTML = ROOT / "deliverables" / GENERATED_OUTPUT_NAMES["decision_html"]
+OUT_THERMO_HTML = ROOT / "deliverables" / GENERATED_OUTPUT_NAMES["thermometer_html"]
+OUT_HISTORY = ROOT / "deliverables" / GENERATED_OUTPUT_NAMES["history_json"]
+OUT_JSON = ROOT / "deliverables" / GENERATED_OUTPUT_NAMES["data_json"]
+OUT_RECEIPT = ROOT / "deliverables" / GENERATED_OUTPUT_NAMES["receipt_json"]
 CACHE_ROOT = ROOT / ".tmp" / "yahoo-us-top100"
 ASSETS_PATH = ROOT / "src" / "inv_trend" / "data" / "config" / "assets.yaml"
 MIN_BARS = 169
 WARMUP_FIELDS = ("120", "144", "169")
 PRICE_BASIS = "provider_adjusted_close"
+
+# The temperature-history archive is a fixed projection of the market block.
+# Keep the field list explicit so the archived schema cannot drift silently.
+HISTORY_FIELDS = (
+    "as_of", "generated_at", "rating_dist", "breakout_counts",
+    "volatility_counts", "breadth", "median_adx", "median_relative_volume",
+    "temperature_score", "triggered_count", "near_count",
+)
 
 UNIVERSE_PATH = ROOT / "config" / "universes" / "qqq_spy_top100_20261023.json"
 UNIVERSE_ID = "qqq_spy_top100_20261023"
@@ -193,10 +202,9 @@ def relative_volume_value(volume, average) -> float | None:
     return float(volume) / float(average)
 
 
-def indicator_snapshot(symbol: str, prepared: pd.DataFrame, meta: dict, *, partial: bool) -> dict:
-    row = prepared.iloc[-1]
-    bar_count = int(len(prepared))
-    warmup_ok = bar_count >= MIN_BARS
+def _ema_vote(row) -> tuple[dict, str]:
+    """Three EMA fast/slow pairs and their aggregate display direction."""
+
     pairs = {
         "10_20": _side(row.get("ema_10"), row.get("ema_20")),
         "10_55": _side(row.get("ema_10"), row.get("ema_55")),
@@ -211,8 +219,15 @@ def indicator_snapshot(symbol: str, prepared: pd.DataFrame, meta: dict, *, parti
         bias = "混"
     else:
         bias = ""
-    smas = [_warm_number(row.get(f"sma_{period}_lag_0"), period, warmup_ok) for period in (5, 10, 20, 55, 120)]
-    raw_smas = [row.get(f"sma_{period}_lag_0") for period in (5, 10, 20, 55, 120)]
+    return pairs, bias
+
+
+def _sma_alignment(row, warmup_ok: bool) -> tuple[list, str]:
+    """Warmup-masked SMA values plus their ordered-alignment label."""
+
+    periods = (5, 10, 20, 55, 120)
+    smas = [_warm_number(row.get(f"sma_{period}_lag_0"), period, warmup_ok) for period in periods]
+    raw_smas = [row.get(f"sma_{period}_lag_0") for period in periods]
     if warmup_ok and all(pd.notna(item) for item in raw_smas) and all(raw_smas[i] > raw_smas[i + 1] for i in range(4)):
         sma_bias = "多"
     elif warmup_ok and all(pd.notna(item) for item in raw_smas) and all(raw_smas[i] < raw_smas[i + 1] for i in range(4)):
@@ -221,6 +236,41 @@ def indicator_snapshot(symbol: str, prepared: pd.DataFrame, meta: dict, *, parti
         sma_bias = "混"
     else:
         sma_bias = ""
+    return smas, sma_bias
+
+
+def _spark_block(tail: pd.DataFrame) -> dict:
+    """The 120-bar close/EMA series drawn in the snapshot table detail row."""
+
+    return {
+        "date": [str(pd.Timestamp(item).tz_convert("America/New_York").date()) for item in tail.index],
+        "close": [_num(item) for item in tail["close"]],
+        "ema10": [_num(item) for item in tail["ema_10"]],
+        "ema20": [_num(item) for item in tail["ema_20"]],
+        "ema55": [_num(item) for item in tail["ema_55"]],
+    }
+
+
+def _timeline_block(prepared: pd.DataFrame) -> list:
+    """The last ten bars consumed by the decision-desk timeline."""
+
+    return [
+        {
+            "date": str(pd.Timestamp(stamp).tz_convert("America/New_York").date()),
+            "close": _num(item.get("close")),
+            "histogram": _num(item.get("histogram")),
+            "adx": _num(item.get("adx")),
+        }
+        for stamp, item in prepared.tail(10).iterrows()
+    ]
+
+
+def indicator_snapshot(symbol: str, prepared: pd.DataFrame, meta: dict, *, partial: bool) -> dict:
+    row = prepared.iloc[-1]
+    bar_count = int(len(prepared))
+    warmup_ok = bar_count >= MIN_BARS
+    pairs, bias = _ema_vote(row)
+    smas, sma_bias = _sma_alignment(row, warmup_ok)
     stamp = prepared.index[-1]
     as_of = str(pd.Timestamp(stamp).tz_convert("America/New_York").date())
     tail = prepared.tail(120)
@@ -274,22 +324,8 @@ def indicator_snapshot(symbol: str, prepared: pd.DataFrame, meta: dict, *, parti
         "warmup_ok": warmup_ok,
         "partial": partial,
         "missing_fields": missing,
-        "spark": {
-            "date": [str(pd.Timestamp(item).tz_convert("America/New_York").date()) for item in tail.index],
-            "close": [_num(item) for item in tail["close"]],
-            "ema10": [_num(item) for item in tail["ema_10"]],
-            "ema20": [_num(item) for item in tail["ema_20"]],
-            "ema55": [_num(item) for item in tail["ema_55"]],
-        },
-        "timeline10": [
-            {
-                "date": str(pd.Timestamp(stamp).tz_convert("America/New_York").date()),
-                "close": _num(item.get("close")),
-                "histogram": _num(item.get("histogram")),
-                "adx": _num(item.get("adx")),
-            }
-            for stamp, item in prepared.tail(10).iterrows()
-        ],
+        "spark": _spark_block(tail),
+        "timeline10": _timeline_block(prepared),
     }
 
 
@@ -401,7 +437,10 @@ def _history_records() -> list[dict]:
     try:
         payload = json.loads(OUT_HISTORY.read_text(encoding="utf-8"))
         return list(payload.get("records") or [])
-    except (json.JSONDecodeError, OSError):
+    except (json.JSONDecodeError, OSError, AttributeError, TypeError):
+        # Read path stays side-effect free: a broken archive renders an empty
+        # history. The write path (append_history) is the one that renames the
+        # corrupt file and rebuilds it.
         return []
 
 
@@ -441,7 +480,9 @@ def compute_symbol(
     return row, counts
 
 
-def main(argv: list[str] | None = None) -> dict:
+def _parse_args(argv: list[str] | None):
+    """CLI surface; install the explicit proxy in-process because env proxies can be overridden."""
+
     parser = argparse.ArgumentParser()
     parser.add_argument("--as-of", default=None)
     parser.add_argument("--include-partial", action="store_true")
@@ -454,9 +495,14 @@ def main(argv: list[str] | None = None) -> dict:
     if args.proxy:
         from urllib.request import ProxyHandler, build_opener, install_opener
         install_opener(build_opener(ProxyHandler({"http": args.proxy, "https": args.proxy})))
-    completed_only = not args.include_partial
+    return args
+
+
+def _build_decision_config(args) -> dict:
+    """Risk-budget assumptions shared by the decision desk and portfolio allocator."""
+
     resolved = load_resolved_run_config()
-    decision_config = {
+    return {
         "equity": float(args.equity if args.equity is not None else resolved.risk["initial_equity"]),
         "risk_pct": float(args.risk_pct if args.risk_pct is not None else 0.005),
         "stop_n": float(resolved.rules["stop_n"]),
@@ -470,21 +516,43 @@ def main(argv: list[str] | None = None) -> dict:
             if key in resolved.rules
         },
     }
+
+
+def _prepare_run(args, completed_only: bool) -> dict:
+    """Resolve the fetch window, the registered universe and the data providers."""
+
     window = resolve_window(datetime.now(timezone.utc), args.as_of, completed_only=completed_only)
-    cutoff = window["completeness_now"]
-    fetch_end = window["fetch_end"]
     instruments = load_instruments()
     members = universe_members()
     symbols = [item["symbol"] for item in members]
     missing = [symbol for symbol in symbols if symbol not in instruments]
     if missing:
         raise SystemExit(f"universe symbols are not registered: {missing}")
-    provider = YahooChartProvider(timeout=25, retries=2)
-    service = _local_service()
-    start = datetime(2023, 1, 1, tzinfo=timezone.utc)
-    rows = []
-    failed = []
-    sources = []
+    return {
+        "window": window,
+        "cutoff": window["completeness_now"],
+        "fetch_end": window["fetch_end"],
+        "instruments": instruments,
+        "members": members,
+        "symbols": symbols,
+        "provider": YahooChartProvider(timeout=25, retries=2),
+        "service": _local_service(),
+        "start": datetime(2023, 1, 1, tzinfo=timezone.utc),
+    }
+
+
+def _fetch_rows(context: dict, *, completed_only: bool, decision_config: dict, refresh: bool) -> dict:
+    """One row per symbol; a per-symbol failure is recorded instead of aborting the run."""
+
+    symbols = context["symbols"]
+    members = context["members"]
+    instruments = context["instruments"]
+    provider = context["provider"]
+    service = context["service"]
+    fetch_end = context["fetch_end"]
+    cutoff = context["cutoff"]
+    start = context["start"]
+    rows, failed, sources = [], [], []
     raw_hashes: dict[str, str] = {}
     reject_totals = {
         "duplicate_count": 0, "ohlc_anomaly_count": 0, "conflicting_duplicate_count": 0,
@@ -497,7 +565,7 @@ def main(argv: list[str] | None = None) -> dict:
             resolved = resolve_snapshot_bars(
                 symbol=symbol, instrument=instruments[symbol], service=service,
                 provider=provider, start=start, end=fetch_end,
-                cache_root=CACHE_ROOT, refresh=args.refresh,
+                cache_root=CACHE_ROOT, refresh=refresh,
             )
             raw_hashes[symbol] = resolved.digest
             raw = clip_fetch(resolved.frame, fetch_end)
@@ -513,6 +581,24 @@ def main(argv: list[str] | None = None) -> dict:
         except Exception as exc:
             failed.append({"symbol": symbol, **meta, "error": str(exc)})
             print(f"{index}/{len(symbols)} FAIL {symbol} {exc}", flush=True)
+    return {
+        "rows": rows, "failed": failed, "sources": sources,
+        "raw_hashes": raw_hashes, "reject_totals": reject_totals,
+    }
+
+
+def _build_outputs(context: dict, fetched: dict, *, decision_config: dict, completed_only: bool) -> dict:
+    """Pure assembly of payload, receipt hashes and page metadata."""
+
+    rows = fetched["rows"]
+    failed = fetched["failed"]
+    sources = fetched["sources"]
+    raw_hashes = fetched["raw_hashes"]
+    reject_totals = fetched["reject_totals"]
+    window = context["window"]
+    cutoff = context["cutoff"]
+    members = context["members"]
+    provider_name = context["provider"].name
     incomplete = [item for item in (incomplete_entry(row) for row in rows) if item]
     generated_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     as_of = pd.Timestamp(cutoff).tz_convert("America/New_York").date().isoformat()
@@ -538,7 +624,7 @@ def main(argv: list[str] | None = None) -> dict:
         "universe": "QQQ与SPY 2026-10-23 权重前100，按代码去重，未按公司合并。SPCX 不在名单内，名次保留源空缺。",
         "price_basis": PRICE_BASIS,
         "research_only": True,
-        "provider": provider.name,
+        "provider": provider_name,
         "completed_only": completed_only,
         "partial": bool(window["partial_mode"]),
         "rows": rows,
@@ -563,7 +649,7 @@ def main(argv: list[str] | None = None) -> dict:
     receipt = build_receipt(
         generated_at=generated_at,
         data_cutoff=payload["data_cutoff"],
-        provider=provider.name,
+        provider=provider_name,
         completed_only=completed_only,
         universe=universe,
         config_hash=_config_hash(),
@@ -588,13 +674,30 @@ def main(argv: list[str] | None = None) -> dict:
         },
     )
     page_meta = {
-        "provider": provider.name,
+        "provider": provider_name,
         "data_cutoff": payload["data_cutoff"],
         "price_basis": PRICE_BASIS,
         "config_hash": receipt["config_hash"],
         "content_hash": content_hash,
         "script_git_commit": receipt["script_git_commit"],
     }
+    return {
+        "payload": payload, "receipt": receipt, "page_meta": page_meta,
+        "market": market, "portfolio": portfolio,
+        "rows": rows, "failed": failed, "incomplete": incomplete,
+        "content_hash": content_hash, "raw_hash": raw_hash,
+        "decision_config": decision_config,
+    }
+
+
+def _write_outputs(outputs: dict, *, completed_only: bool, partial_mode: bool):
+    """Write the seven generated files, then append the temperature history."""
+
+    payload = outputs["payload"]
+    page_meta = outputs["page_meta"]
+    receipt = outputs["receipt"]
+    market = outputs["market"]
+    decision_config = outputs["decision_config"]
     OUT_JSON.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
     OUT_RECEIPT.write_text(json.dumps(receipt, ensure_ascii=False, indent=2), encoding="utf-8")
     OUT_HTML.write_text(_page(payload, page_meta), encoding="utf-8")
@@ -606,22 +709,25 @@ def main(argv: list[str] | None = None) -> dict:
         "caps": decision_config.get("caps") or {},
     }), encoding="utf-8")
     history_summary = None
-    if completed_only and not window["partial_mode"]:
-        history_summary = append_history(OUT_HISTORY, {
-            "as_of": market["as_of"],
-            "generated_at": market["generated_at"],
-            "rating_dist": market["rating_dist"],
-            "breakout_counts": market["breakout_counts"],
-            "volatility_counts": market["volatility_counts"],
-            "breadth": market["breadth"],
-            "median_adx": market["median_adx"],
-            "median_relative_volume": market["median_relative_volume"],
-            "temperature_score": market["temperature_score"],
-            "triggered_count": market["triggered_count"],
-            "near_count": market["near_count"],
-        })
+    if completed_only and not partial_mode:
+        history_summary = append_history(
+            OUT_HISTORY, {key: market[key] for key in HISTORY_FIELDS}
+        )
     OUT_THERMO_HTML.write_text(_thermo_page(payload, page_meta, _history_records()), encoding="utf-8")
-    summary = {
+    return history_summary
+
+
+def _build_summary(outputs: dict, *, completed_only: bool, history_summary) -> dict:
+    """The one-line JSON summary printed for the daily automation."""
+
+    payload = outputs["payload"]
+    receipt = outputs["receipt"]
+    market = outputs["market"]
+    rows = outputs["rows"]
+    failed = outputs["failed"]
+    incomplete = outputs["incomplete"]
+    decision_config = outputs["decision_config"]
+    return {
         "rows": len(rows),
         "failed": len(failed),
         "incomplete": [item["symbol"] for item in incomplete],
@@ -631,8 +737,8 @@ def main(argv: list[str] | None = None) -> dict:
         "data_cutoff": payload["data_cutoff"],
         "last_bar": max((row["as_of"] for row in rows), default=None),
         "relative_volume_median": _median([row["relative_volume"] for row in rows]),
-        "content_hash": content_hash,
-        "raw_hash": raw_hash,
+        "content_hash": outputs["content_hash"],
+        "raw_hash": outputs["raw_hash"],
         "decision_config": {
             "equity": decision_config["equity"],
             "risk_pct": decision_config["risk_pct"],
@@ -645,6 +751,26 @@ def main(argv: list[str] | None = None) -> dict:
         },
         "history": history_summary,
     }
+
+
+def main(argv: list[str] | None = None) -> dict:
+    """Orchestrate fetch -> assemble -> write -> summarize; each stage is a pure step."""
+
+    args = _parse_args(argv)
+    completed_only = not args.include_partial
+    decision_config = _build_decision_config(args)
+    context = _prepare_run(args, completed_only)
+    fetched = _fetch_rows(
+        context, completed_only=completed_only,
+        decision_config=decision_config, refresh=args.refresh,
+    )
+    outputs = _build_outputs(
+        context, fetched, decision_config=decision_config, completed_only=completed_only,
+    )
+    history_summary = _write_outputs(
+        outputs, completed_only=completed_only, partial_mode=context["window"]["partial_mode"],
+    )
+    summary = _build_summary(outputs, completed_only=completed_only, history_summary=history_summary)
     print(json.dumps(summary, ensure_ascii=False), flush=True)
     return summary
 

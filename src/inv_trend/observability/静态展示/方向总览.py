@@ -7,8 +7,7 @@ Python side stays free of any second computation of signals.
 
 from __future__ import annotations
 
-import json
-from html import escape
+from .公共 import BASE_META_KEYS, render_document, render_meta
 
 _SYSTEMS = (
     ("ema_10_20", "EMA 10/20"),
@@ -28,34 +27,26 @@ _RULES = (
     "DMI：+DI &gt; −DI 为多，反之为空；ADX 只是趋势强度，不改变投票。",
     "唐奇安位置：收盘 ≥ 上沿为多，≤ 下沿为空，其余为中；边界取数据内存储的当根窗口值，是位置判定而非突破信号。",
     "偏度分 = 多 +1 / 空 −1 / 中或混 0 的八票求和，范围 −8…+8；强多 ≥ +6，强空 ≤ −6。",
-)
-
-_META_KEYS = (
-    ("provider", "数据来源"),
-    ("data_cutoff", "数据截止"),
-    ("price_basis", "价格口径"),
-    ("config_hash", "配置哈希"),
-    ("content_hash", "内容哈希"),
-    ("script_git_commit", "脚本提交"),
+    "格子上的 * 表示 ADX &lt; 20：DMI 与唐奇安仍按原票计分，只是标出趋势偏弱。",
 )
 
 
 def render_direction_overview(payload: dict, meta: dict | None = None) -> str:
-    data = json.dumps(payload, ensure_ascii=False).replace("</", "<\\/")
-    header = meta or {}
-    meta_html = "".join(
-        f"<div><dt>{escape(label)}</dt><dd>{escape(str(header.get(key, '—')))}</dd></div>"
-        for key, label in _META_KEYS
-    )
+    """Assemble the page from the shared base plus this page's own vote matrix."""
+
     systems_head = "".join(
         f'<th class="sys" data-sys="{name}">{label}</th>' for name, label in _SYSTEMS
     )
     rules_html = "".join(f"<li>{rule}</li>" for rule in _RULES)
-    template = _TEMPLATE.replace("%SYSTEMS_HEAD%", systems_head)
-    template = template.replace("%RULES%", rules_html)
-    template = template.replace("%META%", meta_html)
-    template = template.replace("%DATA%", data)
-    return template
+    return render_document(
+        _TEMPLATE,
+        data=payload,
+        placeholders={
+            "%SYSTEMS_HEAD%": systems_head,
+            "%RULES%": rules_html,
+            "%META%": render_meta(meta, BASE_META_KEYS),
+        },
+    )
 
 
 _TEMPLATE = """<!DOCTYPE html>
@@ -65,34 +56,15 @@ _TEMPLATE = """<!DOCTYPE html>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>美股前100方向偏度总览</title>
 <style>
-  :root { color-scheme: light; --ink:#1c1915; --muted:#5c564c; --line:#e4ddd0; --paper:#f6f3ec; --card:#fffdf8;
-          --long:#b3372b; --long-soft:#e8c9c4; --short:#1e7d46; --short-soft:#c5dfd0; --mix:#8a5a12; --neutral:#9aa3ad; }
-  * { box-sizing: border-box; }
-  body { margin:0; font:15px/1.5 "Segoe UI","Microsoft YaHei",sans-serif; color:var(--ink); background:var(--paper); }
-  .wrap { max-width:1280px; margin:0 auto; padding:24px 18px 48px; }
-  h1 { margin:0 0 6px; font-size:26px; }
-  .lede { color:var(--muted); margin:0 0 14px; }
-  .meta { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:6px 18px; margin:0 0 14px;
-          padding:10px 14px; background:var(--card); border:1px solid var(--line); border-radius:10px; font-size:13px; }
-  .meta dt { color:var(--muted); }
-  .meta dd { margin:0; font-variant-numeric:tabular-nums; overflow-wrap:anywhere; }
-  h2 { font-size:18px; margin:22px 0 8px; }
   .dist { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:8px; margin:0 0 10px; }
   .bucket { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:10px 12px; }
   .bucket b { display:block; font-size:22px; font-variant-numeric:tabular-nums; }
   .bucket span { color:var(--muted); font-size:13px; }
   .strip { display:flex; height:14px; border-radius:999px; overflow:hidden; border:1px solid var(--line); margin:0 0 4px; }
   .strip div { flex:0 0 auto; }
-  .bar-controls { position:sticky; top:0; z-index:2; background:rgba(246,243,136,0); }
-  .bar-inner { position:sticky; top:0; background:rgba(246,243,236,.96); padding:10px 0 12px; border-bottom:1px solid var(--line); }
-  .controls { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
-  input, select, button { font:inherit; border:1px solid #d5cec0; background:var(--card); border-radius:999px; padding:7px 12px; }
-  button { cursor:pointer; }
-  button.on { background:#0c5c56; color:#f4fffc; border-color:#0c5c56; }
-  .count { font-variant-numeric:tabular-nums; color:var(--muted); }
   table { width:100%; border-collapse:separate; border-spacing:0; background:var(--card); }
   th, td { padding:7px 8px; border-bottom:1px solid var(--line); text-align:left; white-space:nowrap; }
-  thead th { position:sticky; top:var(--thead-top, 56px); background:var(--card); z-index:1; font-size:13px; color:var(--muted); box-shadow:0 1px 0 var(--line); }
+  thead th { position:sticky; top:0; background:var(--card); z-index:1; font-size:13px; color:var(--muted); box-shadow:0 1px 0 var(--line); }
   th[data-k] { cursor:pointer; }
   th.sys { font-size:11px; line-height:1.25; max-width:64px; }
   tr.item { cursor:pointer; }
@@ -102,24 +74,22 @@ _TEMPLATE = """<!DOCTYPE html>
   .cell.多 { background:var(--long); color:#fff; }
   .cell.空 { background:var(--short); color:#fff; }
   .cell.中, .cell.混 { background:#eee9de; color:var(--mix); }
-  .cell.weak { opacity:.38; }
+  .cell.weak::after { content:"*"; margin-left:1px; }
   .score { display:flex; align-items:center; gap:8px; }
   .score .rail { position:relative; flex:0 0 120px; height:10px; border-radius:999px; background:#eee9de; }
   .score .rail i { position:absolute; top:0; bottom:0; border-radius:999px; }
   .score b { font-variant-numeric:tabular-nums; min-width:26px; text-align:right; }
-  .多 { color:var(--long); font-weight:700; }
-  .空 { color:var(--short); font-weight:700; }
-  .混, .平, .中 { color:var(--mix); font-weight:700; }
-  .badge { display:inline-block; border-radius:999px; padding:1px 8px; font-size:11px; background:#eee9de; color:var(--muted); }
-  .badge.hot { background:#f8efd8; color:#8a5a12; font-weight:700; }
+  .badge.hot { background:var(--hot); color:var(--mix); font-weight:700; }
   .detail td { white-space:normal; background:#f8f6ef; }
   .detail .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(230px,1fr)); gap:6px 18px; }
   .detail dt { color:var(--muted); font-size:13px; }
   .detail dd { margin:0 0 6px; font-variant-numeric:tabular-nums; overflow-wrap:anywhere; }
-  canvas { width:100%; height:150px; background:#fff; border:1px solid var(--line); border-radius:8px; }
-  .note { color:var(--muted); font-size:13px; }
+  canvas { height:150px; }
   .note ul { margin:4px 0 0; padding-left:20px; }
   .warm { color:var(--mix); font-weight:700; }
+  .legend { display:flex; gap:14px; flex-wrap:wrap; align-items:center; margin:0 0 10px; font-size:12px; color:var(--muted); }
+
+  .dist { grid-template-columns:repeat(auto-fit,minmax(min(100%, 140px),1fr)); }
 </style>
 </head>
 <body>
@@ -127,6 +97,7 @@ _TEMPLATE = """<!DOCTYPE html>
   <h1>QQQ+SPY 前100 · 全部参与标的方向偏度总览</h1>
   <dl class="meta">%META%</dl>
   <p class="lede" id="lede"></p>
+  <p class="legend"><span><i class="swatch long"></i>多</span><span><i class="swatch short"></i>空</span><span><i class="swatch mix"></i>中 / 混</span><span>* 趋势偏弱，仍计票</span></p>
 
   <h2>市场分布（八票偏度分档）</h2>
   <div class="strip" id="strip"></div>
@@ -154,7 +125,7 @@ _TEMPLATE = """<!DOCTYPE html>
       %SYSTEMS_HEAD%
       <th data-k="_score">偏度分</th><th data-k="adx">ADX</th><th data-k="relative_volume">相对量</th><th>预热</th>
     </tr></thead>
-    <tbody id="body"></tbody>
+    <tbody id="body"><tr class="empty-row"><td colspan="16"><div class="empty" role="status">正在整理矩阵…</div></td></tr></tbody>
   </table>
   </div>
 
@@ -165,6 +136,7 @@ _TEMPLATE = """<!DOCTYPE html>
   <h2>没有算出指标</h2>
   <ul id="fails" class="note"></ul>
 </div>
+<noscript><p class="empty" role="status">需要启用 JavaScript 才能筛选、排序和展开明细。</p></noscript>
 <script>
 const DATA = %DATA%;
 const SYSTEMS = [["ema_10_20","EMA 10/20"],["ema_10_55","EMA 10/55"],["ema_20_55","EMA 20/55"],["sma","SMA 排列"],["macd","MACD"],["di","DMI ±DI"],["donchian_20","唐奇安 20 位置"],["donchian_55","唐奇安 55 位置"]];
@@ -212,7 +184,7 @@ function bucketOf(score){
   return "中性";
 }
 const BUCKETS = ["强多","偏多","中性","偏空","强空"];
-const BUCKET_COLORS = { "强多":"#8d2b1f", "偏多":"#d9918a", "中性":"#b9b2a4", "偏空":"#7fb394", "强空":"#1e7d46" };
+const BUCKET_COLORS = { "强多":C.longDeep, "偏多":C.longPale, "中性":C.neutral, "偏空":C.shortMid, "强空":C.short };
 function enriched(){
   return DATA.rows.map(row => { const rowVotes = votes(row);
     return Object.assign({}, row, { _votes: rowVotes, _score: rowVotes.reduce((s, item) => s + item.v, 0), _bucket: bucketOf(rowVotes.reduce((s, item) => s + item.v, 0)) });
@@ -225,7 +197,7 @@ function drawDistribution(){
   ROWS.forEach(row => counts[row._bucket] += 1);
   const total = ROWS.length || 1;
   document.getElementById("strip").innerHTML = BUCKETS.map(b =>
-    '<div style="width:' + (counts[b] * 100 / total) + '%;background:' + BUCKET_COLORS[b] + '"></div>').join("");
+    '<div title="' + b + ' ' + counts[b] + '只" style="width:' + (counts[b] * 100 / total) + '%;background:' + BUCKET_COLORS[b] + '"></div>').join("");
   document.getElementById("stripNote").textContent =
     "每格宽度 = 该档只数占比（共 " + ROWS.length + " 只）。档位：强多 ≥ +6，偏多 +1…+5，中性 0，偏空 −5…−1，强空 ≤ −6。";
   document.getElementById("dist").innerHTML = BUCKETS.map(b =>
@@ -249,35 +221,15 @@ function val(row, key){
 function cell(rowVotes, name, adxWeak){
   const item = rowVotes.find(v => v.name === name);
   const weak = adxWeak && (name === "di" || name === "donchian_20" || name === "donchian_55");
-  return '<span class="cell ' + item.raw + (weak ? " weak" : "") + '" title="' + name + '">' + item.raw + '</span>';
+  const label = (SYSTEMS.find(s => s[0] === name) || ["", name])[1];
+  const note = weak ? "，趋势偏弱仍计票" : "";
+  return '<span class="cell ' + item.raw + (weak ? " weak" : "") + '" title="' + label + " " + item.raw + note + '">' + item.raw + '</span>';
 }
 function scoreBar(score){
-  const rail = document.createElement("div");
   const width = Math.abs(score) * 100 / 8;
   const side = score >= 0 ? "left:50%" : "right:50%";
-  const color = score > 0 ? "#b3372b" : score < 0 ? "#1e7d46" : "#b9b2a4";
+  const color = score > 0 ? C.long : score < 0 ? C.short : C.neutral;
   return '<span class="score"><span class="rail"><i style="' + side + ';width:' + (width / 2) + '%;background:' + color + '"></i></span><b>' + (score > 0 ? "+" : "") + score + '</b></span>';
-}
-function draw(canvas, spark){
-  const ctx = canvas.getContext("2d");
-  const w = canvas.width = canvas.clientWidth * 2, h = canvas.height = 300;
-  ctx.clearRect(0,0,w,h);
-  const series = [spark.close, spark.ema10, spark.ema20, spark.ema55];
-  const nums = series.flat().filter(v => v !== null);
-  if (!nums.length) return;
-  const min = Math.min.apply(null, nums), max = Math.max.apply(null, nums);
-  const colors = ["#1c1915", "#0c5c56", "#8a5a12", "#8d2b1f"];
-  series.forEach((line, index) => {
-    ctx.beginPath(); ctx.strokeStyle = colors[index]; ctx.lineWidth = index ? 2 : 3;
-    let started = false;
-    line.forEach((v, i) => {
-      if (v === null) { started = false; return; }
-      const x = (i / Math.max(line.length - 1, 1)) * (w - 16) + 8;
-      const y = h - 12 - ((v - min) / Math.max(max - min, 1e-9)) * (h - 24);
-      if (!started) { ctx.moveTo(x, y); started = true; } else ctx.lineTo(x, y);
-    });
-    ctx.stroke();
-  });
 }
 function detail(row){
   const position55 = (row.channel && row.close !== null && row.channel.high_55 !== undefined && row.channel.high_55 !== row.channel.low_55)
@@ -285,7 +237,7 @@ function detail(row){
   const voteRows = row._votes.map(item => {
     return "<div><dt>" + (SYSTEMS.find(s => s[0] === item.name) || ["", item.name])[1] + '</dt><dd class="' + item.raw + '">' + item.raw + "（票 " + (item.v > 0 ? "+1" : item.v < 0 ? "−1" : "0") + "）</dd></div>";
   }).join("");
-  return '<tr class="detail"><td colspan="15"><dl class="grid">' + voteRows +
+  return '<tr class="detail"><td colspan="16"><dl class="grid">' + voteRows +
     '<div><dt>原始 / 复权收盘</dt><dd>' + row.close + " / " + row.adjusted_close + "（因子 " + row.adjustment_factor + "）</dd></div>" +
     '<div><dt>ADX · +DI / −DI</dt><dd>' + row.adx + " · " + row.plus_di + " / " + row.minus_di + "</dd></div>" +
     '<div><dt>MACD dif / dea / 柱</dt><dd>' + row.dif + " / " + row.dea + " / " + row.histogram + "</dd></div>" +
@@ -302,10 +254,11 @@ function render(){
     return a.symbol < b.symbol ? -1 : 1;
   });
   document.getElementById("count").textContent = rows.length + " / " + ROWS.length;
-  document.getElementById("body").innerHTML = rows.map(row => {
+  setAriaSort(document.querySelectorAll("th[data-k]"), state.sort, state.desc);
+  document.getElementById("body").innerHTML = rows.length ? rows.map(row => {
     const open = state.open === row.symbol;
     const adxWeak = !(row.adx >= 20);
-    const main = '<tr class="item" data-s="' + row.symbol + '">' +
+    const main = '<tr class="item" data-s="' + row.symbol + '" tabindex="0" role="button" aria-expanded="' + open + '">' +
       '<td><b>' + row.symbol + '</b></td><td>' + row.funds + '</td>' +
       '<td class="num">' + (row.close ?? "—") + '</td>' +
       '<td class="' + row.bias + '">' + row.bias + '</td>' +
@@ -315,45 +268,48 @@ function render(){
       '<td class="num">' + (row.relative_volume ?? "—") + (row.relative_volume >= 1.5 ? ' <span class="badge hot">放量</span>' : "") + '</td>' +
       '<td>' + (row.warmup_ok ? '<span class="badge">足够</span>' : '<span class="warm">预热不足</span>') + '</td></tr>';
     return main + (open ? detail(row) : "");
-  }).join("");
+  }).join("") : '<tr class="empty-row"><td colspan="16"><div class="empty" role="status">没有符合筛选的标的</div></td></tr>';
   rows.forEach(row => {
     if (state.open !== row.symbol) return;
     const canvas = document.getElementById("c-" + row.symbol.replace(".", "_"));
-    if (canvas) draw(canvas, row.spark);
+    if (canvas && row.spark) {
+      drawSpark(canvas, row.spark, 300);
+      bindChartTip(canvas, ["收盘", "EMA10", "EMA20", "EMA55"], [row.spark.close, row.spark.ema10, row.spark.ema20, row.spark.ema55]);
+    }
   });
-  document.querySelectorAll("tr.item").forEach(tr => tr.addEventListener("click", () => {
+  bindActivate(document, "tr.item", tr => {
     state.open = state.open === tr.dataset.s ? "" : tr.dataset.s;
     render();
-  }));
+  });
 }
 document.getElementById("q").addEventListener("input", e => { state.q = e.target.value.trim().toUpperCase(); render(); });
 document.getElementById("fund").addEventListener("change", e => { state.fund = e.target.value; render(); });
 document.getElementById("bucket").addEventListener("change", e => { state.bucket = e.target.value; render(); });
-document.getElementById("adx").addEventListener("click", e => { state.adx = !state.adx; e.target.classList.toggle("on", state.adx); e.target.setAttribute("aria-pressed", String(state.adx)); render(); });
-document.getElementById("vol").addEventListener("click", e => { state.vol = !state.vol; e.target.classList.toggle("on", state.vol); e.target.setAttribute("aria-pressed", String(state.vol)); render(); });
-document.getElementById("warm").addEventListener("click", e => { state.warm = !state.warm; e.target.classList.toggle("on", state.warm); e.target.setAttribute("aria-pressed", String(state.warm)); render(); });
+document.getElementById("adx").addEventListener("click", e => { state.adx = !state.adx; togglePressed(e.target, state.adx); render(); });
+document.getElementById("vol").addEventListener("click", e => { state.vol = !state.vol; togglePressed(e.target, state.vol); render(); });
+document.getElementById("warm").addEventListener("click", e => { state.warm = !state.warm; togglePressed(e.target, state.warm); render(); });
 document.getElementById("reset").addEventListener("click", () => {
   Object.assign(state, { fund:"", bucket:"", adx:false, vol:false, warm:false, q:"", open:"" });
   document.getElementById("q").value = "";
   document.getElementById("fund").value = "";
   document.getElementById("bucket").value = "";
-  ["adx","vol","warm"].forEach(id => { const el = document.getElementById(id); el.classList.remove("on"); el.setAttribute("aria-pressed","false"); });
+  ["adx","vol","warm"].forEach(id => togglePressed(document.getElementById(id), false));
   render();
 });
-document.querySelectorAll("th[data-k]").forEach(th => th.addEventListener("click", () => {
+bindActivate(document, "th[data-k]", th => {
   if (state.sort === th.dataset.k) state.desc = !state.desc; else { state.sort = th.dataset.k; state.desc = false; }
   render();
-}));
-document.getElementById("fails").innerHTML = DATA.failed.map(item => "<li>" + item.symbol + "（" + item.funds + "）：" + item.error + "</li>").join("") || "<li>没有</li>";
-document.getElementById("incomplete").innerHTML = (DATA.incomplete || []).map(item => "<li>" + item.symbol + "：" + item.bar_count + " 根，" + item.reason + "，预热不足</li>").join("") || "<li>没有</li>";
-function syncTheadTop(){
-  const bar = document.querySelector(".bar-inner");
-  if (bar) document.documentElement.style.setProperty("--thead-top", bar.offsetHeight + 1 + "px");
-}
-window.addEventListener("resize", syncTheadTop);
+});
+renderList(document.getElementById("fails"), DATA.failed, item => "<li>" + item.symbol + "（" + item.funds + "）：" + item.error + "</li>");
+renderList(document.getElementById("incomplete"), DATA.incomplete || [], item => "<li>" + item.symbol + "：" + item.bar_count + " 根，" + item.reason + "，预热不足</li>");
 drawDistribution();
-syncTheadTop();
 render();
+onResize(() => {
+  const row = ROWS.find(item => item.symbol === state.open);
+  const canvas = row && document.getElementById("c-" + row.symbol.replace(".", "_"));
+  if (!canvas || !row.spark) return;
+  drawSpark(canvas, row.spark, 300);
+});
 </script>
 </body>
 </html>

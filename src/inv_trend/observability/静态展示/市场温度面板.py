@@ -7,34 +7,25 @@ history file.  Self-contained HTML with embedded JSON.
 
 from __future__ import annotations
 
-import json
 from html import escape
 
-_META_KEYS = (
-    ("provider", "数据来源"),
-    ("data_cutoff", "数据截止"),
-    ("price_basis", "价格口径"),
-    ("config_hash", "配置哈希"),
-    ("content_hash", "内容哈希"),
-    ("script_git_commit", "脚本提交"),
-)
+from .公共 import BASE_META_KEYS, render_document, render_meta
 
 _TEMPERATURE_FORMULA = "温度分 = 0.4×MACD多头占比 + 0.3×EMA55上方占比 + 0.3×净突破占比（多头突破 − 空头突破，按只数），钳位 0–100。"
 
 
 def render_market_thermometer(payload: dict, meta: dict | None = None, history: list | None = None) -> str:
-    data = json.dumps(payload, ensure_ascii=False).replace("</", "<\\/")
-    history_json = json.dumps(history or [], ensure_ascii=False).replace("</", "<\\/")
-    header = meta or {}
-    meta_html = "".join(
-        f"<div><dt>{escape(label)}</dt><dd>{escape(str(header.get(key, '—')))}</dd></div>"
-        for key, label in _META_KEYS
+    """Assemble the thermometer from the shared base plus its history series."""
+
+    return render_document(
+        _TEMPLATE,
+        data=payload,
+        history=history or [],
+        placeholders={
+            "%META%": render_meta(meta, BASE_META_KEYS),
+            "%FORMULA%": escape(_TEMPERATURE_FORMULA),
+        },
     )
-    template = _TEMPLATE.replace("%META%", meta_html)
-    template = template.replace("%FORMULA%", escape(_TEMPERATURE_FORMULA))
-    template = template.replace("%HISTORY%", history_json)
-    template = template.replace("%DATA%", data)
-    return template
 
 
 _TEMPLATE = """<!DOCTYPE html>
@@ -44,18 +35,6 @@ _TEMPLATE = """<!DOCTYPE html>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>美股前100市场温度面板</title>
 <style>
-  :root { color-scheme: light; --ink:#1c1915; --muted:#5c564c; --line:#e4ddd0; --paper:#f6f3ec; --card:#fffdf8;
-          --long:#b3372b; --short:#1e7d46; --mix:#8a5a12; --hot:#f8efd8; }
-  * { box-sizing: border-box; }
-  body { margin:0; font:15px/1.5 "Segoe UI","Microsoft YaHei",sans-serif; color:var(--ink); background:var(--paper); }
-  .wrap { max-width:1180px; margin:0 auto; padding:24px 18px 48px; }
-  h1 { margin:0 0 6px; font-size:26px; }
-  h2 { font-size:18px; margin:22px 0 8px; }
-  .meta { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:6px 18px; margin:0 0 12px;
-          padding:10px 14px; background:var(--card); border:1px solid var(--line); border-radius:10px; font-size:13px; }
-  .meta dt { color:var(--muted); }
-  .meta dd { margin:0; font-variant-numeric:tabular-nums; overflow-wrap:anywhere; }
-  .disclaimer { color:var(--mix); background:var(--hot); border-radius:10px; padding:8px 14px; margin:0 0 14px; font-size:13px; }
   .health { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:8px; margin:0 0 12px; }
   .health .box { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:9px 12px; font-size:13px; }
   .health b { font-size:17px; font-variant-numeric:tabular-nums; display:block; }
@@ -71,22 +50,25 @@ _TEMPLATE = """<!DOCTYPE html>
   .cards .box { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:10px 12px; }
   .cards b { display:block; font-size:20px; font-variant-numeric:tabular-nums; }
   .cards span { color:var(--muted); font-size:13px; }
-  table { width:100%; border-collapse:separate; border-spacing:0; background:var(--card); }
+  table { width:100%; border-collapse:collapse; background:var(--card); }
   th, td { padding:7px 10px; border-bottom:1px solid var(--line); text-align:left; white-space:nowrap; font-variant-numeric:tabular-nums; }
   th { font-size:13px; color:var(--muted); }
   .bars { display:grid; gap:6px; }
   .bars .row { display:grid; grid-template-columns:130px 1fr 60px; align-items:center; gap:10px; font-size:13px; }
   .bars .rail { height:12px; background:#eee9de; border-radius:999px; overflow:hidden; }
   .bars .rail i { display:block; height:100%; }
-  canvas { width:100%; height:220px; background:#fff; border:1px solid var(--line); border-radius:8px; }
+  canvas { height:220px; }
   .controls { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin:8px 0; }
-  button { font:inherit; border:1px solid #d5cec0; background:var(--card); border-radius:999px; padding:6px 12px; cursor:pointer; }
-  button.on { background:#0c5c56; color:#f4fffc; border-color:#0c5c56; }
   .legend { display:flex; gap:14px; font-size:12px; color:var(--muted); flex-wrap:wrap; }
   .legend i { display:inline-block; width:14px; height:4px; border-radius:2px; margin-right:4px; vertical-align:middle; }
-  .多 { color:var(--long); font-weight:700; }
-  .空 { color:var(--short); font-weight:700; }
-  .note { color:var(--muted); font-size:13px; }
+
+  .health, .cards { grid-template-columns:repeat(auto-fit,minmax(min(100%, 148px),1fr)); }
+  .temp { grid-template-columns:minmax(160px,220px) minmax(0,1fr); min-width:0; }
+  @media (max-width:1024px) { .temp { grid-template-columns:1fr; } }
+  @media (max-width:760px) {
+    .bars .row { grid-template-columns:1fr auto; }
+    .bars .rail { grid-column:1 / -1; }
+  }
 </style>
 </head>
 <body>
@@ -100,7 +82,7 @@ _TEMPLATE = """<!DOCTYPE html>
 
   <h2>市场温度</h2>
   <div class="temp">
-    <div><b class="big" id="tempBig">—</b><div class="gauge"><i id="tempGauge"></i></div></div>
+    <div><b class="big" id="tempBig">—</b><div class="temp-meta"><span id="tempBand" class="badge">—</span></div><div class="gauge" role="img" aria-labelledby="tempBand"><i id="tempGauge"></i></div></div>
     <div><div class="cards" id="breadth"></div><p class="formula">%FORMULA%</p></div>
   </div>
 
@@ -109,10 +91,10 @@ _TEMPLATE = """<!DOCTYPE html>
 
   <h2>波动状态与突破计数</h2>
   <div class="cards" id="volatility"></div>
-  <table style="margin-top:10px">
+  <div class="tablewrap" tabindex="0" aria-label="突破计数，可横向滚动"><table style="margin-top:10px">
     <thead><tr><th>方向 / 周期</th><th>20 日</th><th>55 日</th></tr></thead>
     <tbody id="breakouts"></tbody>
-  </table>
+  </table></div>
 
   <h2>温度历史（按收盘日）</h2>
   <div class="controls">
@@ -120,25 +102,27 @@ _TEMPLATE = """<!DOCTYPE html>
     <button type="button" class="win" data-n="120">120 日</button>
     <button type="button" class="win" data-n="250">250 日</button>
     <span class="legend">
-      <span><i style="background:#1c1915"></i>温度分</span>
-      <span><i style="background:#b3372b"></i>A 级多头只数</span>
-      <span><i style="background:#1e7d46"></i>A 级空头只数</span>
-      <span><i style="background:#8a5a12"></i>净突破（只）</span>
+      <span><i style="background:var(--ink)"></i>温度分</span>
+      <span><i style="background:var(--long)"></i>A 级多头只数</span>
+      <span><i style="background:var(--short)"></i>A 级空头只数</span>
+      <span><i style="background:var(--mix)"></i>净突破（只）</span>
     </span>
   </div>
-  <canvas id="historyCanvas"></canvas>
+  <canvas id="historyCanvas" tabindex="0" aria-label="温度历史曲线"></canvas>
+  <p class="chart-tip" id="historyTip" role="status"></p>
   <p class="note" id="historyNote"></p>
 </div>
+<noscript><p class="empty" role="status">需要启用 JavaScript 才能切换历史窗口。</p></noscript>
 <script>
 const DATA = %DATA%;
 const HISTORY = %HISTORY%;
 const market = DATA.market || {};
 const HEALTH_KEYS = [["rows", "标的"], ["failed", "数据失败"], ["incomplete", "预热不足"], ["triggered_count", "已触发（全部评级）"], ["triggered_ab_count", "已触发 A/B 级（可执行）"], ["near_count", "临近触发"]];
 const RATING_META = [
-  ["A_long", "A 级多头", "#8d2b1f"], ["A_short", "A 级空头", "#1e7d46"],
-  ["B_long", "B 级多头", "#d9918a"], ["B_short", "B 级空头", "#7fb394"],
-  ["C_long", "C 级多头", "#e3d9c6"], ["C_short", "C 级空头", "#e3d9c6"],
-  ["CONFLICT", "族间冲突", "#8a5a12"], ["NONE", "无方向", "#b9b2a4"],
+  ["A_long", "A 级多头", C.longDeep], ["A_short", "A 级空头", C.short],
+  ["B_long", "B 级多头", C.longPale], ["B_short", "B 级空头", C.shortMid],
+  ["C_long", "C 级多头", C.soft], ["C_short", "C 级空头", C.soft],
+  ["CONFLICT", "族间冲突", C.mix], ["NONE", "无方向", C.neutral],
 ];
 let window_ = 60;
 
@@ -150,7 +134,7 @@ function renderHealth(){
       : health[key];
     const shown = value !== undefined && value !== null ? value : "—";
     const warn = (key === "failed" || key === "incomplete") && shown > 0;
-    return '<div class="box' + (warn ? " warn" : "") + '"><b>' + shown + '</b><span>' + label + '</span></div>';
+    return '<div class="box' + (warn ? " warn" : "") + '"><b>' + shown + (warn ? ' <span class="flag">异常</span>' : '') + '</b><span>' + label + '</span></div>';
   }).join("")
     + '<div class="box"><b>' + (DATA.partial ? "盘中快照" : "收盘口径") + '</b><span>数据模式</span></div>'
     + '<div class="box"><b>' + (health.sources || []).join(" / ") + "</b><span>数据源</span></div>";
@@ -161,7 +145,11 @@ function renderTemperature(){
   document.getElementById("tempBig").textContent = score === undefined ? "—" : score;
   const gauge = document.getElementById("tempGauge");
   gauge.style.width = (score === undefined ? 0 : Math.max(0, Math.min(100, score))) + "%";
-  gauge.style.background = score >= 60 ? "#8d2b1f" : score >= 40 ? "#c07a45" : score >= 20 ? "#7fb394" : "#1e7d46";
+  const band = (score === undefined || score === null) ? "暂无" : score >= 60 ? "偏热" : score >= 40 ? "温和偏热" : score >= 20 ? "温和偏冷" : "偏冷";
+  const bandEl = document.getElementById("tempBand");
+  if (bandEl) bandEl.textContent = band;
+  gauge.title = "温度 " + (score === undefined || score === null ? "—" : score) + "，" + band;
+  gauge.style.background = score >= 60 ? C.longDeep : score >= 40 ? C.longMid : score >= 20 ? C.shortMid : C.short;
   const breadth = market.breadth || {};
   const items = [
     ["MACD 多头占比", breadth.macd_long_pct], ["EMA55 上方占比", breadth.above_ema55_pct],
@@ -193,21 +181,21 @@ function renderVolatility(){
 }
 function drawHistory(){
   const canvas = document.getElementById("historyCanvas");
-  const ctx = canvas.getContext("2d");
-  const w = canvas.width = canvas.clientWidth * 2, h = canvas.height = 440;
-  ctx.clearRect(0, 0, w, h);
+  const ctx = fitCanvas(canvas, 440);
+  const w = canvas.width, h = canvas.height;
   const records = HISTORY.slice(-window_);
+  lastRecords = records;
   document.getElementById("historyNote").textContent =
     records.length ? "最近 " + records.length + " 个收盘日（" + records[0].as_of + " → " + records[records.length - 1].as_of + "）" : "暂无历史记录：温度历史随每日收盘刷新累积。";
   if (records.length < 2) return;
   const series = [
-    { values: records.map(r => r.temperature_score), color: "#1c1915", width: 4 },
-    { values: records.map(r => (r.rating_dist ? (r.rating_dist.A_long || 0) : null)), color: "#b3372b", width: 2 },
-    { values: records.map(r => (r.rating_dist ? (r.rating_dist.A_short || 0) : null)), color: "#1e7d46", width: 2 },
+    { values: records.map(r => r.temperature_score), color: C.ink, width: 4 },
+    { values: records.map(r => (r.rating_dist ? (r.rating_dist.A_long || 0) : null)), color: C.long, width: 2 },
+    { values: records.map(r => (r.rating_dist ? (r.rating_dist.A_short || 0) : null)), color: C.short, width: 2 },
     { values: records.map(r => {
         const b = r.breakout_counts;
         return b ? (b.long_20 || 0) + (b.long_55 || 0) - (b.short_20 || 0) - (b.short_55 || 0) : null;
-      }), color: "#8a5a12", width: 2 },
+      }), color: C.mix, width: 2 },
   ];
   const nums = series.flatMap(s => s.values).filter(v => v !== null && v !== undefined);
   const min = Math.min.apply(null, nums), max = Math.max.apply(null, nums);
@@ -224,16 +212,26 @@ function drawHistory(){
     ctx.stroke();
   });
 }
-document.querySelectorAll(".win").forEach(btn => btn.addEventListener("click", () => {
-  window_ = Number(btn.dataset.n);
-  document.querySelectorAll(".win").forEach(item => item.classList.toggle("on", item === btn));
-  drawHistory();
-}));
+let lastRecords = [];
+const historyCanvas = document.getElementById("historyCanvas");
+const historyTip = document.getElementById("historyTip");
+historyCanvas.addEventListener("mousemove", event => {
+  if (!lastRecords.length) return;
+  const rect = historyCanvas.getBoundingClientRect();
+  const ratio = Math.min(1, Math.max(0, (event.clientX - rect.left) / Math.max(rect.width, 1)));
+  const record = lastRecords[Math.round(ratio * (lastRecords.length - 1))];
+  const breaks = record.breakout_counts || {};
+  const net = (breaks.long_20 || 0) + (breaks.long_55 || 0) - (breaks.short_20 || 0) - (breaks.short_55 || 0);
+  const ratings = record.rating_dist || {};
+  historyTip.textContent = record.as_of + " · 温度 " + record.temperature_score + " · A多 " + (ratings.A_long || 0) + " · A空 " + (ratings.A_short || 0) + " · 净突破 " + net;
+});
+bindButtonGroup(".win", btn => { window_ = Number(btn.dataset.n); drawHistory(); });
 renderHealth();
 renderTemperature();
 renderRatings();
 renderVolatility();
 drawHistory();
+onResize(drawHistory);
 </script>
 </body>
 </html>

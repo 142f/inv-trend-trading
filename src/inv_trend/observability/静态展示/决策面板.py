@@ -8,21 +8,10 @@ self-contained behind the read-only preview server.
 
 from __future__ import annotations
 
-import json
 from html import escape
 from typing import Any, Mapping
 
-_META_KEYS = (
-    ("provider", "数据来源"),
-    ("data_cutoff", "数据截止"),
-    ("price_basis", "价格口径"),
-    ("equity", "权益假设"),
-    ("risk_pct", "单笔风险预算"),
-    ("stop_n", "止损倍数 (×ATR)"),
-    ("config_hash", "配置哈希"),
-    ("content_hash", "内容哈希"),
-    ("script_git_commit", "脚本提交"),
-)
+from .公共 import DESK_META_KEYS, fmt_money, fmt_pct, render_document, render_meta
 
 _DISCLAIMER = (
     "决策支持研究工具，非投资建议；数据为 Yahoo research-only 日线收盘口径；"
@@ -31,29 +20,17 @@ _DISCLAIMER = (
 
 
 def render_decision_desk(payload: dict, meta: dict | None = None) -> str:
-    data = json.dumps(payload, ensure_ascii=False).replace("</", "<\\/")
-    header = meta or {}
-    meta_html = "".join(
-        f"<div><dt>{escape(label)}</dt><dd>{escape(str(header.get(key, '—')))}</dd></div>"
-        for key, label in _META_KEYS
+    """Assemble the desk from the shared base plus its server-rendered budget."""
+
+    return render_document(
+        _TEMPLATE,
+        data=payload,
+        placeholders={
+            "%META%": render_meta(meta, DESK_META_KEYS),
+            "%DISCLAIMER%": escape(_DISCLAIMER),
+            "%PORTFOLIO%": _portfolio_section(payload),
+        },
     )
-    template = _TEMPLATE.replace("%META%", meta_html)
-    template = template.replace("%DISCLAIMER%", escape(_DISCLAIMER))
-    template = template.replace("%PORTFOLIO%", _portfolio_section(payload))
-    template = template.replace("%DATA%", data)
-    return template
-
-
-def _money(value) -> str:
-    if value is None:
-        return "—"
-    return f"{float(value):,.2f}"
-
-
-def _pct(value) -> str:
-    if value is None:
-        return "—"
-    return f"{float(value):.2f}%"
 
 
 def _portfolio_section(payload: Mapping[str, Any]) -> str:
@@ -76,12 +53,12 @@ def _portfolio_section(payload: Mapping[str, Any]) -> str:
     caps = portfolio.get("caps") or {}
     boxes = [
         (str(totals.get("positions", 0)), "可执行标的"),
-        (_money(totals.get("notional")), "组合名义（$）"),
+        (fmt_money(totals.get("notional")), "组合名义（$）"),
         (f"{float(totals.get('leverage') or 0):.2f}×", f"杠杆（上限 {caps.get('max_total_leverage', '—')}×）"),
-        (_money(totals.get("risk_amount")), f"1N 风险合计（上限 {_pct(float(caps.get('max_total_1n_risk_pct', 0)) * 100)}）"),
-        (_pct(totals.get("risk_pct")), "风险占权益"),
-        (f"{long_totals.get('positions', 0)} · {_money(long_totals.get('notional'))}", f"多头（风险上限 {_pct(float(caps.get('max_direction_1n_risk_pct', 0)) * 100)}）"),
-        (f"{short_totals.get('positions', 0)} · {_money(short_totals.get('notional'))}", "空头"),
+        (fmt_money(totals.get("risk_amount")), f"1N 风险合计（上限 {fmt_pct(float(caps.get('max_total_1n_risk_pct', 0)) * 100)}）"),
+        (fmt_pct(totals.get("risk_pct")), "风险占权益"),
+        (f"{long_totals.get('positions', 0)} · {fmt_money(long_totals.get('notional'))}", f"多头（风险上限 {fmt_pct(float(caps.get('max_direction_1n_risk_pct', 0)) * 100)}）"),
+        (f"{short_totals.get('positions', 0)} · {fmt_money(short_totals.get('notional'))}", "空头"),
     ]
     summary = "".join(
         f'<div class="pf-box"><b>{escape(value)}</b><span>{escape(label)}</span></div>'
@@ -97,17 +74,17 @@ def _portfolio_section(payload: Mapping[str, Any]) -> str:
         qty = int(item.get("qty") or 0)
         suggested = int(item.get("suggested_qty") or qty)
         qty_text = str(qty) if not item.get("capped") else f"{qty}（建议 {suggested}）"
-        ticket = f"{item.get('symbol')}\t{side_label}\t{qty}\t{_money(item.get('price'))}\t{_money(item.get('stop'))}"
+        ticket = f"{item.get('symbol')}\t{side_label}\t{qty}\t{fmt_money(item.get('price'))}\t{fmt_money(item.get('stop'))}"
         rows_html.append(
             "<tr data-ticket=\"" + escape(ticket) + "\">"
             f"<td>{index}</td><td><b>{escape(str(item.get('symbol')))}</b></td>"
             f'<td class="{side_cls}">{side_label}</td>'
             f"<td>{escape(str(item.get('grade')))}</td>"
             f"<td class='num'>{qty_text}</td>"
-            f"<td class='num'>{_money(item.get('price'))}</td>"
-            f"<td class='num'>{_money(item.get('stop'))}</td>"
-            f"<td class='num'>{_money(item.get('risk_amount'))}</td>"
-            f"<td class='num'>{_money(item.get('notional'))}</td>"
+            f"<td class='num'>{fmt_money(item.get('price'))}</td>"
+            f"<td class='num'>{fmt_money(item.get('stop'))}</td>"
+            f"<td class='num'>{fmt_money(item.get('risk_amount'))}</td>"
+            f"<td class='num'>{fmt_money(item.get('notional'))}</td>"
             f'<td><button type="button" class="copy" data-copy="' + escape(ticket) + '">复制</button></td>'
             "</tr>"
         )
@@ -144,48 +121,27 @@ _TEMPLATE = """<!DOCTYPE html>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>美股前100投资决策面板</title>
 <style>
-  :root { color-scheme: light; --ink:#1c1915; --muted:#5c564c; --line:#e4ddd0; --paper:#f6f3ec; --card:#fffdf8;
-          --long:#b3372b; --short:#1e7d46; --mix:#8a5a12; --neutral:#9aa3ad; --hot:#f8efd8; }
-  * { box-sizing: border-box; }
-  body { margin:0; font:15px/1.5 "Segoe UI","Microsoft YaHei",sans-serif; color:var(--ink); background:var(--paper); }
-  .wrap { max-width:1280px; margin:0 auto; padding:24px 18px 48px; }
-  h1 { margin:0 0 6px; font-size:26px; }
-  .meta { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:6px 18px; margin:0 0 12px;
-          padding:10px 14px; background:var(--card); border:1px solid var(--line); border-radius:10px; font-size:13px; }
-  .meta dt { color:var(--muted); }
-  .meta dd { margin:0; font-variant-numeric:tabular-nums; overflow-wrap:anywhere; }
-  .disclaimer { color:var(--mix); background:var(--hot); border-radius:10px; padding:8px 14px; margin:0 0 14px; font-size:13px; }
-  .summary { display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:8px; margin:0 0 12px; }
+  .summary { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:8px; margin:0 0 12px; }
   .summary .box { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:10px 12px; }
   .summary b { display:block; font-size:22px; font-variant-numeric:tabular-nums; }
   .summary span { color:var(--muted); font-size:13px; }
   .summary .box.warn b { color:var(--long); }
-  .bar-inner { position:sticky; top:0; z-index:2; background:rgba(246,243,236,.97); padding:10px 0 12px; border-bottom:1px solid var(--line); }
-  .controls { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
-  input, select, button { font:inherit; border:1px solid #d5cec0; background:var(--card); border-radius:999px; padding:7px 12px; }
-  button { cursor:pointer; }
-  button.on { background:#0c5c56; color:#f4fffc; border-color:#0c5c56; }
-  button.tab.on { background:#1c1915; border-color:#1c1915; }
-  .count { font-variant-numeric:tabular-nums; color:var(--muted); }
-  .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(360px,1fr)); gap:10px; margin-top:14px; }
+  button.tab.on { background:var(--ink); border-color:var(--ink); }
+  .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(min(100%, 340px),1fr)); gap:10px; margin-top:14px; }
   .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:12px 14px; cursor:pointer; }
   .card:hover { border-color:#b9b2a4; }
   .card .head { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
   .card .head b.sym { font-size:17px; }
-  .badge { display:inline-block; border-radius:999px; padding:1px 8px; font-size:11px; background:#eee9de; color:var(--muted); }
   .badge.dir-long { background:var(--long); color:#fff; font-weight:700; }
   .badge.dir-short { background:var(--short); color:#fff; font-weight:700; }
   .badge.dir-none { background:#eee9de; color:var(--mix); font-weight:700; }
-  .badge.gradeA { background:#8d2b1f; color:#fff; font-weight:700; }
-  .badge.gradeB { background:#c07a45; color:#fff; font-weight:700; }
+  .badge.gradeA { background:var(--long-deep); color:#fff; font-weight:700; }
+  .badge.gradeB { background:var(--long-mid); color:#fff; font-weight:700; }
   .badge.hot { background:var(--hot); color:var(--mix); font-weight:700; }
   .rows { margin:8px 0 0; font-size:13px; display:grid; gap:3px; }
   .rows .kv { display:flex; justify-content:space-between; gap:10px; }
   .rows .kv span { color:var(--muted); }
   .rows .kv b { font-variant-numeric:tabular-nums; }
-  .多 { color:var(--long); font-weight:700; }
-  .空 { color:var(--short); font-weight:700; }
-  .混, .平, .中 { color:var(--mix); font-weight:700; }
   .votes { display:flex; gap:5px; margin-top:6px; flex-wrap:wrap; }
   .votes .cell { min-width:30px; text-align:center; border-radius:6px; padding:1px 6px; font-size:11px; font-weight:700; background:#eee9de; color:var(--mix); }
   .votes .cell.long { background:var(--long); color:#fff; }
@@ -194,9 +150,9 @@ _TEMPLATE = """<!DOCTYPE html>
   .detail .grid2 { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:4px 18px; font-size:13px; }
   .detail dt { color:var(--muted); font-size:12px; }
   .detail dd { margin:0 0 5px; font-variant-numeric:tabular-nums; overflow-wrap:anywhere; }
-  canvas { width:100%; height:130px; background:#fff; border:1px solid var(--line); border-radius:8px; margin-top:8px; }
-  .note { color:var(--muted); font-size:13px; }
+  canvas { height:130px; margin-top:8px; }
   .empty { color:var(--muted); padding:24px 0; text-align:center; }
+  .legend { display:flex; gap:12px; flex-wrap:wrap; margin-top:8px; font-size:12px; color:var(--muted); }
   .fail-list { margin:4px 0 0; padding-left:18px; }
   .pf { margin:0 0 16px; padding:12px 14px 6px; background:var(--card); border:1px solid var(--line); border-radius:12px; }
   .pf-head { display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; }
@@ -209,13 +165,16 @@ _TEMPLATE = """<!DOCTYPE html>
   .pf-caps { background:var(--hot); border-radius:8px; padding:6px 10px; margin:0 0 10px; font-size:12px; }
   .pf-caps ul { margin:4px 0 0; padding-left:18px; }
   .pf h3 { margin:6px 0 8px; font-size:15px; }
-  .pf-table-wrap { overflow-x:auto; }
+  .pf-table-wrap { overflow:auto; max-width:100%; }
   .pf-table { width:100%; border-collapse:collapse; font-size:13px; }
   .pf-table th, .pf-table td { border-bottom:1px solid var(--line); padding:5px 8px; text-align:left; white-space:nowrap; }
   .pf-table th { color:var(--muted); font-weight:600; }
   .pf-table td.num { text-align:right; font-variant-numeric:tabular-nums; }
   .pf-table tr:hover { background:var(--paper); }
   .pf-table .copy { padding:3px 10px; font-size:12px; }
+
+  .summary, .pf-grid { grid-template-columns:repeat(auto-fit,minmax(min(100%, 160px),1fr)); }
+  .grid { grid-template-columns:repeat(auto-fill,minmax(min(100%, 320px),1fr)); }
 </style>
 </head>
 <body>
@@ -245,6 +204,7 @@ _TEMPLATE = """<!DOCTYPE html>
   <h2>预热不足</h2>
   <ul id="incomplete" class="note fail-list"></ul>
 </div>
+<noscript><p class="empty" role="status">筛选和展开需要 JavaScript。组合执行清单不依赖脚本。</p></noscript>
 <script>
 const DATA = %DATA%;
 const FAMILY_LABELS = { turtle:"海龟", sma:"SMA", ema:"EMA", macd:"MACD" };
@@ -369,19 +329,18 @@ function detail(row){
     + kv("唐奇安 55 高/低", fmt(channel.high_55) + " / " + fmt(channel.low_55))
     + kv("MACD dif / dea / 柱", fmt(row.dif) + " / " + fmt(row.dea) + " / " + fmt(row.histogram))
     + kv("数据截止", fmt(row.as_of))
-    + '</dl><canvas id="c-' + row.symbol.replace(".", "_") + '" aria-label="最近10日收盘与MACD柱"></canvas></div>';
+    + '</dl><p class="legend"><span><i style="background:#1c1915"></i>收盘</span><span><i class="swatch long"></i>MACD 柱 ≥ 0</span><span><i class="swatch short"></i>MACD 柱 &lt; 0</span></p><canvas id="c-' + row.symbol.replace(".", "_") + '" aria-label="最近10日收盘与MACD柱"></canvas></div>';
 }
 function drawTimeline(canvas, timeline){
-  const ctx = canvas.getContext("2d");
-  const w = canvas.width = canvas.clientWidth * 2, h = canvas.height = 260;
-  ctx.clearRect(0, 0, w, h);
+  const ctx = fitCanvas(canvas, 260);
+  const w = canvas.width, h = canvas.height;
   if (!timeline || !timeline.length) return;
   const closes = timeline.map(item => item.close).filter(v => v !== null);
   const hists = timeline.map(item => item.histogram).filter(v => v !== null);
   if (!closes.length) return;
   const min = Math.min.apply(null, closes), max = Math.max.apply(null, closes);
   const pad = 14, hist_h = 70;
-  ctx.beginPath(); ctx.strokeStyle = "#1c1915"; ctx.lineWidth = 3;
+  ctx.beginPath(); ctx.strokeStyle = C.ink; ctx.lineWidth = 3;
   timeline.forEach((item, i) => {
     if (item.close === null) return;
     const x = pad + i * (w - pad * 2) / Math.max(timeline.length - 1, 1);
@@ -395,7 +354,7 @@ function drawTimeline(canvas, timeline){
     if (item.histogram === null) return;
     const x = pad + i * (w - pad * 2) / Math.max(timeline.length - 1, 1);
     const bh = Math.abs(item.histogram) / hmax * (hist_h - 12);
-    ctx.fillStyle = item.histogram >= 0 ? "#b3372b" : "#1e7d46";
+    ctx.fillStyle = item.histogram >= 0 ? C.long : C.short;
     ctx.fillRect(x - 4, item.histogram >= 0 ? zero - bh : zero, 8, bh);
   });
 }
@@ -413,7 +372,7 @@ function renderSummary(){
     + '<div class="box"><b>' + zones.watch + '</b><span>观察仓（A/B 级未触发）</span></div>'
     + '<div class="box"><b>' + rest + '</b><span>其余（未评级/未触发）</span></div>'
     + '<div class="box"><b>' + total + '</b><span>标的合计</span></div>'
-    + '<div class="box' + (failed ? " warn" : "") + '"><b>' + failed + '</b><span>数据失败</span></div>'
+    + '<div class="box' + (failed ? " warn" : "") + '"><b>' + failed + (failed ? ' <span class="flag">异常</span>' : '') + '</b><span>数据失败</span></div>'
     + '<div class="box"><b>' + incomplete + '</b><span>预热不足</span></div>';
 }
 function render(){
@@ -422,7 +381,7 @@ function render(){
   const grid = document.getElementById("grid");
   grid.innerHTML = rows.length ? rows.map(row => {
     const open = state.open === row.symbol;
-    return '<div class="card" data-s="' + row.symbol + '">'
+    return '<div class="card" data-s="' + row.symbol + '" tabindex="0" role="button" aria-expanded="' + open + '">'
       + '<div class="head"><b class="sym">' + row.symbol + '</b>' + dirBadge(row) + gradeBadge(row)
       + '<span class="badge">' + row.funds + '</span>'
       + ((row.adx >= 25) ? '<span class="badge hot">强趋势</span>' : '')
@@ -434,26 +393,25 @@ function render(){
       + votesHtml(row)
       + (open ? detail(row) : '')
       + '</div>';
-  }).join("") : '<div class="empty">本区没有符合条件的标的。</div>';
+  }).join("") : '<div class="empty" role="status">本区没有符合条件的标的。</div>';
   rows.forEach(row => {
     if (state.open !== row.symbol) return;
     const canvas = document.getElementById("c-" + row.symbol.replace(".", "_"));
-    if (canvas) drawTimeline(canvas, row.timeline10);
+    if (canvas && row.timeline10) {
+      drawTimeline(canvas, row.timeline10);
+      bindChartTip(canvas, ["收盘", "MACD柱"], [row.timeline10.map(item => item.close), row.timeline10.map(item => item.histogram)]);
+    }
   });
-  grid.querySelectorAll(".card").forEach(card => card.addEventListener("click", () => {
+  bindActivate(grid, ".card", card => {
     state.open = state.open === card.dataset.s ? "" : card.dataset.s;
     render();
-  }));
+  });
 }
-document.querySelectorAll(".tab").forEach(tab => tab.addEventListener("click", () => {
-  state.zone = tab.dataset.zone;
-  document.querySelectorAll(".tab").forEach(item => item.classList.toggle("on", item === tab));
-  render();
-}));
+bindButtonGroup(".tab", btn => { state.zone = btn.dataset.zone; render(); });
 document.getElementById("q").addEventListener("input", e => { state.q = e.target.value.trim().toUpperCase(); render(); });
 document.getElementById("fund").addEventListener("change", e => { state.fund = e.target.value; render(); });
 document.getElementById("dir").addEventListener("change", e => { state.dir = e.target.value; render(); });
-document.getElementById("adx").addEventListener("click", e => { state.adx = !state.adx; e.target.classList.toggle("on", state.adx); e.target.setAttribute("aria-pressed", String(state.adx)); render(); });
+document.getElementById("adx").addEventListener("click", e => { state.adx = !state.adx; togglePressed(e.target, state.adx); render(); });
 document.getElementById("reset").addEventListener("click", () => {
   Object.assign(state, { fund:"", dir:"", adx:false, q:"", open:"" });
   document.getElementById("q").value = "";
@@ -463,8 +421,8 @@ document.getElementById("reset").addEventListener("click", () => {
   adx.classList.remove("on"); adx.setAttribute("aria-pressed", "false");
   render();
 });
-document.getElementById("fails").innerHTML = DATA.failed.map(item => "<li>" + item.symbol + "（" + item.funds + "）：" + item.error + "</li>").join("") || "<li>没有</li>";
-document.getElementById("incomplete").innerHTML = (DATA.incomplete || []).map(item => "<li>" + item.symbol + "：" + item.bar_count + " 根，" + item.reason + "，预热不足</li>").join("") || "<li>没有</li>";
+renderList(document.getElementById("fails"), DATA.failed, item => "<li>" + item.symbol + "（" + item.funds + "）：" + item.error + "</li>");
+renderList(document.getElementById("incomplete"), DATA.incomplete || [], item => "<li>" + item.symbol + "：" + item.bar_count + " 根，" + item.reason + "，预热不足</li>");
 function copyText(text){
   if (navigator.clipboard && navigator.clipboard.writeText) {
     return navigator.clipboard.writeText(text).catch(() => fallbackCopy(text));
@@ -509,6 +467,7 @@ if (exportCsv) exportCsv.addEventListener("click", () => {
 });
 renderSummary();
 render();
+onResize(render);
 </script>
 </body>
 </html>

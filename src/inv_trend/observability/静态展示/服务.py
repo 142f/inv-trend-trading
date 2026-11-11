@@ -52,14 +52,18 @@ def render_index(root: str | Path) -> str:
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>固定展示页面</title>
 <style>
-body{{font:15px/1.6 system-ui,"Microsoft YaHei",sans-serif;margin:0;background:#f4f6f8;color:#1e293b}}
-main{{max-width:900px;margin:40px auto;padding:0 20px}}
-h1{{font-size:28px}}ul{{list-style:none;padding:0;display:grid;gap:14px}}
-li{{background:#fff;border:1px solid #dbe2ea;border-radius:12px;padding:18px 20px}}
-.row{{display:flex;justify-content:space-between;gap:12px;align-items:center}}
+body{{margin:0;background:#f6f3ec;color:#1c1915;font:15px/1.6 "Segoe UI","Microsoft YaHei",sans-serif}}
+main{{width:min(900px,100%);margin:32px auto;padding:0 16px 40px}}
+h1{{font-size:28px;letter-spacing:-.02em;margin:0 0 8px}}
+ul{{list-style:none;padding:0;display:grid;gap:12px}}
+li{{background:#fffdf8;border:1px solid #e4ddd0;border-radius:12px;padding:16px 18px}}
+.row{{display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap}}
 a{{color:#0c5c56;text-decoration:none;font-size:18px}}a:hover{{text-decoration:underline}}
-p{{color:#52647b;margin:8px 0}}.state{{font-size:12px;color:#8a5a12;background:#fff3d6;border-radius:999px;padding:2px 9px}}
-code{{font-size:12px;color:#64748b}}
+a:focus-visible{{outline:2px solid #0c5c56;outline-offset:3px}}
+p{{color:#5c564c;margin:8px 0}}
+.state{{font-size:12px;font-weight:700;color:#8a5a12;background:#f8efd8;border:1px solid #ead9b0;border-radius:999px;padding:2px 9px}}
+code{{font-size:12px;color:#5c564c}}
+@media (max-width:760px){{h1{{font-size:22px}}main{{margin-top:16px}}}}
 </style>
 <main><h1>固定展示页面</h1>
 <p>只读预览；美股前100看板需先运行 <code>python scripts/美股前100指标.py</code>。</p>

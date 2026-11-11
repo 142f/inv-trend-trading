@@ -73,15 +73,20 @@ PAGES: tuple[StaticPage, ...] = (
 
 PAGE_BY_ID = {page.id: page for page in PAGES}
 
-GENERATED_FILES = frozenset({
-    "美股前100指标看板.html",
-    "美股前100方向偏度总览.html",
-    "美股前100投资决策面板.html",
-    "美股前100市场温度面板.html",
-    "美股前100指标数据.json",
-    "美股前100指标_回执.json",
-    "市场温度历史.json",
-})
+# Single source of truth for generated artefact names.  The generator script,
+# the preview-server whitelist and the exporter all derive from this mapping,
+# so renaming an output only needs one edit here.
+GENERATED_OUTPUT_NAMES = {
+    "snapshot_html": "美股前100指标看板.html",
+    "direction_html": "美股前100方向偏度总览.html",
+    "decision_html": "美股前100投资决策面板.html",
+    "thermometer_html": "美股前100市场温度面板.html",
+    "history_json": "市场温度历史.json",
+    "data_json": "美股前100指标数据.json",
+    "receipt_json": "美股前100指标_回执.json",
+}
+
+GENERATED_FILES = frozenset(GENERATED_OUTPUT_NAMES.values())
 
 
 def get_page(page_id: str) -> StaticPage:
